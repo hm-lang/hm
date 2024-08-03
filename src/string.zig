@@ -25,7 +25,7 @@ pub const Small = extern struct {
         if (chars.len > u16_max) {
             return StringError.StringTooLong;
         }
-        var string: Small = .{.size = @intCast(chars.len)};
+        var string: Small = .{ .size = @intCast(chars.len) };
         const smallest_size = comptime @sizeOf(@TypeOf(string.small_start));
         const medium_size = comptime smallest_size + @sizeOf(@TypeOf(string.remaining.if_small));
         if (chars.len > medium_size) {
