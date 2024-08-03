@@ -14,6 +14,12 @@ pub const Small = extern struct {
         pointer: *u8,
     } = undefined,
 
+    fn get_medium_size() comptime_int {
+        const small: Small = .{};
+        const smallest_size = @sizeOf(@TypeOf(small.small_start));
+        return smallest_size + @sizeOf(@TypeOf(small.remaining.if_small));
+    }
+
     pub fn deinit(self: *Small) void {
         _ = self;
         // TODO
@@ -26,8 +32,7 @@ pub const Small = extern struct {
             return StringError.StringTooLong;
         }
         var string: Small = .{ .size = @intCast(chars.len) };
-        const smallest_size = comptime @sizeOf(@TypeOf(string.small_start));
-        const medium_size = comptime smallest_size + @sizeOf(@TypeOf(string.remaining.if_small));
+        const medium_size = comptime get_medium_size();
         if (chars.len > medium_size) {
             // TODO: try to allocate first
             return StringError.StringTooLong;
@@ -49,9 +54,7 @@ pub const Small = extern struct {
     }
 
     pub fn buffer(self: *Small) []u8 {
-        const smallest_size = comptime @sizeOf(@TypeOf(self.small_start));
-        const medium_size = comptime smallest_size + @sizeOf(@TypeOf(self.remaining.if_small));
-
+        const medium_size = comptime get_medium_size();
         if (self.size <= medium_size) {
             const full_small_buffer: *[medium_size]u8 = @ptrCast(&self.small_start[0]);
             return full_small_buffer[0..medium_size];
@@ -61,8 +64,7 @@ pub const Small = extern struct {
     }
 
     pub fn slice(self: *const Small) []const u8 {
-        const smallest_size = comptime @sizeOf(@TypeOf(self.small_start));
-        const medium_size = comptime smallest_size + @sizeOf(@TypeOf(self.remaining.if_small));
+        const medium_size = comptime get_medium_size();
 
         if (self.size <= medium_size) {
             const full_small_buffer: *const [medium_size]u8 = @ptrCast(&self.small_start[0]);
@@ -88,13 +90,14 @@ pub const Small = extern struct {
 };
 
 test "Small size is correct" {
-    try testing.expectEqual(@sizeOf(Small), 16);
+    try testing.expectEqual(16, @sizeOf(Small));
     const small_string: Small = .{};
-    try testing.expectEqual(@sizeOf(@TypeOf(small_string.size)), 2);
-    try testing.expectEqual(@sizeOf(@TypeOf(small_string.small_start)), 6);
-    try testing.expectEqual(@sizeOf(@TypeOf(small_string.remaining.if_small)), 8);
+    try testing.expectEqual(2, @sizeOf(@TypeOf(small_string.size)));
+    try testing.expectEqual(6, @sizeOf(@TypeOf(small_string.small_start)));
+    try testing.expectEqual(8, @sizeOf(@TypeOf(small_string.remaining.if_small)));
+    try testing.expectEqual(14, Small.get_medium_size());
     // TODO: check for `small_string.remaining.pointer` being at +8 from start of small_string
-    // try testing.expectEqual(@typeInfo(@TypeOf(small_string.remaining.pointer)).Pointer.alignment, 8);
+    // try testing.expectEqual(8, @typeInfo(@TypeOf(small_string.remaining.pointer)).Pointer.alignment);
 }
 
 test "equals works" {
