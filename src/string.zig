@@ -1,4 +1,3 @@
-const Allocator = std.mem.Allocator;
 const std = @import("std");
 const testing = std.testing;
 
@@ -47,14 +46,23 @@ pub const Small = extern struct {
         if (chars.len > medium_size) {
             const heap = allocator.alloc(u8, chars.len) catch {
                 // OutOfMemory
-                std.debug.print("\ncouldn't allocate {d}-character string...\n", .{chars.len});
+                std.debug.print("couldn't allocate {d}-character string...\n", .{chars.len});
                 return StringError.StringTooLong;
             };
             string.remaining.pointer = @ptrCast(heap.ptr);
-            // TODO: write a short description (e.g., a11y) into `short`
+            sign(&string.short, chars) catch {
+                std.debug.print("shouldn't have had a problem signing {d} characters\n", .{chars.len});
+            };
         }
         @memcpy(string.buffer()[0..chars.len], chars);
         return string;
+    }
+
+    pub fn signature(self: *const Small) []u8 {
+        if (self.size <= comptime get_medium_size()) {
+            return self.slice();
+        }
+        return self.short;
     }
 
     pub fn at(self: *const Small, index: anytype) u8 {
@@ -69,7 +77,7 @@ pub const Small = extern struct {
         return self.slice()[index];
     }
 
-    /// Not public, should only be used when writing the first time (or deallocating).
+    /// Not public, should only be used when writing the first time (or freeing).
     fn buffer(self: *Small) []u8 {
         const medium_size = comptime get_medium_size();
         if (self.size <= medium_size) {
@@ -147,4 +155,75 @@ test "equals works for large strings" {
     var string4 = try Small.init("hello");
     defer string4.deinit();
     try testing.expectEqual(false, string1.equals(&string4));
+}
+
+// TODO: make `abcdefg` shorten to `ab3fg` and not `ab7fg`
+pub fn sign(buffer: []u8, chars: []const u8) !void {
+    if (buffer.len == 0) {
+        return;
+    }
+    if (buffer.len >= chars.len) {
+        @memcpy(buffer[0..chars.len], chars);
+        @memset(buffer[chars.len..], 0);
+        return;
+    }
+    buffer[0] = chars[0];
+    // We don't know how many digits `chars.len` is until we write it out.
+    // (Although we could do a base-10 log.)
+    const written_slice = try std.fmt.bufPrint(buffer[1..], "{d}", .{chars.len});
+    // Where we want the number to show up.
+    // Note that `written_slice.len` is always `< buffer.len`,
+    // so this number is always >= 1.
+    const desired_number_starting_index = (buffer.len + 1 - written_slice.len) / 2;
+    const tail_letters_starting_index = desired_number_starting_index + written_slice.len;
+    if (desired_number_starting_index > 1) {
+        std.mem.copyBackwards(u8, buffer[desired_number_starting_index..tail_letters_starting_index], written_slice);
+        @memcpy(buffer[1..desired_number_starting_index], chars[1..desired_number_starting_index]);
+    }
+    if (tail_letters_starting_index < buffer.len) {
+        const tail_letters_count = buffer.len - tail_letters_starting_index;
+        @memcpy(buffer[tail_letters_starting_index..], chars[chars.len - tail_letters_count ..]);
+    }
+}
+
+test "sign works well for even-sized buffers" {
+    var buffer = [_]u8{0} ** 8;
+    try sign(&buffer, "hello");
+    try testing.expectEqualStrings("hello\x00\x00\x00", &buffer);
+
+    try sign(&buffer, "hi");
+    try testing.expectEqualStrings("hi\x00\x00\x00\x00\x00\x00", &buffer);
+
+    try sign(&buffer, "underme");
+    try testing.expectEqualStrings("underme\x00", &buffer);
+
+    try sign(&buffer, "equal_it");
+    try testing.expectEqualStrings("equal_it", &buffer);
+
+    try sign(&buffer, "just_over");
+    try testing.expectEqualStrings("just9ver", &buffer);
+
+    try sign(&buffer, "something_bigger");
+    try testing.expectEqualStrings("som16ger", &buffer);
+}
+
+test "sign works well for odd-sized buffers" {
+    var buffer = [_]u8{0} ** 7;
+    try sign(&buffer, "");
+    try testing.expectEqualStrings("\x00\x00\x00\x00\x00\x00\x00", &buffer);
+
+    try sign(&buffer, "a");
+    try testing.expectEqualStrings("a\x00\x00\x00\x00\x00\x00", &buffer);
+
+    try sign(&buffer, "under@");
+    try testing.expectEqualStrings("under@\x00", &buffer);
+
+    try sign(&buffer, "equalit");
+    try testing.expectEqualStrings("equalit", &buffer);
+
+    try sign(&buffer, "justover");
+    try testing.expectEqualStrings("jus8ver", &buffer);
+
+    try sign(&buffer, "something_bigger");
+    try testing.expectEqualStrings("som16er", &buffer);
 }
