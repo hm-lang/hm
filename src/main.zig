@@ -33,6 +33,14 @@ pub fn main() !void {
     }
 }
 
+test ".. range" {
+    var last_index: usize = 0;
+    for (1..4) |i| {
+        last_index = i;
+    }
+    try std.testing.expectEqual(last_index, 3);
+}
+
 test "other dependencies (import using pub)" {
     std.testing.refAllDecls(@This());
 }
