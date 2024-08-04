@@ -58,11 +58,11 @@ pub const Small = extern struct {
         return string;
     }
 
-    pub fn signature(self: *const Small) []u8 {
+    pub fn signature(self: *const Small) []const u8 {
         if (self.size <= comptime get_medium_size()) {
             return self.slice();
         }
-        return self.short;
+        return &self.short;
     }
 
     pub fn at(self: *const Small, index: anytype) u8 {
@@ -129,7 +129,7 @@ test "equals works for small strings" {
     var string2 = try Small.init("hi");
     defer string2.deinit();
     try testing.expectEqual(true, string1.equals(&string2));
-    try testing.expectEqualStrings(string1.slice(), "hi");
+    try testing.expectEqualStrings("hi", string1.slice());
 
     var string3 = try Small.init("hI");
     defer string3.deinit();
@@ -146,7 +146,7 @@ test "equals works for large strings" {
     var string2 = try Small.init("hello world this is over 16 characters");
     defer string2.deinit();
     try testing.expectEqual(true, string1.equals(&string2));
-    try testing.expectEqualStrings(string1.slice(), "hello world this is over 16 characters");
+    try testing.expectEqualStrings("hello world this is over 16 characters", string1.slice());
 
     var string3 = try Small.init("hello world THIS is over 16 characters");
     defer string3.deinit();
@@ -157,7 +157,23 @@ test "equals works for large strings" {
     try testing.expectEqual(false, string1.equals(&string4));
 }
 
-// TODO: make `abcdefg` shorten to `ab3fg` and not `ab7fg`
+test "does not sign short strings" {
+    var string = try Small.init("below sixteen");
+    defer string.deinit();
+
+    try testing.expectEqualStrings("below sixteen", string.signature());
+}
+
+test "signs large strings" {
+    var string = try Small.init("above sixteen chars");
+    defer string.deinit();
+
+    try testing.expectEqualStrings("ab19rs", string.signature());
+}
+
+/// Does a short version of `chars` for `buffer` in case `buffer` is smaller than `chars`.
+/// Shortens e.g., 'my_string' to 'my_9ng' if `buffer` is 6 letters long, where 9
+/// is the full length of the `chars` slice.
 pub fn sign(buffer: []u8, chars: []const u8) !void {
     if (buffer.len == 0) {
         return;
