@@ -22,6 +22,17 @@ pub const Small = extern struct {
         pointer: *u8,
     } = undefined,
 
+    /// Initializes a `Small` that is just on the stack (no allocations on the heap).
+    /// For compile-time-known `chars` only.  For anything else, prefer `init` and
+    /// just defer `deinit` to be safe.
+    pub inline fn noAlloc(chars: anytype) Small {
+        // We're expecting `chars` to be `*const [n:0]u8` with n <= get_medium_size()
+        if (chars.len > comptime get_medium_size()) {
+            @compileError(std.fmt.comptimePrint("Small.noAlloc must have {d} characters or less", .{get_medium_size()}));
+        }
+        return Small.init(chars) catch unreachable;
+    }
+
     fn get_medium_size() comptime_int {
         const small: Small = .{};
         const smallest_size = @sizeOf(@TypeOf(small.short));
@@ -33,14 +44,6 @@ pub const Small = extern struct {
             return;
         }
         allocator.free(self.buffer());
-    }
- 
-    pub inline fn noAlloc(chars: anytype) Small {
-        // We're expecting `chars` to be `*const [n:0]u8` with n <= get_medium_size()
-        if (chars.len > comptime get_medium_size()) {
-            @compileError(std.fmt.comptimePrint("Small.noAlloc must have {d} characters or less", .{get_medium_size()}));
-        }
-        return Small.init(chars) catch unreachable;
     }
 
     pub fn init(chars: []const u8) StringError!Small {
@@ -199,6 +202,21 @@ test "signs large strings" {
     try testing.expectEqualStrings("ab19rs", string.signature());
 }
 
+test "signs very large strings" {
+    // This is the largest string we can do:
+    var string = try Small.init("g" ** std.math.maxInt(u16));
+    defer string.deinit();
+
+    try testing.expectEqualStrings("g65535", string.signature());
+}
+
+test "too large of a string" {
+    try testing.expectError(
+        StringError.StringTooLong,
+        Small.init("g" ** (std.math.maxInt(u16) + 1))
+    );
+}
+
 /// Does a short version of `chars` for `buffer` in case `buffer` is smaller than `chars`.
 /// Shortens e.g., 'my_string' to 'my_9ng' if `buffer` is 6 letters long, where 9
 /// is the full length of the `chars` slice.
@@ -288,4 +306,16 @@ test "sign works well for odd-sized buffers" {
 
     try sign(&buffer, "big" ** 10000);
     try testing.expectEqualStrings("b30000g", &buffer);
+}
+
+test "sign works well for small even-sized buffers" {
+    var buffer = [_]u8{0} ** 6;
+    try sign(&buffer, "wowza" ** 100);
+    try testing.expectEqualStrings("wo500a", &buffer);
+
+    try sign(&buffer, "cake" ** 1000);
+    try testing.expectEqualStrings("c4000e", &buffer);
+
+    try sign(&buffer, "big" ** 10000);
+    try testing.expectEqualStrings("b30000", &buffer);
 }
