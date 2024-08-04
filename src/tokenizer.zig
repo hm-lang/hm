@@ -31,12 +31,15 @@ pub const Token = union(TokenTag) {
         const tag_b = std.meta.activeTag(b);
         if (tag_a != tag_b) return false;
 
-        const info = @typeInfo(Token);
+        const info = switch (@typeInfo(Token)) {
+            .Union => |info| info,
+            else => unreachable,
+        };
         inline for (info.fields) |field_info| {
             if (@field(TokenTag, field_info.name) == tag_a) {
                 const Field = @TypeOf(@field(a, field_info.name));
                 if (std.meta.hasMethod(Field, "equals")) {
-                    return @field(a, field_info.name).equals(&@field(b, field_info.name));
+                    return @field(a, field_info.name).equals(@field(b, field_info.name));
                 } else {
                     return @field(a, field_info.name) == @field(b, field_info.name);
                 }
@@ -68,6 +71,32 @@ pub const Token = union(TokenTag) {
         }
         try testing.expect(false);
     }
+
+    pub fn expectNotEquals(a: Token, b: Token) !void {
+        const tag_a = std.meta.activeTag(a);
+        const tag_b = std.meta.activeTag(b);
+        if (tag_a != tag_b) {
+            return;
+        }
+
+        const info = switch (@typeInfo(Token)) {
+            .Union => |info| info,
+            else => unreachable,
+        };
+        inline for (info.fields) |field_info| {
+            if (@field(TokenTag, field_info.name) == tag_a) {
+                const Field = @TypeOf(@field(a, field_info.name));
+                if (std.meta.hasMethod(Field, "expectNotEquals")) {
+                    try @field(a, field_info.name).expectNotEquals(@field(b, field_info.name));
+                    return;
+                } else {
+                    try testing.expect(@field(a, field_info.name) != @field(b, field_info.name));
+                    return;
+                }
+            }
+        }
+        try testing.expect(false);
+    }
 };
 
 test "basic tokenizer functionality" {
@@ -76,6 +105,25 @@ test "basic tokenizer functionality" {
 }
 
 test "token equality" {
-    var tokenizer: Tokenizer = .{};
-    try tokenizer.next().expectEquals(.end);
+    const end: Token = .end;
+    try testing.expect(end.equals(.end));
+    try end.expectEquals(.end);
+
+    const starts_upper = Token{ .starts_upper = try string.Small.init("Cabbage") };
+    try starts_upper.expectNotEquals(end);
+    try testing.expect(!starts_upper.equals(.end));
+    try starts_upper.expectEquals(starts_upper);
+    try testing.expect(starts_upper.equals(starts_upper));
+    try starts_upper.expectNotEquals(Token{ .starts_upper = try string.Small.init("Apples") });
+    try testing.expect(!starts_upper.equals(Token{ .starts_upper = try string.Small.init("Apples") }));
+
+    const starts_lower = Token{ .starts_lower = try string.Small.init("Cabbage") };
+    try starts_lower.expectNotEquals(end);
+    try testing.expect(!starts_lower.equals(end));
+    try starts_lower.expectNotEquals(starts_upper);
+    try testing.expect(!starts_lower.equals(starts_upper));
+    try starts_lower.expectEquals(starts_lower);
+    try testing.expect(starts_lower.equals(starts_lower));
+    try starts_lower.expectNotEquals(Token{ .starts_lower = try string.Small.init("Apples") });
+    try testing.expect(!starts_lower.equals(Token{ .starts_lower = try string.Small.init("Apples") }));
 }
