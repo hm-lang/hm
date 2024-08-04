@@ -101,11 +101,15 @@ pub const Small = extern struct {
         }
     }
 
-    pub fn equals(self: *const Small, other: *const Small) bool {
+    pub fn equals(self: Small, other: Small) bool {
         if (self.size != other.size) {
             return false;
         }
         return std.mem.eql(u8, self.slice(), other.slice());
+    }
+
+    pub fn expectEquals(a: Small, b: Small) !void {
+        try expectEqualSmalls(b, a);
     }
 };
 
@@ -120,43 +124,43 @@ test "Small size is correct" {
     // try testing.expectEqual(8, @typeInfo(@TypeOf(small_string.remaining.pointer)).Pointer.alignment);
 }
 
-pub fn expectEqualSmalls(expected: *const Small, actual:  *const Small) !void {
+pub fn expectEqualSmalls(expected: Small, actual: Small) !void {
     const equal = expected.equals(actual);
     if (!equal) {
-        std.debug.print("expected {s}, got {s}\n", .{expected.slice(), actual.slice()});
+        std.debug.print("expected {s}, got {s}\n", .{ expected.slice(), actual.slice() });
     }
     try testing.expect(equal);
 }
 
-pub fn expectNotEqualSmalls(a: *const Small, b: *const Small) !void {
+pub fn expectNotEqualSmalls(a: Small, b: Small) !void {
     const equal = a.equals(b);
     if (equal) {
-        std.debug.print("expected {s} to NOT equal {s}\n", .{a.slice(), b.slice()});
+        std.debug.print("expected {s} to NOT equal {s}\n", .{ a.slice(), b.slice() });
     }
     try testing.expect(!equal);
 }
 
 test "equals works for small strings" {
     var empty_string: Small = .{};
-    try testing.expectEqual(true, empty_string.equals(&try Small.init("")));
+    try testing.expectEqual(true, empty_string.equals(try Small.init("")));
 
     var string1 = try Small.init("hi");
     defer string1.deinit();
     var string2 = try Small.init("hi");
     defer string2.deinit();
-    try testing.expectEqual(true, string1.equals(&string2));
+    try testing.expectEqual(true, string1.equals(string2));
     try testing.expectEqualStrings("hi", string1.slice());
-    try expectEqualSmalls(&string1, &string2);
+    try expectEqualSmalls(string1, string2);
 
     var string3 = try Small.init("hI");
     defer string3.deinit();
-    try testing.expectEqual(false, string1.equals(&string3));
-    try expectNotEqualSmalls(&string1, &string3);
+    try testing.expectEqual(false, string1.equals(string3));
+    try expectNotEqualSmalls(string1, string3);
 
     var string4 = try Small.init("hi this is going to be more than 16 characters");
     defer string4.deinit();
-    try testing.expectEqual(false, string1.equals(&string4));
-    try expectNotEqualSmalls(&string1, &string4);
+    try testing.expectEqual(false, string1.equals(string4));
+    try expectNotEqualSmalls(string1, string4);
 }
 
 test "equals works for large strings" {
@@ -164,19 +168,19 @@ test "equals works for large strings" {
     defer string1.deinit();
     var string2 = try Small.init("hello world this is over 16 characters");
     defer string2.deinit();
-    try testing.expectEqual(true, string1.equals(&string2));
+    try testing.expectEqual(true, string1.equals(string2));
     try testing.expectEqualStrings("hello world this is over 16 characters", string1.slice());
-    try expectEqualSmalls(&string1, &string2);
+    try expectEqualSmalls(string1, string2);
 
     var string3 = try Small.init("hello world THIS is over 16 characters");
     defer string3.deinit();
-    try testing.expectEqual(false, string1.equals(&string3));
-    try expectNotEqualSmalls(&string1, &string3);
+    try testing.expectEqual(false, string1.equals(string3));
+    try expectNotEqualSmalls(string1, string3);
 
     var string4 = try Small.init("hello");
     defer string4.deinit();
-    try testing.expectEqual(false, string1.equals(&string4));
-    try expectNotEqualSmalls(&string1, &string4);
+    try testing.expectEqual(false, string1.equals(string4));
+    try expectNotEqualSmalls(string1, string4);
 }
 
 test "does not sign short strings" {
