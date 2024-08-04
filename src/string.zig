@@ -1,12 +1,11 @@
+const common = @import("common.zig");
+
 const std = @import("std");
 const testing = std.testing;
 
 const StringError = error{
     StringTooLong,
 };
-
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-const allocator = gpa.allocator();
 
 // TODO: something like this would be cool
 // const Pool = struct {
@@ -40,14 +39,13 @@ pub const Small = extern struct {
     }
 
     pub fn deinit(self: *Small) void {
-        if (self.size <= get_medium_size()) {
-            return;
+        if (self.size > get_medium_size()) {
+            common.allocator.free(self.buffer());
         }
-        allocator.free(self.buffer());
+        self.size = 0;
     }
 
     pub fn init(chars: []const u8) StringError!Small {
-        _ = allocator;
         const u16_max = std.math.maxInt(u16);
         if (chars.len > u16_max) {
             return StringError.StringTooLong;
@@ -55,7 +53,7 @@ pub const Small = extern struct {
         var string: Small = .{ .size = @intCast(chars.len) };
         const medium_size = comptime get_medium_size();
         if (chars.len > medium_size) {
-            const heap = allocator.alloc(u8, chars.len) catch {
+            const heap = common.allocator.alloc(u8, chars.len) catch {
                 // OutOfMemory
                 std.debug.print("couldn't allocate {d}-character string...\n", .{chars.len});
                 return StringError.StringTooLong;
@@ -211,10 +209,7 @@ test "signs very large strings" {
 }
 
 test "too large of a string" {
-    try testing.expectError(
-        StringError.StringTooLong,
-        Small.init("g" ** (std.math.maxInt(u16) + 1))
-    );
+    try testing.expectError(StringError.StringTooLong, Small.init("g" ** (std.math.maxInt(u16) + 1)));
 }
 
 /// Does a short version of `chars` for `buffer` in case `buffer` is smaller than `chars`.
