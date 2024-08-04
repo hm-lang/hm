@@ -3,15 +3,50 @@ const string = @import("string.zig");
 const std = @import("std");
 const testing = std.testing;
 
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
+
+const TokenError = error{
+    OutOfMemory,
+    InvalidToken,
+};
+
 pub const Tokenizer = struct {
-    pub fn next(self: *Tokenizer) Token {
-        _ = self;
-        return .end;
-    }
+    token_array: std.ArrayList(Token) = std.ArrayList(Token).init(allocator),
+    next_token_index: usize = 0,
 
     pub fn deinit(self: *Tokenizer) void {
-        _ = self;
-        //self.tokens.deinit();
+        self.token_array.deinit();
+    }
+
+    pub fn snapshot(self: *Tokenizer) usize {
+        return self.next_token_index;
+    }
+
+    pub fn restore(self: *Tokenizer, snapshot_index: usize) void {
+        self.next_token_index = snapshot_index;
+    }
+
+    /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
+    pub fn peek(self: *Tokenizer) TokenError!Token {
+        if (self.token_array.items.len <= self.next_token_index) {
+            try self.read_next_token();
+        }
+        return self.token_array.items[self.next_token_index];
+    }
+
+    /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
+    pub fn next(self: *Tokenizer) TokenError!Token {
+        const result = try self.peek();
+        if (!result.equals(.end)) {
+            self.next_token_index += 1;
+        }
+        return result;
+    }
+
+    fn read_next_token(self: *Tokenizer) TokenError!void {
+        self.token_array.append(.end) catch { return TokenError.OutOfMemory; };
+        // TODO
     }
 };
 
@@ -101,7 +136,8 @@ pub const Token = union(TokenTag) {
 
 test "basic tokenizer functionality" {
     var tokenizer: Tokenizer = .{};
-    try tokenizer.next().expectEquals(.end);
+    const token = try tokenizer.next();
+    try token.expectEquals(.end);
 }
 
 test "token equality" {
