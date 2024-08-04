@@ -34,6 +34,14 @@ pub const Small = extern struct {
         }
         allocator.free(self.buffer());
     }
+ 
+    pub inline fn noAlloc(chars: anytype) Small {
+        // We're expecting `chars` to be `*const [n:0]u8` with n <= get_medium_size()
+        if (chars.len > comptime get_medium_size()) {
+            @compileError(std.fmt.comptimePrint("Small.noAlloc must have {d} characters or less", .{get_medium_size()}));
+        }
+        return Small.init(chars) catch unreachable;
+    }
 
     pub fn init(chars: []const u8) StringError!Small {
         _ = allocator;
@@ -136,20 +144,21 @@ test "Small size is correct" {
     // try testing.expectEqual(8, @typeInfo(@TypeOf(small_string.remaining.pointer)).Pointer.alignment);
 }
 
-test "equals works for small strings" {
-    var empty_string: Small = .{};
-    try testing.expectEqual(true, empty_string.equals(try Small.init("")));
+test "noAlloc works" {
+    try testing.expectEqualStrings("this is ok man", Small.noAlloc("this is ok man").slice());
+}
 
-    var string1 = try Small.init("hi");
-    defer string1.deinit();
-    var string2 = try Small.init("hi");
-    defer string2.deinit();
+test "equals works for noAlloc strings" {
+    const empty_string: Small = .{};
+    try testing.expectEqual(true, empty_string.equals(Small.noAlloc("")));
+
+    const string1 = Small.noAlloc("hi");
+    const string2 = Small.noAlloc("hi");
     try testing.expectEqual(true, string1.equals(string2));
     try testing.expectEqualStrings("hi", string1.slice());
     try string1.expectEquals(string2);
 
-    var string3 = try Small.init("hI");
-    defer string3.deinit();
+    const string3 = Small.noAlloc("hI");
     try testing.expectEqual(false, string1.equals(string3));
     try string1.expectNotEquals(string3);
 
@@ -173,17 +182,14 @@ test "equals works for large strings" {
     try testing.expectEqual(false, string1.equals(string3));
     try string1.expectNotEquals(string3);
 
-    var string4 = try Small.init("hello");
-    defer string4.deinit();
+    const string4 = Small.noAlloc("hello");
     try testing.expectEqual(false, string1.equals(string4));
     try string1.expectNotEquals(string4);
 }
 
 test "does not sign short strings" {
-    var string = try Small.init("below sixteen");
-    defer string.deinit();
-
-    try testing.expectEqualStrings("below sixteen", string.signature());
+    var string = Small.noAlloc("below fourteen");
+    try testing.expectEqualStrings("below fourteen", string.signature());
 }
 
 test "signs large strings" {
@@ -243,6 +249,15 @@ test "sign works well for even-sized buffers" {
 
     try sign(&buffer, "something_bigger");
     try testing.expectEqualStrings("som16ger", &buffer);
+
+    try sign(&buffer, "wowza" ** 100);
+    try testing.expectEqualStrings("wow500za", &buffer);
+
+    try sign(&buffer, "cake" ** 1000);
+    try testing.expectEqualStrings("ca4000ke", &buffer);
+
+    try sign(&buffer, "big" ** 10000);
+    try testing.expectEqualStrings("bi30000g", &buffer);
 }
 
 test "sign works well for odd-sized buffers" {
@@ -264,4 +279,13 @@ test "sign works well for odd-sized buffers" {
 
     try sign(&buffer, "something_bigger");
     try testing.expectEqualStrings("som16er", &buffer);
+
+    try sign(&buffer, "wowza" ** 100);
+    try testing.expectEqualStrings("wo500za", &buffer);
+
+    try sign(&buffer, "cake" ** 1000);
+    try testing.expectEqualStrings("ca4000e", &buffer);
+
+    try sign(&buffer, "big" ** 10000);
+    try testing.expectEqualStrings("b30000g", &buffer);
 }
