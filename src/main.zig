@@ -4,6 +4,8 @@ pub const tokenizer = @import("tokenizer.zig");
 pub const string = @import("string.zig");
 pub const file_zig = @import("file.zig");
 
+const File = file_zig.File;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -19,17 +21,16 @@ pub fn main() !void {
     }
 
     for (1..args.len) |i| {
-        const file_name = args[i];
-        std.debug.print("\nreading {s}...\n", .{file_name});
+        // This possibly does one more allocation than I'd like to create `file.path`,
+        // but I'd rather not redo the internals of `argsAlloc`.
+        var file = File {.path = try string.Small.init(args[i]) };
+        defer file.deinit();
+        std.debug.print("\nreading {s}...\n", .{file.path.slice()});
 
-        const file = try std.fs.cwd().openFile(file_name, .{});
-        defer file.close();
+        try file.read();
 
-        var buffered_reader = std.io.bufferedReader(file.reader());
-        var file_stream = buffered_reader.reader();
-
-        while (try file_stream.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
-            std.debug.print("got line: {s}\n", .{line});
+        for (file.lines.array.items) |line| {
+            std.debug.print("got line: {s}\n", .{line.slice()});
         }
     }
 }

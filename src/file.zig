@@ -6,14 +6,14 @@ const OwnedSmalls = owned_list.OwnedList(string.Small);
 
 const std = @import("std");
 
-const FileError = error{
+pub const FileError = error{
     FileNotFound,
     LineTooLong,
     OutOfMemory,
     OtherError,
 };
 
-const File = struct {
+pub const File = struct {
     /// File will take this into ownership.
     path: string.Small = .{},
     lines: OwnedSmalls = OwnedSmalls.init(),
