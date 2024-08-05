@@ -9,31 +9,74 @@ const std = @import("std");
 const FileError = error{
     FileNotFound,
     LineTooLong,
+    OutOfMemory,
+    OtherError,
 };
 
 const File = struct {
-    /// You need to free this yourself if it's allocated;
-    /// `File` will not do so.
-    path: []u8 = .{},
+    /// File will take this into ownership.
+    path: string.Small = .{},
+    lines: OwnedSmalls = OwnedSmalls.init(),
 
-    pub fn lines(self: *const File) FileError!OwnedSmalls {
+    pub fn deinit(self: *File) void {
+        self.path.deinit();
+        self.lines.deinit();
+    }
+
+    pub fn read(self: *File) FileError!void {
+        const lines = try self.readInternal();
+        self.lines.deinit();
+        self.lines = lines;
+    }
+
+    fn readInternal(self: *const File) FileError!OwnedSmalls {
         var result = OwnedSmalls.init();
+        errdefer result.deinit();
 
-        var buffer: [65535]u8 = undefined;
+        var buffer: [string.Small.max_size]u8 = undefined;
 
-        const file = std.fs.cwd().openFile(self.path, .{}) catch { 
-            result.deinit();
-            return FileError.FileNotFound; 
+        const file = std.fs.cwd().openFile(self.path.slice(), .{}) catch {
+            return FileError.FileNotFound;
         };
         defer file.close();
 
         var buffered_reader = std.io.bufferedReader(file.reader());
         var file_stream = buffered_reader.reader();
 
-        while (try file_stream.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
-            std.debug.print("got line: {s}\n", .{line});
+        while (true) {
+            const line_buffer = file_stream.readUntilDelimiterOrEof(&buffer, '\n') catch |e| {
+                if (e == error.StreamTooLong) {
+                    std.debug.print("line {d} starting with {s} too long\n", .{
+                        result.count() + 1,
+                        buffer[0..32],
+                    });
+                    return FileError.LineTooLong;
+                }
+                return FileError.OtherError;
+            } orelse break;
+            const line = string.Small.init(line_buffer) catch {
+                return FileError.OutOfMemory;
+            };
+            result.append(line) catch {
+                return FileError.OutOfMemory;
+            };
         }
 
         return result;
     }
 };
+
+test "reading this file works" {
+    var file: File = .{ .path = string.Small.noAlloc("src/file.zig") };
+    defer file.deinit();
+
+    try file.read();
+
+    var line = try file.lines.at(0);
+    try std.testing.expectEqualStrings(line.slice(), "const common = @import(\"common.zig\");");
+
+    line = try file.lines.at(-1);
+    try std.testing.expectEqualStrings(line.slice(), "// last line of file");
+}
+
+// last line of file

@@ -4,11 +4,15 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const OwnedListError = error{
+    OutOfBounds,
+};
+
 pub fn OwnedList(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        array: std.ArrayListUnmanaged(T) = std.ArrayListUnmanaged(T) {},
+        array: std.ArrayListUnmanaged(T) = std.ArrayListUnmanaged(T){},
 
         pub fn init() Self {
             return .{};
@@ -32,16 +36,18 @@ pub fn OwnedList(comptime T: type) type {
         }
 
         /// Returns a "reference" -- don't free it.
-        pub inline fn at(self: *Self, index: anytype) ?T {
+        pub inline fn at(self: *Self, at_index: i64) OwnedListError!T {
+            const count_i64: i64 = @intCast(self.count());
+            var index: i64 = at_index;
             if (index < 0) {
-                index += self.count();
+                index += count_i64;
                 if (index < 0) {
-                    return null;
+                    return OwnedListError.OutOfBounds;
                 }
-            } else if (index >= self.count()) {
-                return null;
+            } else if (index >= count_i64) {
+                return OwnedListError.OutOfBounds;
             }
-            return self.array.items[index];
+            return self.array.items[@intCast(index)];
         }
 
         /// Returns a "reference" -- don't free it.
@@ -56,3 +62,5 @@ pub fn OwnedList(comptime T: type) type {
         }
     };
 }
+
+// TODO: tests

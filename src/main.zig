@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const tokenizer = @import("tokenizer.zig");
 pub const string = @import("string.zig");
+pub const file_zig = @import("file.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

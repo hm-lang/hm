@@ -5,6 +5,7 @@ const testing = std.testing;
 
 const StringError = error{
     StringTooLong,
+    OutOfMemory,
 };
 
 // TODO: something like this would be cool
@@ -14,6 +15,8 @@ const StringError = error{
 // };
 
 pub const Small = extern struct {
+    pub const max_size: usize = std.math.maxInt(u16);
+
     size: u16 = 0,
     short: [6]u8 = undefined,
     remaining: extern union {
@@ -46,17 +49,15 @@ pub const Small = extern struct {
     }
 
     pub fn init(chars: []const u8) StringError!Small {
-        const u16_max = std.math.maxInt(u16);
-        if (chars.len > u16_max) {
+        if (chars.len > Small.max_size) {
             return StringError.StringTooLong;
         }
         var string: Small = .{ .size = @intCast(chars.len) };
         const medium_size = comptime get_medium_size();
         if (chars.len > medium_size) {
             const heap = common.allocator.alloc(u8, chars.len) catch {
-                // OutOfMemory
                 std.debug.print("couldn't allocate {d}-character string...\n", .{chars.len});
-                return StringError.StringTooLong;
+                return StringError.OutOfMemory;
             };
             string.remaining.pointer = @ptrCast(heap.ptr);
             sign(&string.short, chars) catch {
@@ -83,7 +84,8 @@ pub const Small = extern struct {
         } else if (index >= self.size) {
             return 0;
         }
-        return self.slice()[index];
+        const actual: usize = index;
+        return self.slice()[actual];
     }
 
     /// Not public, should only be used when writing the first time (or freeing).
@@ -93,7 +95,7 @@ pub const Small = extern struct {
             const full_small_buffer: *[medium_size]u8 = @ptrCast(&self.short[0]);
             return full_small_buffer[0..medium_size];
         } else {
-            const full_buffer: *[std.math.maxInt(u16)]u8 = @ptrCast(self.remaining.pointer);
+            const full_buffer: *[Small.max_size]u8 = @ptrCast(self.remaining.pointer);
             return full_buffer[0..self.size];
         }
     }
@@ -105,7 +107,7 @@ pub const Small = extern struct {
             const full_small_buffer: *const [medium_size]u8 = @ptrCast(&self.short[0]);
             return full_small_buffer[0..self.size];
         } else {
-            const full_buffer: *const [std.math.maxInt(u16)]u8 = @ptrCast(self.remaining.pointer);
+            const full_buffer: *const [Small.max_size]u8 = @ptrCast(self.remaining.pointer);
             return full_buffer[0..self.size];
         }
     }
@@ -202,14 +204,14 @@ test "signs large strings" {
 
 test "signs very large strings" {
     // This is the largest string we can do:
-    var string = try Small.init("g" ** std.math.maxInt(u16));
+    var string = try Small.init("g" ** Small.max_size);
     defer string.deinit();
 
     try testing.expectEqualStrings("g65535", string.signature());
 }
 
 test "too large of a string" {
-    try testing.expectError(StringError.StringTooLong, Small.init("g" ** (std.math.maxInt(u16) + 1)));
+    try testing.expectError(StringError.StringTooLong, Small.init("g" ** (Small.max_size + 1)));
 }
 
 /// Does a short version of `chars` for `buffer` in case `buffer` is smaller than `chars`.
