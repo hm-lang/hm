@@ -1,39 +1,26 @@
 const common = @import("common.zig");
-
+const owned_list = @import("owned_list.zig");
 const string = @import("string.zig");
+
+const OwnedSmalls = owned_list.OwnedList(string.Small);
+const OwnedTokens = owned_list.OwnedList(Token);
 
 const std = @import("std");
 
 const TokenError = error{
     OutOfMemory,
     InvalidToken,
+    TokenizerInvariantBroken,
 };
 
 pub const Tokenizer = struct {
-    token_array: std.ArrayList(Token) = std.ArrayList(Token).init(common.allocator),
+    owned_tokens: OwnedTokens = OwnedTokens.init(),
     next_token_index: usize = 0,
-    line_array: std.ArrayList(string.Small) = std.ArrayList(string.Small).init(common.allocator),
+    owned_lines: OwnedSmalls = OwnedSmalls.init(),
 
     pub fn deinit(self: *Tokenizer) void {
-        // TODO: for some reason, this doesn't work (we get a `const` cast problem;
-        //      `token` appears to be a `*const Token` instead of a `*Token`).
-        //while (self.token_array.popOrNull()) |*token| {
-        //    token.deinit();
-        //}
-        while (true) {
-            var token: Token = self.token_array.popOrNull() orelse break;
-            token.deinit();
-        }
-        self.token_array.deinit();
-        // TODO: this should work!
-        //while (self.line_array.popOrNull()) |*line| {
-        //    line.deinit();
-        //}
-        while (true) {
-            var line = self.line_array.popOrNull() orelse break;
-            line.deinit();
-        }
-        self.line_array.deinit();
+        self.owned_tokens.deinit();
+        self.owned_lines.deinit();
     }
 
     pub fn snapshot(self: *Tokenizer) usize {
@@ -46,10 +33,10 @@ pub const Tokenizer = struct {
 
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
     pub fn peek(self: *Tokenizer) TokenError!Token {
-        if (self.token_array.items.len <= self.next_token_index) {
+        while (self.owned_tokens.count() <= self.next_token_index) {
             try self.read_next_token();
         }
-        return self.token_array.items[self.next_token_index];
+        return self.owned_tokens.inBounds(self.next_token_index);
     }
 
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
@@ -62,9 +49,10 @@ pub const Tokenizer = struct {
     }
 
     fn read_next_token(self: *Tokenizer) TokenError!void {
-        self.token_array.append(.end) catch {
+        self.owned_tokens.append(.end) catch {
             return TokenError.OutOfMemory;
         };
+        // If we can't add another token, throw TokenizerInvariantBroken
         // TODO
     }
 };
@@ -184,13 +172,13 @@ test "tokenizer deiniting frees internal memory" {
     defer tokenizer.deinit();
 
     // Add some tokens (and lines) to ensure that we are de-initing the lines.
-    try tokenizer.token_array.append(Token{ .starts_upper = try string.Small.init("Big" ** 20) });
-    try tokenizer.token_array.append(Token{ .starts_lower = try string.Small.init("trees" ** 25) });
-    try tokenizer.token_array.append(Token{ .starts_upper = try string.Small.init("Wigs" ** 30) });
+    try tokenizer.owned_tokens.append(Token{ .starts_upper = try string.Small.init("Big" ** 20) });
+    try tokenizer.owned_tokens.append(Token{ .starts_lower = try string.Small.init("trees" ** 25) });
+    try tokenizer.owned_tokens.append(Token{ .starts_upper = try string.Small.init("Wigs" ** 30) });
 
-    try tokenizer.line_array.append(try string.Small.init("long line of stuff" ** 5));
-    try tokenizer.line_array.append(try string.Small.init("other line of stuff" ** 6));
-    try tokenizer.line_array.append(try string.Small.init("big line again" ** 7));
+    try tokenizer.owned_lines.append(try string.Small.init("long line of stuff" ** 5));
+    try tokenizer.owned_lines.append(try string.Small.init("other line of stuff" ** 6));
+    try tokenizer.owned_lines.append(try string.Small.init("big line again" ** 7));
 }
 
 test "token equality" {
