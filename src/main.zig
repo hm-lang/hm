@@ -29,7 +29,7 @@ pub fn main() !void {
 
         try file.read();
 
-        for (file.lines.array.items) |line| {
+        while (file.next_line()) |line| {
             std.debug.print("got line: {s}\n", .{line.slice()});
         }
     }

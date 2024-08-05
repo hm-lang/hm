@@ -17,6 +17,8 @@ pub const File = struct {
     /// File will take this into ownership.
     path: string.Small = .{},
     lines: OwnedSmalls = OwnedSmalls.init(),
+    // Since we can't create a custom iterator over `lines`, we'll do it like this.
+    line_index: i64 = 0,
 
     pub fn deinit(self: *File) void {
         self.path.deinit();
@@ -26,7 +28,15 @@ pub const File = struct {
     pub fn read(self: *File) FileError!void {
         const lines = try self.readInternal();
         self.lines.deinit();
+        self.line_index = 0;
         self.lines = lines;
+    }
+
+    /// Do not free the returned string.
+    pub fn next_line(self: *File) ?string.Small {
+        const result = self.lines.at(self.line_index) catch { return null; };
+        self.line_index += 1;
+        return result;
     }
 
     fn readInternal(self: *const File) FileError!OwnedSmalls {
