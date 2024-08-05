@@ -8,8 +8,7 @@ pub fn OwnedList(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        // TODO: switch to ArrayListAlignedUnmanaged since we have `common.allocator` to pull from.
-        array: std.ArrayList(T) = std.ArrayList(T).init(common.allocator),
+        array: std.ArrayListUnmanaged(T) = std.ArrayListUnmanaged(T) {},
 
         pub fn init() Self {
             return .{};
@@ -25,7 +24,7 @@ pub fn OwnedList(comptime T: type) type {
                 var t: T = self.array.popOrNull() orelse break;
                 t.deinit();
             }
-            self.array.deinit();
+            self.array.deinit(common.allocator);
         }
 
         pub inline fn count(self: *const Self) usize {
@@ -53,7 +52,7 @@ pub fn OwnedList(comptime T: type) type {
 
         /// This list will take ownership of `t`.
         pub inline fn append(self: *Self, t: T) Allocator.Error!void {
-            try self.array.append(t);
+            try self.array.append(common.allocator, t);
         }
     };
 }
