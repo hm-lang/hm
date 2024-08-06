@@ -14,13 +14,13 @@ const TokenError = error{
 };
 
 pub const Tokenizer = struct {
-    owned_tokens: OwnedTokens = OwnedTokens.init(),
+    tokens: OwnedTokens = OwnedTokens.init(),
     next_token_index: usize = 0,
-    owned_lines: OwnedSmalls = OwnedSmalls.init(),
+    lines: OwnedSmalls = OwnedSmalls.init(),
 
     pub fn deinit(self: *Tokenizer) void {
-        self.owned_tokens.deinit();
-        self.owned_lines.deinit();
+        self.tokens.deinit();
+        self.lines.deinit();
     }
 
     pub fn snapshot(self: *Tokenizer) usize {
@@ -33,10 +33,10 @@ pub const Tokenizer = struct {
 
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
     pub fn peek(self: *Tokenizer) TokenError!Token {
-        while (self.owned_tokens.count() <= self.next_token_index) {
+        while (self.tokens.count() <= self.next_token_index) {
             try self.read_next_token();
         }
-        return self.owned_tokens.inBounds(self.next_token_index);
+        return self.tokens.inBounds(self.next_token_index);
     }
 
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
@@ -49,7 +49,7 @@ pub const Tokenizer = struct {
     }
 
     fn read_next_token(self: *Tokenizer) TokenError!void {
-        self.owned_tokens.append(.end) catch {
+        self.tokens.append(.end) catch {
             return TokenError.OutOfMemory;
         };
         // If we can't add another token, throw TokenizerInvariantBroken
@@ -172,13 +172,13 @@ test "tokenizer deiniting frees internal memory" {
     defer tokenizer.deinit();
 
     // Add some tokens (and lines) to ensure that we are de-initing the lines.
-    try tokenizer.owned_tokens.append(Token{ .starts_upper = try string.Small.init("Big" ** 20) });
-    try tokenizer.owned_tokens.append(Token{ .starts_lower = try string.Small.init("trees" ** 25) });
-    try tokenizer.owned_tokens.append(Token{ .starts_upper = try string.Small.init("Wigs" ** 30) });
+    try tokenizer.tokens.append(Token{ .starts_upper = try string.Small.init("Big" ** 20) });
+    try tokenizer.tokens.append(Token{ .starts_lower = try string.Small.init("trees" ** 25) });
+    try tokenizer.tokens.append(Token{ .starts_upper = try string.Small.init("Wigs" ** 30) });
 
-    try tokenizer.owned_lines.append(try string.Small.init("long line of stuff" ** 5));
-    try tokenizer.owned_lines.append(try string.Small.init("other line of stuff" ** 6));
-    try tokenizer.owned_lines.append(try string.Small.init("big line again" ** 7));
+    try tokenizer.lines.append(try string.Small.init("long line of stuff" ** 5));
+    try tokenizer.lines.append(try string.Small.init("other line of stuff" ** 6));
+    try tokenizer.lines.append(try string.Small.init("big line again" ** 7));
 }
 
 test "token equality" {
