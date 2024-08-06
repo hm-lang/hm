@@ -229,15 +229,15 @@ test "tokenizer skips whitespace" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
 
-    try tokenizer.file.lines.append(try SmallString.init("  Hello world"));
+    try tokenizer.file.lines.append(try SmallString.init("  Hello w_o_rld"));
     try tokenizer.file.lines.append(try SmallString.init("Second2    l1ne"));
-    try tokenizer.file.lines.append(try SmallString.init("sp3cial Financial     Problems"));
+    try tokenizer.file.lines.append(try SmallString.init("sp3cial Fin_ancial     _problems"));
 
     var token = try tokenizer.at(0);
     try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Hello") });
 
     token = try tokenizer.at(1);
-    try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("world") });
+    try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("w_o_rld") });
 
     token = try tokenizer.at(2);
     try token.expectEquals(Token{ .newline = 1 });
@@ -255,10 +255,10 @@ test "tokenizer skips whitespace" {
     try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("sp3cial") });
 
     token = try tokenizer.at(7);
-    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Financial") });
+    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Fin_ancial") });
 
     token = try tokenizer.at(8);
-    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Problems") });
+    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("_problems") });
 
     token = try tokenizer.at(9);
     try token.expectEquals(Token{ .newline = 3 });
