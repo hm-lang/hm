@@ -64,11 +64,7 @@ pub const Tokenizer = struct {
                 self.farthest_line_index += 1;
                 return Token{ .newline = self.farthest_line_index };
             }
-            // TODO: add a `tab` character, up to two per line.
-            //      one if we go immediately to an identifier, two if we start with a symbol/operator
-            //      (one for before and one for after).  alternatively retroactively change `tab`
-            //      if we see an operator.  maybe have a `tab: [before: u8, after: u8]`.
-            //      mash whitespace into `tab`.
+            // TODO: add a tab whenever we have whitespace
             switch (line.inBounds(self.farthest_char_index)) {
                 ' ' => {
                     self.farthest_char_index += 1;
@@ -103,7 +99,7 @@ pub const TokenTag = enum {
     starts_upper,
     starts_lower,
     newline,
-    // TODO: tab/indent
+    tab,
 };
 
 pub const Token = union(TokenTag) {
@@ -111,6 +107,7 @@ pub const Token = union(TokenTag) {
     starts_upper: SmallString,
     starts_lower: SmallString,
     newline: usize,
+    tab: usize,
 
     pub fn deinit(self: Token) void {
         const tag = std.meta.activeTag(self);
@@ -289,4 +286,30 @@ test "token equality" {
     try std.testing.expect(starts_lower.equals(starts_lower));
     try starts_lower.expectNotEquals(Token{ .starts_lower = try SmallString.init("Apples") });
     try std.testing.expect(!starts_lower.equals(Token{ .starts_lower = try SmallString.init("Apples") }));
+
+    const newline = Token{ .newline = 123 };
+    try newline.expectNotEquals(end);
+    try std.testing.expect(!newline.equals(end));
+    try newline.expectNotEquals(starts_upper);
+    try std.testing.expect(!newline.equals(starts_upper));
+    try newline.expectNotEquals(starts_lower);
+    try std.testing.expect(!newline.equals(starts_lower));
+    try newline.expectEquals(newline);
+    try std.testing.expect(newline.equals(newline));
+    try newline.expectNotEquals(Token{ .newline = 456 });
+    try std.testing.expect(!newline.equals(Token{ .newline = 456 }));
+
+    const tab = Token{ .tab = 123 };
+    try tab.expectNotEquals(end);
+    try std.testing.expect(!tab.equals(end));
+    try tab.expectNotEquals(starts_upper);
+    try std.testing.expect(!tab.equals(starts_upper));
+    try tab.expectNotEquals(starts_lower);
+    try std.testing.expect(!tab.equals(starts_lower));
+    try tab.expectNotEquals(newline);
+    try std.testing.expect(!tab.equals(newline));
+    try tab.expectEquals(tab);
+    try std.testing.expect(tab.equals(tab));
+    try tab.expectNotEquals(Token{ .tab = 456 });
+    try std.testing.expect(!tab.equals(Token{ .tab = 456 }));
 }
