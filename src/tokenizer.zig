@@ -16,7 +16,6 @@ const TokenError = error{
 
 pub const Tokenizer = struct {
     tokens: OwnedTokens = OwnedTokens.init(),
-    next_token_index: usize = 0,
     file: File = .{},
 
     pub fn deinit(self: *Tokenizer) void {
@@ -24,29 +23,17 @@ pub const Tokenizer = struct {
         self.file.deinit();
     }
 
-    pub fn snapshot(self: *Tokenizer) usize {
-        return self.next_token_index;
-    }
-
-    pub fn restore(self: *Tokenizer, snapshot_index: usize) void {
-        self.next_token_index = snapshot_index;
-    }
-
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
-    pub fn peek(self: *Tokenizer) TokenError!Token {
-        while (self.tokens.count() <= self.next_token_index) {
+    pub fn at(self: *Tokenizer, token_index: usize) TokenError!Token {
+        var count: usize = 0;
+        while (token_index >= self.tokens.count()) {
             try self.read_next_token();
+            count += 1;
         }
-        return self.tokens.inBounds(self.next_token_index);
-    }
-
-    /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
-    pub fn next(self: *Tokenizer) TokenError!Token {
-        const result = try self.peek();
-        if (!result.equals(.end)) {
-            self.next_token_index += 1;
+        if (count > 1) {
+            std.debug.print("expected 0 or 1 token increments, not {d}\n", .{count});
         }
-        return result;
+        return self.tokens.inBounds(token_index);
     }
 
     fn read_next_token(self: *Tokenizer) TokenError!void {
@@ -164,7 +151,7 @@ pub const Token = union(TokenTag) {
 test "basic tokenizer functionality" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
-    const token = try tokenizer.next();
+    const token = try tokenizer.at(0);
     try token.expectEquals(.end);
 }
 
