@@ -1,8 +1,8 @@
 const common = @import("common.zig");
 const owned_list = @import("owned_list.zig");
-const string = @import("string.zig");
+const SmallString = @import("string.zig").Small;
 
-const OwnedSmalls = owned_list.OwnedList(string.Small);
+const OwnedSmalls = owned_list.OwnedList(SmallString);
 
 const std = @import("std");
 
@@ -15,7 +15,7 @@ pub const FileError = error{
 
 pub const File = struct {
     /// File will take this into ownership.
-    path: string.Small = .{},
+    path: SmallString = .{},
     lines: OwnedSmalls = OwnedSmalls.init(),
     // Since we can't create a custom iterator over `lines`, we'll do it like this.
     line_index: i64 = 0,
@@ -33,7 +33,7 @@ pub const File = struct {
     }
 
     /// Do not free the returned string.
-    pub fn next_line(self: *File) ?string.Small {
+    pub fn next_line(self: *File) ?SmallString {
         const result = self.lines.at(self.line_index) catch { return null; };
         self.line_index += 1;
         return result;
@@ -43,7 +43,7 @@ pub const File = struct {
         var result = OwnedSmalls.init();
         errdefer result.deinit();
 
-        var buffer: [string.Small.max_size]u8 = undefined;
+        var buffer: [SmallString.max_size]u8 = undefined;
 
         const file = std.fs.cwd().openFile(self.path.slice(), .{}) catch {
             return FileError.FileNotFound;
@@ -64,7 +64,7 @@ pub const File = struct {
                 }
                 return FileError.OtherError;
             } orelse break;
-            const line = string.Small.init(line_buffer) catch {
+            const line = SmallString.init(line_buffer) catch {
                 return FileError.OutOfMemory;
             };
             result.append(line) catch {
@@ -77,7 +77,7 @@ pub const File = struct {
 };
 
 test "reading this file works" {
-    var file: File = .{ .path = string.Small.noAlloc("src/file.zig") };
+    var file: File = .{ .path = SmallString.noAlloc("src/file.zig") };
     defer file.deinit();
 
     try file.read();

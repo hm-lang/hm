@@ -1,8 +1,9 @@
 const common = @import("common.zig");
 const owned_list = @import("owned_list.zig");
-const string = @import("string.zig");
+const SmallString = @import("string.zig").Small;
+const File = @import("file.zig").File;
 
-const OwnedSmalls = owned_list.OwnedList(string.Small);
+const OwnedSmalls = owned_list.OwnedList(SmallString);
 const OwnedTokens = owned_list.OwnedList(Token);
 
 const std = @import("std");
@@ -16,11 +17,11 @@ const TokenError = error{
 pub const Tokenizer = struct {
     tokens: OwnedTokens = OwnedTokens.init(),
     next_token_index: usize = 0,
-    lines: OwnedSmalls = OwnedSmalls.init(),
+    file: File = .{},
 
     pub fn deinit(self: *Tokenizer) void {
         self.tokens.deinit();
-        self.lines.deinit();
+        self.file.deinit();
     }
 
     pub fn snapshot(self: *Tokenizer) usize {
@@ -40,7 +41,7 @@ pub const Tokenizer = struct {
     }
 
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
-    pub fn next(self: *Tokenizer) TokenError!Token {
+    pub fn next_token(self: *Tokenizer) TokenError!Token {
         const result = try self.peek();
         if (!result.equals(.end)) {
             self.next_token_index += 1;
@@ -65,8 +66,8 @@ pub const TokenTag = enum {
 
 pub const Token = union(TokenTag) {
     end: void,
-    starts_upper: string.Small,
-    starts_lower: string.Small,
+    starts_upper: SmallString,
+    starts_lower: SmallString,
 
     pub fn deinit(self: Token) void {
         const tag = std.meta.activeTag(self);
@@ -163,7 +164,7 @@ pub const Token = union(TokenTag) {
 test "basic tokenizer functionality" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
-    const token = try tokenizer.next();
+    const token = try tokenizer.next_token();
     try token.expectEquals(.end);
 }
 
@@ -172,13 +173,13 @@ test "tokenizer deiniting frees internal memory" {
     defer tokenizer.deinit();
 
     // Add some tokens (and lines) to ensure that we are de-initing the lines.
-    try tokenizer.tokens.append(Token{ .starts_upper = try string.Small.init("Big" ** 20) });
-    try tokenizer.tokens.append(Token{ .starts_lower = try string.Small.init("trees" ** 25) });
-    try tokenizer.tokens.append(Token{ .starts_upper = try string.Small.init("Wigs" ** 30) });
+    try tokenizer.tokens.append(Token{ .starts_upper = try SmallString.init("Big" ** 20) });
+    try tokenizer.tokens.append(Token{ .starts_lower = try SmallString.init("trees" ** 25) });
+    try tokenizer.tokens.append(Token{ .starts_upper = try SmallString.init("Wigs" ** 30) });
 
-    try tokenizer.lines.append(try string.Small.init("long line of stuff" ** 5));
-    try tokenizer.lines.append(try string.Small.init("other line of stuff" ** 6));
-    try tokenizer.lines.append(try string.Small.init("big line again" ** 7));
+    try tokenizer.file.lines.append(try SmallString.init("long line of stuff" ** 5));
+    try tokenizer.file.lines.append(try SmallString.init("other line of stuff" ** 6));
+    try tokenizer.file.lines.append(try SmallString.init("big line again" ** 7));
 }
 
 test "token equality" {
@@ -186,21 +187,21 @@ test "token equality" {
     try std.testing.expect(end.equals(.end));
     try end.expectEquals(.end);
 
-    const starts_upper = Token{ .starts_upper = try string.Small.init("Cabbage") };
+    const starts_upper = Token{ .starts_upper = try SmallString.init("Cabbage") };
     try starts_upper.expectNotEquals(end);
     try std.testing.expect(!starts_upper.equals(.end));
     try starts_upper.expectEquals(starts_upper);
     try std.testing.expect(starts_upper.equals(starts_upper));
-    try starts_upper.expectNotEquals(Token{ .starts_upper = try string.Small.init("Apples") });
-    try std.testing.expect(!starts_upper.equals(Token{ .starts_upper = try string.Small.init("Apples") }));
+    try starts_upper.expectNotEquals(Token{ .starts_upper = try SmallString.init("Apples") });
+    try std.testing.expect(!starts_upper.equals(Token{ .starts_upper = try SmallString.init("Apples") }));
 
-    const starts_lower = Token{ .starts_lower = try string.Small.init("Cabbage") };
+    const starts_lower = Token{ .starts_lower = try SmallString.init("Cabbage") };
     try starts_lower.expectNotEquals(end);
     try std.testing.expect(!starts_lower.equals(end));
     try starts_lower.expectNotEquals(starts_upper);
     try std.testing.expect(!starts_lower.equals(starts_upper));
     try starts_lower.expectEquals(starts_lower);
     try std.testing.expect(starts_lower.equals(starts_lower));
-    try starts_lower.expectNotEquals(Token{ .starts_lower = try string.Small.init("Apples") });
-    try std.testing.expect(!starts_lower.equals(Token{ .starts_lower = try string.Small.init("Apples") }));
+    try starts_lower.expectNotEquals(Token{ .starts_lower = try SmallString.init("Apples") });
+    try std.testing.expect(!starts_lower.equals(Token{ .starts_lower = try SmallString.init("Apples") }));
 }
