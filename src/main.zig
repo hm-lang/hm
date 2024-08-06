@@ -27,7 +27,7 @@ pub fn main() !void {
 
         try file.read();
 
-        while (file.next_line()) |line| {
+        while (file.nextLine()) |line| {
             std.debug.print("got line: {s}\n", .{line.slice()});
         }
     }

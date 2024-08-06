@@ -41,7 +41,7 @@ pub const Tokenizer = struct {
     }
 
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
-    pub fn next_token(self: *Tokenizer) TokenError!Token {
+    pub fn next(self: *Tokenizer) TokenError!Token {
         const result = try self.peek();
         if (!result.equals(.end)) {
             self.next_token_index += 1;
@@ -164,7 +164,7 @@ pub const Token = union(TokenTag) {
 test "basic tokenizer functionality" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
-    const token = try tokenizer.next_token();
+    const token = try tokenizer.next();
     try token.expectEquals(.end);
 }
 

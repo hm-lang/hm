@@ -33,7 +33,7 @@ pub const File = struct {
     }
 
     /// Do not free the returned string.
-    pub fn next_line(self: *File) ?SmallString {
+    pub fn nextLine(self: *File) ?SmallString {
         const result = self.lines.at(self.line_index) catch { return null; };
         self.line_index += 1;
         return result;
@@ -84,6 +84,12 @@ test "reading this file works" {
 
     var line = try file.lines.at(0);
     try std.testing.expectEqualStrings(line.slice(), "const common = @import(\"common.zig\");");
+
+    line = file.nextLine() orelse unreachable;
+    try std.testing.expectEqualStrings(line.slice(), "const common = @import(\"common.zig\");");
+
+    line = file.nextLine() orelse unreachable;
+    try std.testing.expectEqualStrings(line.slice(), "const owned_list = @import(\"owned_list.zig\");");
 
     line = try file.lines.at(-1);
     try std.testing.expectEqualStrings(line.slice(), "// last line of file");
