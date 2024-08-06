@@ -9,9 +9,9 @@ const OwnedTokens = owned_list.OwnedList(Token);
 const std = @import("std");
 
 const TokenError = error{
-    OutOfMemory,
-    InvalidToken,
-    TokenizerInvariantBroken,
+    out_of_memory,
+    out_of_tokens,
+    invalid_token,
 };
 
 pub const Tokenizer = struct {
@@ -38,9 +38,9 @@ pub const Tokenizer = struct {
 
     fn read_next_token(self: *Tokenizer) TokenError!void {
         self.tokens.append(.end) catch {
-            return TokenError.OutOfMemory;
+            return TokenError.out_of_memory;
         };
-        // If we can't add another token, throw TokenizerInvariantBroken
+        // If we can't add another token, throw out_of_tokens
         // TODO
     }
 };
