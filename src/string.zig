@@ -75,8 +75,8 @@ pub const Small = extern struct {
         return &self.short;
     }
 
-    // TODO: test `at` for OOB above and below (negative)
-    pub fn at(self: *const Small, index: anytype) u8 {
+    pub fn at(self: *const Small, at_index: anytype) u8 {
+        var index: i64 = @intCast(at_index);
         if (index < 0) {
             index += self.size;
             if (index < 0) {
@@ -85,8 +85,7 @@ pub const Small = extern struct {
         } else if (index >= self.size) {
             return 0;
         }
-        const actual: usize = index;
-        return self.slice()[actual];
+        return self.slice()[@intCast(index)];
     }
 
     pub fn inBounds(self: *const Small, index: usize) u8 {
@@ -198,6 +197,53 @@ test "equals works for large strings" {
     const string4 = Small.noAlloc("hello");
     try testing.expectEqual(false, string1.equals(string4));
     try string1.expectNotEquals(string4);
+}
+
+test "at/inBounds works for large strings" {
+    var string = try Small.init("Thumb thunk rink?");
+    defer string.deinit();
+    const count: i64 = @intCast(string.count());
+    try std.testing.expectEqual('T', string.at(0));
+    try std.testing.expectEqual('h', string.inBounds(1));
+    try std.testing.expectEqual('u', string.at(2));
+    try std.testing.expectEqual('m', string.inBounds(3));
+    try std.testing.expectEqual('b', string.at(4));
+    try std.testing.expectEqual(' ', string.inBounds(5));
+
+    // Reverse indexing works as well for `at`
+    try std.testing.expectEqual('T', string.at(-count));
+    try std.testing.expectEqual('h', string.at(-count + 1));
+    try std.testing.expectEqual('i', string.at(-4));
+    try std.testing.expectEqual('n', string.at(-3));
+    try std.testing.expectEqual('k', string.at(-2));
+    try std.testing.expectEqual('?', string.at(-1));
+
+    // OOBs works for `at`
+    try std.testing.expectEqual(0, string.at(-count - 1));
+    try std.testing.expectEqual(0, string.at(count));
+}
+
+test "at/inBounds works for small strings" {
+    const string = Small.noAlloc("Hi there!!");
+    const count: i64 = @intCast(string.count());
+    try std.testing.expectEqual('H', string.at(0));
+    try std.testing.expectEqual('i', string.inBounds(1));
+    try std.testing.expectEqual(' ', string.at(2));
+    try std.testing.expectEqual('t', string.inBounds(3));
+    try std.testing.expectEqual('h', string.at(4));
+    try std.testing.expectEqual('e', string.inBounds(5));
+
+    // Reverse indexing works as well for `at`
+    try std.testing.expectEqual('H', string.at(-count));
+    try std.testing.expectEqual('i', string.at(-count + 1));
+    try std.testing.expectEqual('r', string.at(-4));
+    try std.testing.expectEqual('e', string.at(-3));
+    try std.testing.expectEqual('!', string.at(-2));
+    try std.testing.expectEqual('!', string.at(-1));
+
+    // OOBs works for `at`
+    try std.testing.expectEqual(0, string.at(-count - 1));
+    try std.testing.expectEqual(0, string.at(count));
 }
 
 test "does not sign short strings" {
