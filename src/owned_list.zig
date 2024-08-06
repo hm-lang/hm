@@ -31,6 +31,10 @@ pub fn OwnedList(comptime T: type) type {
             self.array.deinit(common.allocator);
         }
 
+        pub inline fn items(self: *const Self) []T {
+            return self.array.items;
+        }
+
         pub inline fn count(self: *const Self) usize {
             return self.array.items.len;
         }
