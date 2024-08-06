@@ -4,8 +4,8 @@ const std = @import("std");
 const testing = std.testing;
 
 const StringError = error{
-    StringTooLong,
-    OutOfMemory,
+    string_too_long,
+    out_of_memory,
 };
 
 // TODO: something like this would be cool
@@ -50,14 +50,14 @@ pub const Small = extern struct {
 
     pub fn init(chars: []const u8) StringError!Small {
         if (chars.len > Small.max_size) {
-            return StringError.StringTooLong;
+            return StringError.string_too_long;
         }
         var string: Small = .{ .size = @intCast(chars.len) };
         const medium_size = comptime get_medium_size();
         if (chars.len > medium_size) {
             const heap = common.allocator.alloc(u8, chars.len) catch {
                 std.debug.print("couldn't allocate {d}-character string...\n", .{chars.len});
-                return StringError.OutOfMemory;
+                return StringError.out_of_memory;
             };
             string.remaining.pointer = @ptrCast(heap.ptr);
             sign(&string.short, chars) catch {
@@ -211,7 +211,7 @@ test "signs very large strings" {
 }
 
 test "too large of a string" {
-    try testing.expectError(StringError.StringTooLong, Small.init("g" ** (Small.max_size + 1)));
+    try testing.expectError(StringError.string_too_long, Small.init("g" ** (Small.max_size + 1)));
 }
 
 /// Does a short version of `chars` for `buffer` in case `buffer` is smaller than `chars`.
