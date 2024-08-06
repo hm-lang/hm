@@ -43,9 +43,10 @@ pub fn OwnedList(comptime T: type) type {
         }
 
         /// Returns a "reference" -- don't free it.
-        pub inline fn at(self: *Self, at_index: i64) OwnedListError!T {
+        pub inline fn at(self: *Self, at_index: anytype) OwnedListError!T {
             const count_i64: i64 = @intCast(self.count());
-            var index: i64 = at_index;
+            std.debug.assert(count_i64 >= 0);
+            var index: i64 = @intCast(at_index);
             if (index < 0) {
                 index += count_i64;
                 if (index < 0) {
