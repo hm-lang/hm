@@ -75,6 +75,7 @@ pub const Small = extern struct {
         return &self.short;
     }
 
+    // TODO: test `at` for OOB above and below (negative)
     pub fn at(self: *const Small, index: anytype) u8 {
         if (index < 0) {
             index += self.size;
@@ -86,6 +87,15 @@ pub const Small = extern struct {
         }
         const actual: usize = index;
         return self.slice()[actual];
+    }
+
+    pub fn inBounds(self: *const Small, index: usize) u8 {
+        std.debug.assert(index < self.count());
+        return self.slice()[index];
+    }
+
+    pub fn count(self: *const Small) usize {
+        return self.size;
     }
 
     /// Not public, should only be used when writing the first time (or freeing).
@@ -193,6 +203,7 @@ test "equals works for large strings" {
 test "does not sign short strings" {
     var string = Small.noAlloc("below fourteen");
     try testing.expectEqualStrings("below fourteen", string.signature());
+    try testing.expectEqual(14, string.count());
 }
 
 test "signs large strings" {
@@ -200,6 +211,7 @@ test "signs large strings" {
     defer string.deinit();
 
     try testing.expectEqualStrings("ab19rs", string.signature());
+    try testing.expectEqual(19, string.count());
 }
 
 test "signs very large strings" {
@@ -208,6 +220,7 @@ test "signs very large strings" {
     defer string.deinit();
 
     try testing.expectEqualStrings("g65535", string.signature());
+    try testing.expectEqual(65535, string.count());
 }
 
 test "too large of a string" {

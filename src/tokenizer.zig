@@ -17,6 +17,8 @@ const TokenError = error{
 pub const Tokenizer = struct {
     tokens: OwnedTokens = OwnedTokens.init(),
     file: File = .{},
+    farthest_line_index: usize = 0,
+    farthest_char_index: usize = 0,
 
     pub fn deinit(self: *Tokenizer) void {
         self.tokens.deinit();
@@ -27,7 +29,12 @@ pub const Tokenizer = struct {
     pub fn at(self: *Tokenizer, token_index: usize) TokenError!Token {
         var count: usize = 0;
         while (token_index >= self.tokens.count()) {
-            try self.read_next_token();
+            // We'll just keep appending `.end` to `tokens` if you keep
+            // incrementing the index you pass in to `at()`, so don't do that.
+            const token = try self.get_next_token();
+            self.tokens.append(token) catch {
+                return TokenError.out_of_memory;
+            };
             count += 1;
         }
         if (count > 1) {
@@ -36,12 +43,58 @@ pub const Tokenizer = struct {
         return self.tokens.inBounds(token_index);
     }
 
-    fn read_next_token(self: *Tokenizer) TokenError!void {
-        self.tokens.append(.end) catch {
+    fn complete(self: *Tokenizer) TokenError!void {
+        var last = try self.at(0);
+        while (!last.equals(.end)) {
+            last = try self.get_next_token();
+            self.tokens.append(last) catch {
+                return TokenError.out_of_memory;
+            };
+        }
+    }
+
+    fn get_next_token(self: *Tokenizer) TokenError!Token {
+        if (self.farthest_line_index >= self.file.lines.count()) {
+            return .end;
+        }
+        const line = self.file.lines.inBounds(self.farthest_line_index);
+        while (true) {
+            if (self.farthest_char_index >= line.count()) {
+                self.farthest_char_index = 0;
+                self.farthest_line_index += 1;
+                return Token{ .newline = self.farthest_line_index };
+            }
+            // TODO: add a `tab` character, up to two per line.
+            //      one if we go immediately to an identifier, two if we start with a symbol/operator
+            //      (one for before and one for after).  alternatively retroactively change `tab`
+            //      if we see an operator.  maybe have a `tab: [before: u8, after: u8]`.
+            //      mash whitespace into `tab`.
+            switch (line.inBounds(self.farthest_char_index)) {
+                ' ' => {
+                    self.farthest_char_index += 1;
+                },
+                'A'...'Z', '_' => return Token{ .starts_upper = try self.get_next_identifier(line) },
+                'a'...'z' => return Token{ .starts_lower = try self.get_next_identifier(line) },
+                else => return TokenError.invalid_token,
+            }
+        }
+    }
+
+    fn get_next_identifier(self: *Tokenizer, line: SmallString) TokenError!SmallString {
+        // We've already checked and there's an alphabetical character at the self.farthest_char_index.
+        const initial_char_index = self.farthest_char_index;
+        self.farthest_char_index += 1;
+        while (self.farthest_char_index < line.count()) {
+            switch (line.inBounds(self.farthest_char_index)) {
+                'A'...'Z', 'a'...'z', '0'...'9', '_' => {
+                    self.farthest_char_index += 1;
+                },
+                else => break,
+            }
+        }
+        return SmallString.init(line.slice()[initial_char_index..self.farthest_char_index]) catch {
             return TokenError.out_of_memory;
         };
-        // If we can't add another token, throw out_of_tokens
-        // TODO
     }
 };
 
@@ -49,12 +102,15 @@ pub const TokenTag = enum {
     end,
     starts_upper,
     starts_lower,
+    newline,
+    // TODO: tab/indent
 };
 
 pub const Token = union(TokenTag) {
     end: void,
     starts_upper: SmallString,
     starts_lower: SmallString,
+    newline: usize,
 
     pub fn deinit(self: Token) void {
         const tag = std.meta.activeTag(self);
@@ -167,6 +223,48 @@ test "tokenizer deiniting frees internal memory" {
     try tokenizer.file.lines.append(try SmallString.init("long line of stuff" ** 5));
     try tokenizer.file.lines.append(try SmallString.init("other line of stuff" ** 6));
     try tokenizer.file.lines.append(try SmallString.init("big line again" ** 7));
+}
+
+test "tokenizer skips whitespace" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    try tokenizer.file.lines.append(try SmallString.init("  Hello world"));
+    try tokenizer.file.lines.append(try SmallString.init("Second2    l1ne"));
+    try tokenizer.file.lines.append(try SmallString.init("sp3cial Financial     Problems"));
+
+    var token = try tokenizer.at(0);
+    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Hello") });
+
+    token = try tokenizer.at(1);
+    try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("world") });
+
+    token = try tokenizer.at(2);
+    try token.expectEquals(Token{ .newline = 1 });
+
+    token = try tokenizer.at(3);
+    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Second2") });
+
+    token = try tokenizer.at(4);
+    try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("l1ne") });
+
+    token = try tokenizer.at(5);
+    try token.expectEquals(Token{ .newline = 2 });
+
+    token = try tokenizer.at(6);
+    try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("sp3cial") });
+
+    token = try tokenizer.at(7);
+    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Financial") });
+
+    token = try tokenizer.at(8);
+    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Problems") });
+
+    token = try tokenizer.at(9);
+    try token.expectEquals(Token{ .newline = 3 });
+
+    token = try tokenizer.at(10);
+    try token.expectEquals(.end);
 }
 
 test "token equality" {

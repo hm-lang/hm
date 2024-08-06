@@ -76,6 +76,8 @@ pub fn OwnedList(comptime T: type) type {
                 return OwnedListError.out_of_memory;
             };
         }
+
+        // TODO: add an `expectEquals(slice: []T) !void` method
     };
 }
 
@@ -90,7 +92,7 @@ test "insert works at end" {
     try list.append(56);
     try list.insert(3, 57);
 
-    try std.testing.expectEqualSlices(u32, list.items(), &[_]u32{54, 55, 56, 57});
+    try std.testing.expectEqualSlices(u32, list.items(), &[_]u32{ 54, 55, 56, 57 });
 }
 
 test "insert works at start" {
@@ -101,5 +103,5 @@ test "insert works at start" {
     try list.insert(0, 101);
     try list.insert(0, 102);
 
-    try std.testing.expectEqualSlices(u8, list.items(), &[_]u8{102, 101, 100});
+    try std.testing.expectEqualSlices(u8, list.items(), &[_]u8{ 102, 101, 100 });
 }
