@@ -11,6 +11,7 @@ pub const FileError = error{
     LineTooLong,
     OutOfMemory,
     OtherError,
+    WriteError,
 };
 
 pub const File = struct {
@@ -29,15 +30,28 @@ pub const File = struct {
         self.lines = lines;
     }
 
+    pub fn write(self: *const File) FileError!void {
+        const file = try self.openForWrite();
+        defer file.close();
+
+        for (self.lines.items()) |line| {
+            file.writeAll(line.slice()) catch {
+                return FileError.WriteError;
+            };
+            const result = file.write("\n") catch {
+                return FileError.WriteError;
+            };
+            std.debug.assert(result == 1); // should have written 1 byte
+        }
+    }
+
     fn readInternal(self: *const File) FileError!OwnedSmalls {
         var result = OwnedSmalls.init();
         errdefer result.deinit();
 
         var buffer: [SmallString.max_size]u8 = undefined;
 
-        const file = std.fs.cwd().openFile(self.path.slice(), .{}) catch {
-            return FileError.FileNotFound;
-        };
+        const file = try self.openForRead();
         defer file.close();
 
         var buffered_reader = std.io.bufferedReader(file.reader());
@@ -64,6 +78,18 @@ pub const File = struct {
 
         return result;
     }
+
+    fn openForRead(self: *const File) FileError!std.fs.File {
+        return std.fs.cwd().openFile(self.path.slice(), .{}) catch {
+            return FileError.FileNotFound;
+        };
+    }
+
+    fn openForWrite(self: *const File) FileError!std.fs.File {
+        return std.fs.cwd().createFile(self.path.slice(), .{}) catch {
+            return FileError.FileNotFound;
+        };
+    }
 };
 
 test "reading this file works" {
@@ -80,6 +106,24 @@ test "reading this file works" {
 
     line = try file.lines.at(-1);
     try std.testing.expectEqualStrings(line.slice(), "// last line of file");
+}
+
+test "writing a tmp-file works" {
+    var file: File = .{ .path = SmallString.noAlloc("zig-out/z.tmp") };
+    defer file.deinit();
+
+    try file.lines.append(SmallString.noAlloc("hello world"));
+    try file.lines.append(SmallString.noAlloc("second line"));
+    try file.lines.append(try SmallString.init("third line is long and needs an allocation"));
+    try file.write();
+
+    var previous_lines = OwnedSmalls.init(); // After swap, will become previous.
+    defer previous_lines.deinit();
+    common.swap(&file.lines, &previous_lines);
+
+    try file.read();
+
+    try file.lines.expectEquals(previous_lines);
 }
 
 // last line of file

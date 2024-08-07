@@ -15,21 +15,13 @@ pub fn OwnedList(comptime T: type) type {
 
         array: std.ArrayListUnmanaged(T) = std.ArrayListUnmanaged(T){},
 
-        pub fn init() Self {
+        pub inline fn init() Self {
             return .{};
         }
 
-        pub fn deinit(self: *Self) void {
+        pub inline fn deinit(self: *Self) void {
             if (std.meta.hasMethod(T, "deinit")) {
-                // TODO: for some reason, this doesn't work (we get a `const` cast problem;
-                //      `t` appears to be a `*const T` instead of a `*T`).
-                //while (self.array.popOrNull()) |*t| {
-                //    t.deinit();
-                //}
-                while (true) {
-                    var t: T = self.array.popOrNull() orelse break;
-                    t.deinit();
-                }
+                self.clear();
             }
             self.array.deinit(common.allocator);
         }
@@ -59,7 +51,7 @@ pub fn OwnedList(comptime T: type) type {
         }
 
         /// Returns a "reference" -- don't free it.
-        pub inline fn inBounds(self: *Self, index: usize) T {
+        pub inline fn inBounds(self: *const Self, index: usize) T {
             assert(index < self.count());
             return self.array.items[index];
         }
@@ -78,7 +70,36 @@ pub fn OwnedList(comptime T: type) type {
             };
         }
 
-        // TODO: add an `expectEquals(slice: []T) !void` method
+        pub inline fn clear(self: *Self) void {
+            if (std.meta.hasMethod(T, "deinit")) {
+                // TODO: for some reason, this doesn't work (we get a `const` cast problem;
+                //      `t` appears to be a `*const T` instead of a `*T`).
+                //while (self.array.popOrNull()) |*t| {
+                //    t.deinit();
+                //}
+                while (true) {
+                    var t: T = self.array.popOrNull() orelse break;
+                    t.deinit();
+                }
+            } else {
+                self.array.clearRetainingCapacity();
+            }
+        }
+
+        pub inline fn expectEquals(self: Self, other: Self) !void {
+            // TODO: add an `errdefer` that will std.debug.print both `self` and `other`
+            try std.testing.expectEqual(other.count(), self.count());
+
+            for (0..self.count()) |index| {
+                const self_item = self.inBounds(index);
+                const other_item = other.inBounds(index);
+                if (std.meta.hasMethod(T, "expectEquals")) {
+                    try self_item.expectEquals(other_item);
+                } else {
+                    try std.testing.expectEqual(other_item, self_item);
+                }
+            }
+        }
     };
 }
 
@@ -105,4 +126,18 @@ test "insert works at start" {
     try list.insert(0, 102);
 
     try std.testing.expectEqualSlices(u8, list.items(), &[_]u8{ 102, 101, 100 });
+}
+
+test "clear gets rid of everything" {
+    const SmallString = @import("string.zig").Small;
+    var list = OwnedList(SmallString).init();
+    defer list.deinit();
+
+    try list.append(try SmallString.init("over fourteen" ** 4));
+    try list.append(try SmallString.init("definitely allocated" ** 10));
+    try std.testing.expectEqual(2, list.count());
+
+    list.clear();
+
+    try std.testing.expectEqual(0, list.count());
 }

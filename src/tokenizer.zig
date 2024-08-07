@@ -167,6 +167,7 @@ pub const Token = union(TokenTag) {
     }
 
     pub fn expectEquals(a: Token, b: Token) !void {
+        // TODO: add an `errdefer` that will std.debug.print both `self` and `other`
         const tag_a = std.meta.activeTag(a);
         const tag_b = std.meta.activeTag(b);
         try std.testing.expectEqual(tag_b, tag_a);
