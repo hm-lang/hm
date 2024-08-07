@@ -34,6 +34,21 @@ pub const Small = extern struct {
         return Small.init(chars) catch unreachable;
     }
 
+    // Another initialization that doesn't require an allocation.
+    pub fn init64(l64: u64) Small {
+        var result: Small = .{ .size = 8 };
+        var actual_size: u16 = 0;
+        var remaining64 = l64;
+        const write_buffer = result.buffer();
+        while (remaining64 > 0) {
+            write_buffer[actual_size] = @intCast(remaining64 & 255);
+            remaining64 >>= 8;
+            actual_size += 1;
+        }
+        result.size = actual_size;
+        return result;
+    }
+
     fn get_medium_size() comptime_int {
         const small: Small = .{};
         const smallest_size = @sizeOf(@TypeOf(small.short));
@@ -173,18 +188,36 @@ test "noAlloc works" {
     try std.testing.expectEqualStrings("this is ok man", Small.noAlloc("this is ok man").slice());
 }
 
+test "init64 works" {
+    var little = Small.init64('*');
+    try std.testing.expectEqualStrings("*", little.slice());
+
+    little = Small.init64('_');
+    try std.testing.expectEqualStrings("_", little.slice());
+
+    little = Small.init64(30033);
+    try std.testing.expectEqualStrings("Qu", little.slice());
+
+    little = Small.init64(2764688058392519008);
+    try std.testing.expectEqualStrings("`!@#$%^&", little.slice());
+}
+
 test "little64 works for small strings" {
     var little = Small.noAlloc("*");
     try std.testing.expectEqual('*', try little.little64());
+    try little.expectEquals(Small.init64('*'));
 
     little = Small.noAlloc("_");
     try std.testing.expectEqual('_', try little.little64());
+    try little.expectEquals(Small.init64('_'));
 
     little = Small.noAlloc("Qu");
     try std.testing.expectEqual(30033, try little.little64());
+    try little.expectEquals(Small.init64(30033));
 
     little = Small.noAlloc("`!@#$%^&");
     try std.testing.expectEqual(2764688058392519008, try little.little64());
+    try little.expectEquals(Small.init64(2764688058392519008));
 }
 
 test "little64 throws for >8 character strings" {
