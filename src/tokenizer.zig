@@ -285,6 +285,22 @@ test "token equality" {
     try std.testing.expect(tab.equals(tab));
     try tab.expectNotEquals(Token{ .tab = 456 });
     try std.testing.expect(!tab.equals(Token{ .tab = 456 }));
+
+    const operator = Token{ .operator = 123 };
+    try operator.expectNotEquals(end);
+    try std.testing.expect(!operator.equals(end));
+    try operator.expectNotEquals(starts_upper);
+    try std.testing.expect(!operator.equals(starts_upper));
+    try operator.expectNotEquals(starts_lower);
+    try std.testing.expect(!operator.equals(starts_lower));
+    try operator.expectNotEquals(newline);
+    try std.testing.expect(!operator.equals(newline));
+    try operator.expectNotEquals(Token{ .tab = 123 });
+    try std.testing.expect(!operator.equals(Token{ .tab = 123 }));
+    try operator.expectEquals(operator);
+    try std.testing.expect(operator.equals(operator));
+    try operator.expectNotEquals(Token{ .operator = 456 });
+    try std.testing.expect(!operator.equals(Token{ .operator = 456 }));
 }
 
 test "basic tokenizer functionality" {
@@ -398,4 +414,3 @@ test "tokenizer tokenizing" {
     try token.expectEquals(.end);
     try std.testing.expectEqual(3, tokenizer.lineIndexAt(count));
 }
-
