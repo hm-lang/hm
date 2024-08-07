@@ -103,7 +103,7 @@ pub const Small = extern struct {
         return result;
     }
 
-    pub fn at(self: *const Small, at_index: anytype) u8 {
+    pub inline fn at(self: *const Small, at_index: anytype) u8 {
         var index: i64 = @intCast(at_index);
         if (index < 0) {
             index += self.size;
@@ -116,12 +116,12 @@ pub const Small = extern struct {
         return self.slice()[@intCast(index)];
     }
 
-    pub fn inBounds(self: *const Small, index: usize) u8 {
+    pub inline fn inBounds(self: *const Small, index: usize) u8 {
         std.debug.assert(index < self.count());
         return self.slice()[index];
     }
 
-    pub fn count(self: *const Small) usize {
+    pub inline fn count(self: *const Small) usize {
         return self.size;
     }
 
