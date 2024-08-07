@@ -1,7 +1,6 @@
 const common = @import("common.zig");
 
 const std = @import("std");
-const testing = std.testing;
 
 const StringError = error{
     string_too_long,
@@ -75,6 +74,20 @@ pub const Small = extern struct {
         return &self.short;
     }
 
+    pub fn little64(self: *const Small) StringError!u64 {
+        if (self.size > 8) {
+            return StringError.string_too_long;
+        }
+        var result: u64 = 0;
+        var index: u6 = 0;
+        for (self.slice()) |char| {
+            const char64: u64 = char;
+            result |= char64 << (index * 8);
+            index += 1;
+        }
+        return result;
+    }
+
     pub fn at(self: *const Small, at_index: anytype) u8 {
         var index: i64 = @intCast(at_index);
         if (index < 0) {
@@ -133,7 +146,7 @@ pub const Small = extern struct {
         if (!equal) {
             std.debug.print("expected {s}, got {s}\n", .{ b.slice(), a.slice() });
         }
-        try testing.expect(equal);
+        try std.testing.expect(equal);
     }
 
     pub fn expectNotEquals(a: Small, b: Small) !void {
@@ -141,42 +154,61 @@ pub const Small = extern struct {
         if (equal) {
             std.debug.print("expected {s} to NOT equal {s}\n", .{ a.slice(), b.slice() });
         }
-        try testing.expect(!equal);
+        try std.testing.expect(!equal);
     }
 };
 
 test "Small size is correct" {
-    try testing.expectEqual(16, @sizeOf(Small));
+    try std.testing.expectEqual(16, @sizeOf(Small));
     const small_string: Small = .{};
-    try testing.expectEqual(2, @sizeOf(@TypeOf(small_string.size)));
-    try testing.expectEqual(6, @sizeOf(@TypeOf(small_string.short)));
-    try testing.expectEqual(8, @sizeOf(@TypeOf(small_string.remaining.if_small)));
-    try testing.expectEqual(14, Small.get_medium_size());
+    try std.testing.expectEqual(2, @sizeOf(@TypeOf(small_string.size)));
+    try std.testing.expectEqual(6, @sizeOf(@TypeOf(small_string.short)));
+    try std.testing.expectEqual(8, @sizeOf(@TypeOf(small_string.remaining.if_small)));
+    try std.testing.expectEqual(14, Small.get_medium_size());
     // TODO: check for `small_string.remaining.pointer` being at +8 from start of small_string
-    // try testing.expectEqual(8, @typeInfo(@TypeOf(small_string.remaining.pointer)).Pointer.alignment);
+    // try std.testing.expectEqual(8, @typeInfo(@TypeOf(small_string.remaining.pointer)).Pointer.alignment);
 }
 
 test "noAlloc works" {
-    try testing.expectEqualStrings("this is ok man", Small.noAlloc("this is ok man").slice());
+    try std.testing.expectEqualStrings("this is ok man", Small.noAlloc("this is ok man").slice());
+}
+
+test "little64 works for small strings" {
+    var little = Small.noAlloc("*");
+    try std.testing.expectEqual('*', try little.little64());
+
+    little = Small.noAlloc("_");
+    try std.testing.expectEqual('_', try little.little64());
+
+    little = Small.noAlloc("Qu");
+    try std.testing.expectEqual(30033, try little.little64());
+
+    little = Small.noAlloc("`!@#$%^&");
+    try std.testing.expectEqual(2764688058392519008, try little.little64());
+}
+
+test "little64 throws for >8 character strings" {
+    const not_little = Small.noAlloc("123456789");
+    try std.testing.expectError(StringError.string_too_long, not_little.little64());
 }
 
 test "equals works for noAlloc strings" {
     const empty_string: Small = .{};
-    try testing.expectEqual(true, empty_string.equals(Small.noAlloc("")));
+    try std.testing.expectEqual(true, empty_string.equals(Small.noAlloc("")));
 
     const string1 = Small.noAlloc("hi");
     const string2 = Small.noAlloc("hi");
-    try testing.expectEqual(true, string1.equals(string2));
-    try testing.expectEqualStrings("hi", string1.slice());
+    try std.testing.expectEqual(true, string1.equals(string2));
+    try std.testing.expectEqualStrings("hi", string1.slice());
     try string1.expectEquals(string2);
 
     const string3 = Small.noAlloc("hI");
-    try testing.expectEqual(false, string1.equals(string3));
+    try std.testing.expectEqual(false, string1.equals(string3));
     try string1.expectNotEquals(string3);
 
     var string4 = try Small.init("hi this is going to be more than 16 characters");
     defer string4.deinit();
-    try testing.expectEqual(false, string1.equals(string4));
+    try std.testing.expectEqual(false, string1.equals(string4));
     try string1.expectNotEquals(string4);
 }
 
@@ -185,17 +217,17 @@ test "equals works for large strings" {
     defer string1.deinit();
     var string2 = try Small.init("hello world this is over 16 characters");
     defer string2.deinit();
-    try testing.expectEqual(true, string1.equals(string2));
-    try testing.expectEqualStrings("hello world this is over 16 characters", string1.slice());
+    try std.testing.expectEqual(true, string1.equals(string2));
+    try std.testing.expectEqualStrings("hello world this is over 16 characters", string1.slice());
     try string1.expectEquals(string2);
 
     var string3 = try Small.init("hello world THIS is over 16 characters");
     defer string3.deinit();
-    try testing.expectEqual(false, string1.equals(string3));
+    try std.testing.expectEqual(false, string1.equals(string3));
     try string1.expectNotEquals(string3);
 
     const string4 = Small.noAlloc("hello");
-    try testing.expectEqual(false, string1.equals(string4));
+    try std.testing.expectEqual(false, string1.equals(string4));
     try string1.expectNotEquals(string4);
 }
 
@@ -248,16 +280,16 @@ test "at/inBounds works for small strings" {
 
 test "does not sign short strings" {
     var string = Small.noAlloc("below fourteen");
-    try testing.expectEqualStrings("below fourteen", string.signature());
-    try testing.expectEqual(14, string.count());
+    try std.testing.expectEqualStrings("below fourteen", string.signature());
+    try std.testing.expectEqual(14, string.count());
 }
 
 test "signs large strings" {
     var string = try Small.init("above sixteen chars");
     defer string.deinit();
 
-    try testing.expectEqualStrings("ab19rs", string.signature());
-    try testing.expectEqual(19, string.count());
+    try std.testing.expectEqualStrings("ab19rs", string.signature());
+    try std.testing.expectEqual(19, string.count());
 }
 
 test "signs very large strings" {
@@ -265,12 +297,12 @@ test "signs very large strings" {
     var string = try Small.init("g" ** Small.max_size);
     defer string.deinit();
 
-    try testing.expectEqualStrings("g65535", string.signature());
-    try testing.expectEqual(65535, string.count());
+    try std.testing.expectEqualStrings("g65535", string.signature());
+    try std.testing.expectEqual(65535, string.count());
 }
 
 test "too large of a string" {
-    try testing.expectError(StringError.string_too_long, Small.init("g" ** (Small.max_size + 1)));
+    try std.testing.expectError(StringError.string_too_long, Small.init("g" ** (Small.max_size + 1)));
 }
 
 /// Does a short version of `chars` for `buffer` in case `buffer` is smaller than `chars`.
@@ -307,71 +339,71 @@ pub fn sign(buffer: []u8, chars: []const u8) !void {
 test "sign works well for even-sized buffers" {
     var buffer = [_]u8{0} ** 8;
     try sign(&buffer, "hello");
-    try testing.expectEqualStrings("hello\x00\x00\x00", &buffer);
+    try std.testing.expectEqualStrings("hello\x00\x00\x00", &buffer);
 
     try sign(&buffer, "hi");
-    try testing.expectEqualStrings("hi\x00\x00\x00\x00\x00\x00", &buffer);
+    try std.testing.expectEqualStrings("hi\x00\x00\x00\x00\x00\x00", &buffer);
 
     try sign(&buffer, "underme");
-    try testing.expectEqualStrings("underme\x00", &buffer);
+    try std.testing.expectEqualStrings("underme\x00", &buffer);
 
     try sign(&buffer, "equal_it");
-    try testing.expectEqualStrings("equal_it", &buffer);
+    try std.testing.expectEqualStrings("equal_it", &buffer);
 
     try sign(&buffer, "just_over");
-    try testing.expectEqualStrings("just9ver", &buffer);
+    try std.testing.expectEqualStrings("just9ver", &buffer);
 
     try sign(&buffer, "something_bigger");
-    try testing.expectEqualStrings("som16ger", &buffer);
+    try std.testing.expectEqualStrings("som16ger", &buffer);
 
     try sign(&buffer, "wowza" ** 100);
-    try testing.expectEqualStrings("wow500za", &buffer);
+    try std.testing.expectEqualStrings("wow500za", &buffer);
 
     try sign(&buffer, "cake" ** 1000);
-    try testing.expectEqualStrings("ca4000ke", &buffer);
+    try std.testing.expectEqualStrings("ca4000ke", &buffer);
 
     try sign(&buffer, "big" ** 10000);
-    try testing.expectEqualStrings("bi30000g", &buffer);
+    try std.testing.expectEqualStrings("bi30000g", &buffer);
 }
 
 test "sign works well for odd-sized buffers" {
     var buffer = [_]u8{0} ** 7;
     try sign(&buffer, "");
-    try testing.expectEqualStrings("\x00\x00\x00\x00\x00\x00\x00", &buffer);
+    try std.testing.expectEqualStrings("\x00\x00\x00\x00\x00\x00\x00", &buffer);
 
     try sign(&buffer, "a");
-    try testing.expectEqualStrings("a\x00\x00\x00\x00\x00\x00", &buffer);
+    try std.testing.expectEqualStrings("a\x00\x00\x00\x00\x00\x00", &buffer);
 
     try sign(&buffer, "under@");
-    try testing.expectEqualStrings("under@\x00", &buffer);
+    try std.testing.expectEqualStrings("under@\x00", &buffer);
 
     try sign(&buffer, "equalit");
-    try testing.expectEqualStrings("equalit", &buffer);
+    try std.testing.expectEqualStrings("equalit", &buffer);
 
     try sign(&buffer, "justover");
-    try testing.expectEqualStrings("jus8ver", &buffer);
+    try std.testing.expectEqualStrings("jus8ver", &buffer);
 
     try sign(&buffer, "something_bigger");
-    try testing.expectEqualStrings("som16er", &buffer);
+    try std.testing.expectEqualStrings("som16er", &buffer);
 
     try sign(&buffer, "wowza" ** 100);
-    try testing.expectEqualStrings("wo500za", &buffer);
+    try std.testing.expectEqualStrings("wo500za", &buffer);
 
     try sign(&buffer, "cake" ** 1000);
-    try testing.expectEqualStrings("ca4000e", &buffer);
+    try std.testing.expectEqualStrings("ca4000e", &buffer);
 
     try sign(&buffer, "big" ** 10000);
-    try testing.expectEqualStrings("b30000g", &buffer);
+    try std.testing.expectEqualStrings("b30000g", &buffer);
 }
 
 test "sign works well for small even-sized buffers" {
     var buffer = [_]u8{0} ** 6;
     try sign(&buffer, "wowza" ** 100);
-    try testing.expectEqualStrings("wo500a", &buffer);
+    try std.testing.expectEqualStrings("wo500a", &buffer);
 
     try sign(&buffer, "cake" ** 1000);
-    try testing.expectEqualStrings("c4000e", &buffer);
+    try std.testing.expectEqualStrings("c4000e", &buffer);
 
     try sign(&buffer, "big" ** 10000);
-    try testing.expectEqualStrings("b30000", &buffer);
+    try std.testing.expectEqualStrings("b30000", &buffer);
 }

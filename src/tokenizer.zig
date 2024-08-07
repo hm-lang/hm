@@ -133,6 +133,7 @@ pub const TokenTag = enum {
     starts_lower,
     newline,
     tab,
+    operator,
 };
 
 pub const Token = union(TokenTag) {
@@ -141,6 +142,7 @@ pub const Token = union(TokenTag) {
     starts_lower: SmallString,
     newline: usize,
     tab: usize,
+    operator: u64,
 
     pub fn deinit(self: Token) void {
         const tag = std.meta.activeTag(self);
