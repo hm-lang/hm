@@ -353,6 +353,22 @@ test "too large of a string" {
     try std.testing.expectError(StringError.string_too_long, Small.init("g" ** (Small.max_size + 1)));
 }
 
+test "copies all bytes of short string" {
+    // This is mostly just me verifying how zig does memory.
+    // We want string copies to be safe.
+    var string_src = Small.noAlloc("0123456789abcd");
+    string_src.size = 5;
+
+    const string_dst = string_src;
+    string_src.size = 14;
+
+    for (string_src.buffer()) |*c| {
+        c.* += 10;
+    }
+    try string_src.expectEquals(Small.noAlloc(":;<=>?@ABCklmn"));
+    try string_dst.expectEquals(Small.noAlloc("01234"));
+}
+
 /// Does a short version of `chars` for `buffer` in case `buffer` is smaller than `chars`.
 /// Shortens e.g., 'my_string' to 'my_9ng' if `buffer` is 6 letters long, where 9
 /// is the full length of the `chars` slice.

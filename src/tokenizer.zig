@@ -71,7 +71,7 @@ pub const Tokenizer = struct {
     fn addNextToken(self: *Tokenizer) TokenError!Token {
         const starting_char_index = self.farthest_char_index;
         const original_count = self.tokens.count();
-        const next = try self.getNextToken();
+        const next = try self.getNextExplicitToken();
         if (next.isWhitespace() or (original_count > 0 and self.tokens.inBounds(original_count - 1).isTab())) {
             // No need to add an implied tab between existing whitespace...
         } else {
@@ -86,7 +86,7 @@ pub const Tokenizer = struct {
         return next;
     }
 
-    fn getNextToken(self: *Tokenizer) TokenError!Token {
+    fn getNextExplicitToken(self: *Tokenizer) TokenError!Token {
         if (self.farthest_line_index >= self.file.lines.count()) {
             return .end;
         }
