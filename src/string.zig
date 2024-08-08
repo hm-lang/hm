@@ -39,7 +39,7 @@ pub const Small = extern struct {
         if (chars.len > 8) {
             @compileError("Small.as64 must have 8 characters or less");
         }
-       
+
         return internalAs64(chars);
     }
 
