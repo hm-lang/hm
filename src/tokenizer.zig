@@ -421,6 +421,28 @@ test "valid tokenizer operators" {
     }
 }
 
+test "invalid tokenizer operators" {
+    var invalid_lines = OwnedSmalls.init();
+    defer invalid_lines.deinit();
+
+    try invalid_lines.append(SmallString.noAlloc("=+"));
+    try invalid_lines.append(SmallString.noAlloc("+++"));
+    try invalid_lines.append(SmallString.noAlloc("*/"));
+    try invalid_lines.append(SmallString.noAlloc("~~"));
+
+    for (invalid_lines.items()) |line| {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+        try tokenizer.file.lines.append(line);
+
+        // Technically we'll get an error even with `tokenizer.at(0)`
+        // because we backfill an implicit tab.
+        try std.testing.expectError(TokenError.invalid_token, tokenizer.at(1));
+
+        // TODO: test that file.lines was added to with the error
+    }
+}
+
 test "tokenizer tokenizing" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
