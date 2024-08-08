@@ -34,6 +34,15 @@ pub const Small = extern struct {
         return Small.init(chars) catch unreachable;
     }
 
+    pub inline fn as64(chars: anytype) u64 {
+        // We're expecting `chars` to be `*const [n:0]u8` with n <= 8
+        if (chars.len > 8) {
+            @compileError("Small.as64 must have 8 characters or less");
+        }
+       
+        return internalAs64(chars);
+    }
+
     // Another initialization that doesn't require an allocation.
     pub fn init64(l64: u64) Small {
         var result: Small = .{ .size = 8 };
@@ -90,17 +99,11 @@ pub const Small = extern struct {
     }
 
     pub fn little64(self: *const Small) StringError!u64 {
-        if (self.size > 8) {
+        const chars = self.slice();
+        if (chars.len > 8) {
             return StringError.string_too_long;
         }
-        var result: u64 = 0;
-        var index: u6 = 0;
-        for (self.slice()) |char| {
-            const char64: u64 = char;
-            result |= char64 << (index * 8);
-            index += 1;
-        }
-        return result;
+        return internalAs64(chars);
     }
 
     pub inline fn at(self: *const Small, at_index: anytype) u8 {
@@ -172,6 +175,18 @@ pub const Small = extern struct {
         try std.testing.expect(!equal);
     }
 };
+
+fn internalAs64(chars: []const u8) u64 {
+    std.debug.assert(chars.len <= 8);
+    var result: u64 = 0;
+    var index: u6 = 0;
+    while (index < chars.len) {
+        const char64: u64 = chars[index];
+        result |= char64 << (index * 8);
+        index += 1;
+    }
+    return result;
+}
 
 test "Small size is correct" {
     try std.testing.expectEqual(16, @sizeOf(Small));
