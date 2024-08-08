@@ -72,7 +72,7 @@ pub const Tokenizer = struct {
         const starting_char_index = self.farthest_char_index;
         const original_count = self.tokens.count();
         const next = try self.getNextToken();
-        if (original_count == 0 or next.isWhitespace() or self.tokens.inBounds(original_count - 1).isTab()) {
+        if (next.isWhitespace() or (original_count > 0 and self.tokens.inBounds(original_count - 1).isTab())) {
             // No need to add an implied tab between existing whitespace...
         } else {
             // Add an "implied" tab so we can keep track of where we are.
@@ -166,9 +166,10 @@ pub const Tokenizer = struct {
         const small = SmallString.init(buffer) catch unreachable;
         const operator = small.little64() catch unreachable;
         switch (operator) {
-            SmallString.as64("*"),
+            SmallString.as64("="),
             SmallString.as64("+"),
             SmallString.as64("-"),
+            SmallString.as64("*"),
             SmallString.as64("/"),
             => {},
             else => {
@@ -390,6 +391,34 @@ test "tokenizer deiniting frees internal memory" {
     try tokenizer.file.lines.append(try SmallString.init("long line of stuff" ** 5));
     try tokenizer.file.lines.append(try SmallString.init("other line of stuff" ** 6));
     try tokenizer.file.lines.append(try SmallString.init("big line again" ** 7));
+}
+
+test "valid tokenizer operators" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    try tokenizer.file.lines.append(SmallString.noAlloc("="));
+    try tokenizer.file.lines.append(SmallString.noAlloc("+"));
+    try tokenizer.file.lines.append(SmallString.noAlloc("-"));
+    try tokenizer.file.lines.append(SmallString.noAlloc("*"));
+    try tokenizer.file.lines.append(SmallString.noAlloc("/"));
+
+    var count: usize = 0;
+    for (0..tokenizer.file.lines.count()) |line_index| {
+        const line = tokenizer.file.lines.inBounds(line_index);
+
+        var token = try tokenizer.at(count);
+        try token.expectEquals(Token{ .tab = 0 });
+        count += 1;
+
+        token = try tokenizer.at(count);
+        try token.expectEquals(Token{ .operator = try line.little64() });
+        count += 1;
+
+        token = try tokenizer.at(count);
+        try token.expectEquals(Token{ .newline = line_index + 1 });
+        count += 1;
+    }
 }
 
 test "tokenizer tokenizing" {
