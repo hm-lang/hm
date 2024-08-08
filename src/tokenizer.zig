@@ -52,10 +52,7 @@ pub const Tokenizer = struct {
         while (token_index >= self.tokens.count()) {
             // We'll just keep appending `.end` to `tokens` if you keep
             // incrementing the index you pass in to `at()`, so don't do that.
-            const token = try self.get_next_token();
-            self.tokens.append(token) catch {
-                return TokenError.out_of_memory;
-            };
+            _ = try self.add_next_token();
             count += 1;
         }
         if (count > 1) {
@@ -67,11 +64,16 @@ pub const Tokenizer = struct {
     fn complete(self: *Tokenizer) TokenError!void {
         var last = try self.at(0);
         while (!last.equals(.end)) {
-            last = try self.get_next_token();
-            self.tokens.append(last) catch {
-                return TokenError.out_of_memory;
-            };
+            last = try self.add_next_token();
         }
+    }
+
+    fn add_next_token(self: *Tokenizer) TokenError!Token {
+        const next = try self.get_next_token();
+        self.tokens.append(next) catch {
+            return TokenError.out_of_memory;
+        };
+        return next;
     }
 
     fn get_next_token(self: *Tokenizer) TokenError!Token {
@@ -172,6 +174,9 @@ pub const TokenTag = enum {
     starts_upper,
     starts_lower,
     newline,
+    // TODO: consider merging `tab` into everything else,
+    //      in case we want to get `tab` information for things
+    //      like the operator `*` after `sp3cial*`.
     tab,
     operator,
 };
