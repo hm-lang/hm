@@ -16,3 +16,18 @@ pub fn swap(a: anytype, b: anytype) void {
     a.* = b.*;
     b.* = c;
 }
+
+pub fn Range(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        /// `Range` starts at `start`.
+        start: T,
+        /// `Range` excludes `end`.
+        end: T,
+
+        pub fn of(the_start: anytype, the_end: anytype) Self {
+            return .{ .start = @intCast(the_start), .end = @intCast(the_end) };
+        }
+    };
+}

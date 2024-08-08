@@ -19,6 +19,8 @@ pub const Tokenizer = struct {
     file: File = .{},
     farthest_line_index: usize = 0,
     farthest_char_index: usize = 0,
+    // TODO: add an `error_past_token_index: usize = std.math.max(usize)`
+    //      which gets updated and throws `error_past_this` if you're trying to access past it.
 
     pub fn deinit(self: *Tokenizer) void {
         self.tokens.deinit();
@@ -40,6 +42,14 @@ pub const Tokenizer = struct {
             }
         }
         return 0;
+    }
+
+    /// Gets the index of the last line that has been "tokenized",
+    /// i.e., lexed by this `Tokenizer`.  There are no guarantees that
+    /// this line has been fully tokenized; there could be an error here.
+    pub fn lastTokenizedLineIndex(self: *Tokenizer) usize {
+        const count = self.tokens.count();
+        return if (count > 0) self.lineIndexAt(count - 1) else 0;
     }
 
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
@@ -148,6 +158,13 @@ pub const Tokenizer = struct {
 
     fn getNextOperator(self: *Tokenizer, line: SmallString) TokenError!u64 {
         const initial_char_index = self.farthest_char_index;
+        errdefer {
+            self.addErrorLine(
+                self.lastTokenizedLineIndex(),
+                File.LineRange.of(initial_char_index, self.farthest_char_index),
+                "invalid operator",
+            );
+        }
         self.farthest_char_index += 1;
         while (self.farthest_char_index < line.count()) {
             switch (line.inBounds(self.farthest_char_index)) {
@@ -159,8 +176,6 @@ pub const Tokenizer = struct {
         }
         const buffer = line.slice()[initial_char_index..self.farthest_char_index];
         if (buffer.len > 8) {
-            // TODO: add a new line to self.lines after `line` (e.g., using `lineIndexAt`)
-            // and add an error message that this operator is too long.
             return TokenError.invalid_token;
         }
         const small = SmallString.init(buffer) catch unreachable;
@@ -177,6 +192,16 @@ pub const Tokenizer = struct {
             },
         }
         return operator;
+    }
+
+    fn addErrorLine(self: *Tokenizer, after_line_index: usize, line_range: File.LineRange, error_message: []const u8) void {
+        // TODO: these comments need to be completely skipped when parsing
+        const compiler_error_start = "#@!$ ";
+        _ = compiler_error_start;
+        _ = self;
+        _ = after_line_index;
+        _ = line_range;
+        _ = error_message;
     }
 };
 
@@ -434,9 +459,11 @@ test "invalid tokenizer operators" {
         var tokenizer: Tokenizer = .{};
         defer tokenizer.deinit();
         try tokenizer.file.lines.append(line);
+        try tokenizer.file.lines.append(SmallString.noAlloc("second line"));
 
         // Technically we'll get an error even with `tokenizer.at(0)`
-        // because we backfill an implicit tab.
+        // because we backfill an implicit tab, but that's a bit of
+        // an implementation detail.
         try std.testing.expectError(TokenError.invalid_token, tokenizer.at(1));
 
         // TODO: test that file.lines was added to with the error

@@ -23,6 +23,13 @@ pub const Small = extern struct {
         pointer: *u8,
     } = undefined,
 
+    // TODO: rename to `get_no_alloc_size()`
+    fn get_medium_size() comptime_int {
+        const small: Small = .{};
+        const smallest_size = @sizeOf(@TypeOf(small.short));
+        return smallest_size + @sizeOf(@TypeOf(small.remaining.if_small));
+    }
+
     /// Initializes a `Small` that is just on the stack (no allocations on the heap).
     /// For compile-time-known `chars` only.  For anything else, prefer `init` and
     /// just defer `deinit` to be safe.
@@ -32,15 +39,6 @@ pub const Small = extern struct {
             @compileError(std.fmt.comptimePrint("Small.noAlloc must have {d} characters or less", .{get_medium_size()}));
         }
         return Small.init(chars) catch unreachable;
-    }
-
-    pub inline fn as64(chars: anytype) u64 {
-        // We're expecting `chars` to be `*const [n:0]u8` with n <= 8
-        if (chars.len > 8) {
-            @compileError("Small.as64 must have 8 characters or less");
-        }
-
-        return internalAs64(chars);
     }
 
     // Another initialization that doesn't require an allocation.
@@ -58,10 +56,21 @@ pub const Small = extern struct {
         return result;
     }
 
-    fn get_medium_size() comptime_int {
-        const small: Small = .{};
-        const smallest_size = @sizeOf(@TypeOf(small.short));
-        return smallest_size + @sizeOf(@TypeOf(small.remaining.if_small));
+    /// Note this will not provide a signature.
+    // TODO: try to fix this somehow, maybe add a `sign` method.
+    pub fn allocNoSign(new_size: anytype) StringError!Small {
+        if (new_size > max_size) {
+            return StringError.string_too_long;
+        }
+        var string: Small = .{ .size = @intCast(new_size) };
+        if (new_size > comptime get_medium_size()) {
+            const heap = common.allocator.alloc(u8, new_size) catch {
+                std.debug.print("couldn't allocate {d}-character string...\n", .{new_size});
+                return StringError.out_of_memory;
+            };
+            string.remaining.pointer = @ptrCast(heap.ptr);
+        }
+        return string;
     }
 
     pub fn deinit(self: *Small) void {
@@ -71,24 +80,24 @@ pub const Small = extern struct {
         self.size = 0;
     }
 
-    pub fn init(chars: []const u8) StringError!Small {
-        if (chars.len > Small.max_size) {
-            return StringError.string_too_long;
-        }
-        var string: Small = .{ .size = @intCast(chars.len) };
-        const medium_size = comptime get_medium_size();
-        if (chars.len > medium_size) {
-            const heap = common.allocator.alloc(u8, chars.len) catch {
-                std.debug.print("couldn't allocate {d}-character string...\n", .{chars.len});
-                return StringError.out_of_memory;
-            };
-            string.remaining.pointer = @ptrCast(heap.ptr);
+    pub inline fn init(chars: []const u8) StringError!Small {
+        var string = try Small.allocNoSign(chars.len);
+        @memcpy(string.buffer(), chars);
+        if (chars.len > comptime get_medium_size()) {
             sign(&string.short, chars) catch {
                 std.debug.print("shouldn't have had a problem signing {d} characters\n", .{chars.len});
             };
         }
-        @memcpy(string.buffer()[0..chars.len], chars);
         return string;
+    }
+
+    pub inline fn as64(chars: anytype) u64 {
+        // We're expecting `chars` to be `*const [n:0]u8` with n <= 8
+        if (chars.len > 8) {
+            @compileError("Small.as64 must have 8 characters or less");
+        }
+
+        return internalAs64(chars);
     }
 
     pub fn signature(self: *const Small) []const u8 {
@@ -128,12 +137,13 @@ pub const Small = extern struct {
         return self.size;
     }
 
-    /// Not public, should only be used when writing the first time (or freeing).
-    fn buffer(self: *Small) []u8 {
+    /// Only use at start of string creation.  It won't be automatically signed;
+    /// so you can't rely on that.
+    pub fn buffer(self: *Small) []u8 {
         const medium_size = comptime get_medium_size();
         if (self.size <= medium_size) {
             const full_small_buffer: *[medium_size]u8 = @ptrCast(&self.short[0]);
-            return full_small_buffer[0..medium_size];
+            return full_small_buffer[0..self.size];
         } else {
             const full_buffer: *[Small.max_size]u8 = @ptrCast(self.remaining.pointer);
             return full_buffer[0..self.size];
@@ -369,6 +379,7 @@ test "copies all bytes of short string" {
     try string_dst.expectEquals(Small.noAlloc("01234"));
 }
 
+// TODO: move to `common` so that `Small.sign` can be a thing.
 /// Does a short version of `chars` for `buffer` in case `buffer` is smaller than `chars`.
 /// Shortens e.g., 'my_string' to 'my_9ng' if `buffer` is 6 letters long, where 9
 /// is the full length of the `chars` slice.
