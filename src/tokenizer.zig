@@ -52,7 +52,7 @@ pub const Tokenizer = struct {
         while (token_index >= self.tokens.count()) {
             // We'll just keep appending `.end` to `tokens` if you keep
             // incrementing the index you pass in to `at()`, so don't do that.
-            _ = try self.add_next_token();
+            _ = try self.addNextToken();
             count += 1;
         }
         if (count > 1) {
@@ -64,25 +64,35 @@ pub const Tokenizer = struct {
     fn complete(self: *Tokenizer) TokenError!void {
         var last = try self.at(0);
         while (!last.equals(.end)) {
-            last = try self.add_next_token();
+            last = try self.addNextToken();
         }
     }
 
-    fn add_next_token(self: *Tokenizer) TokenError!Token {
-        const next = try self.get_next_token();
+    fn addNextToken(self: *Tokenizer) TokenError!Token {
+        const starting_char_index = self.farthest_char_index;
+        const original_count = self.tokens.count();
+        const next = try self.getNextToken();
+        if (original_count == 0 or next.isWhitespace() or self.tokens.inBounds(original_count - 1).isTab()) {
+            // No need to add an implied tab between existing whitespace...
+        } else {
+            // Add an "implied" tab so we can keep track of where we are.
+            self.tokens.append(Token{ .tab = starting_char_index }) catch {
+                return TokenError.out_of_memory;
+            };
+        }
         self.tokens.append(next) catch {
             return TokenError.out_of_memory;
         };
         return next;
     }
 
-    fn get_next_token(self: *Tokenizer) TokenError!Token {
+    fn getNextToken(self: *Tokenizer) TokenError!Token {
         if (self.farthest_line_index >= self.file.lines.count()) {
             return .end;
         }
         const line = self.file.lines.inBounds(self.farthest_line_index);
         if (self.farthest_char_index >= line.count()) {
-            return self.get_newline();
+            return self.getNewline();
         }
         const starting_char = line.inBounds(self.farthest_char_index);
         const starts_with_whitespace = starting_char == ' ';
@@ -91,7 +101,7 @@ pub const Tokenizer = struct {
                 self.farthest_char_index += 1;
                 if (self.farthest_char_index >= line.count()) {
                     // Ignore whitespace at the end of a line.
-                    return self.get_newline();
+                    return self.getNewline();
                 }
                 if (line.inBounds(self.farthest_char_index) != ' ') {
                     return Token{ .tab = self.farthest_char_index };
@@ -99,27 +109,27 @@ pub const Tokenizer = struct {
             }
         } else {
             switch (starting_char) {
-                'A'...'Z', '_' => return Token{ .starts_upper = try self.get_next_identifier(line) },
+                'A'...'Z', '_' => return Token{ .starts_upper = try self.getNextIdentifier(line) },
                 // TODO: do we want to support `and` here?  we could just use `&&`
                 //      so that `X and(Y)` would be ok to overload.
                 //      mostly eventually we need `xor`.
-                'a'...'z' => return Token{ .starts_lower = try self.get_next_identifier(line) },
-                // TODO: '@' => return Token { ???: self.get_next_identifier(line) },
+                'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
+                // TODO: '@' => return Token { ???: self.getNextIdentifier(line) },
                 // TODO: '"' and '\''
                 // TODO: '[', '(', and '{', with corresponding ']', ')', and '}'.
                 // TODO: '#'.
-                else => return Token{ .operator = try self.get_next_operator(line) },
+                else => return Token{ .operator = try self.getNextOperator(line) },
             }
         }
     }
 
-    fn get_newline(self: *Tokenizer) Token {
+    fn getNewline(self: *Tokenizer) Token {
         self.farthest_char_index = 0;
         self.farthest_line_index += 1;
         return Token{ .newline = self.farthest_line_index };
     }
 
-    fn get_next_identifier(self: *Tokenizer, line: SmallString) TokenError!SmallString {
+    fn getNextIdentifier(self: *Tokenizer, line: SmallString) TokenError!SmallString {
         // We've already checked and there's an alphabetical character at the self.farthest_char_index.
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
@@ -136,7 +146,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn get_next_operator(self: *Tokenizer, line: SmallString) TokenError!u64 {
+    fn getNextOperator(self: *Tokenizer, line: SmallString) TokenError!u64 {
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
         while (self.farthest_char_index < line.count()) {
@@ -174,9 +184,6 @@ pub const TokenTag = enum {
     starts_upper,
     starts_lower,
     newline,
-    // TODO: consider merging `tab` into everything else,
-    //      in case we want to get `tab` information for things
-    //      like the operator `*` after `sp3cial*`.
     tab,
     operator,
 };
@@ -188,6 +195,22 @@ pub const Token = union(TokenTag) {
     newline: usize,
     tab: usize,
     operator: u64,
+
+    // TODO: add more of these tag helpers
+    pub fn isNewline(self: Token) bool {
+        return std.meta.activeTag(self) == TokenTag.newline;
+    }
+
+    pub fn isTab(self: Token) bool {
+        return std.meta.activeTag(self) == TokenTag.tab;
+    }
+
+    pub fn isWhitespace(self: Token) bool {
+        switch (std.meta.activeTag(self)) {
+            TokenTag.newline, TokenTag.tab, TokenTag.end => return true,
+            else => return false,
+        }
+    }
 
     pub fn deinit(self: Token) void {
         const tag = std.meta.activeTag(self);
@@ -416,6 +439,11 @@ test "tokenizer tokenizing" {
 
     count += 1;
     token = try tokenizer.at(count);
+    try token.expectEquals(Token{ .tab = 0 });
+    try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
+
+    count += 1;
+    token = try tokenizer.at(count);
     try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Second2") });
     try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
 
@@ -427,6 +455,11 @@ test "tokenizer tokenizing" {
     count += 1;
     token = try tokenizer.at(count);
     try token.expectEquals(Token{ .operator = '-' });
+    try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
+
+    count += 1;
+    token = try tokenizer.at(count);
+    try token.expectEquals(Token{ .tab = 12 }); // implied tab
     try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
 
     count += 1;
@@ -443,7 +476,17 @@ test "tokenizer tokenizing" {
 
     count += 1;
     token = try tokenizer.at(count);
+    try token.expectEquals(Token{ .tab = 0 });
+    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
+
+    count += 1;
+    token = try tokenizer.at(count);
     try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("sp3cial") });
+    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
+
+    count += 1;
+    token = try tokenizer.at(count);
+    try token.expectEquals(Token{ .tab = 7 }); // implied tab
     try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
 
     count += 1;
