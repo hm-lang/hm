@@ -32,24 +32,27 @@ pub const Tokenizer = struct {
     /// You should already have looked up to the token index via `at()` before calling this,
     /// so this has undefined behavior if it can't allocate the necessary tokens up to
     /// the passed-in `for_token_index`.
-    pub fn lineIndexAt(self: *Tokenizer, at_token_index: usize) usize {
+    fn lineIndexAt(self: *Tokenizer, at_token_index: usize) usize {
         var token_index: i64 = @intCast(at_token_index);
+        if (token_index >= self.tokens.count()) {
+            std.debug.print("try to get rid of these calls\n", .{});
+            return 0;
+        }
         while (token_index >= 0) {
-            const token = self.at(@intCast(token_index)) catch unreachable;
+            const token = self.tokens.inBounds(@intCast(token_index));
             switch (token) {
-                .newline => |line_index| return line_index,
+                .newline => |line_index| {
+                    return line_index;
+                },
                 else => token_index -= 1,
             }
         }
         return 0;
     }
 
-    /// Gets the index of the last line that has been "tokenized",
-    /// i.e., lexed by this `Tokenizer`.  There are no guarantees that
-    /// this line has been fully tokenized; there could be an error here.
-    pub fn lastTokenizedLineIndex(self: *Tokenizer) usize {
+    fn lastTokenIndex(self: *Tokenizer) TokenError!usize {
         const count = self.tokens.count();
-        return if (count > 0) self.lineIndexAt(count - 1) else 0;
+        return if (count > 0) count - 1 else TokenError.out_of_tokens;
     }
 
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
@@ -159,8 +162,8 @@ pub const Tokenizer = struct {
     fn getNextOperator(self: *Tokenizer, line: SmallString) TokenError!u64 {
         const initial_char_index = self.farthest_char_index;
         errdefer {
-            self.addErrorLine(
-                self.lastTokenizedLineIndex(),
+            self.addErrorAt(
+                self.lastTokenIndex() catch 0,
                 SmallString.Range.of(initial_char_index, self.farthest_char_index),
                 "invalid operator",
             );
@@ -196,12 +199,15 @@ pub const Tokenizer = struct {
 
     // TODO: add some optional "extra lines" to add as well as the error message
     //      for extra debugging help.
-    // TODO: switch to `at_token_index` instead of `after_line_index`, maybe rename to `addErrorLineAt`
-    pub fn addErrorLine(self: *Tokenizer, after_line_index: usize, line_range: SmallString.Range, error_message: []const u8) void {
+    /// Adds an error around the given token index (i.e., on the line after that token).
+    // TODO: we probably should be able to add `error_columns` based on `at_token_index`.
+    //      but we probably need to add a `Token.invalid: SmallString` and add it, then look its columns up.
+    pub fn addErrorAt(self: *Tokenizer, at_token_index: usize, error_columns: SmallString.Range, error_message: []const u8) void {
+        const after_line_index = self.lineIndexAt(at_token_index);
         // TODO: these comment lines need to be skipped while parsing and removed from self.file
         //      i.e., any line starting with '#@!'
-        var string = getErrorLine(line_range, error_message) catch {
-            self.printErrorMessage(after_line_index, line_range, error_message);
+        var string = getErrorLine(error_columns, error_message) catch {
+            self.printErrorMessage(after_line_index, error_columns, error_message);
             return;
         };
         self.file.lines.insert(after_line_index + 1, string) catch {
@@ -221,57 +227,53 @@ pub const Tokenizer = struct {
             self.farthest_line_index += 1;
         }
         // TODO: print `lines[after_line_index]` and `string` to common.stderr.
-        //      get fancy with the colors around line_range.
+        //      get fancy with the colors around error_columns.
     }
 
-    fn getErrorLine(line_range: SmallString.Range, error_message: []const u8) SmallString.Error!SmallString {
-        const line_error: common.Range(usize) = .{
-            .start = @intCast(line_range.start),
-            .end = @intCast(line_range.end),
-        };
+    fn getErrorLine(error_columns: SmallString.Range, error_message: []const u8) SmallString.Error!SmallString {
         const compiler_error_start = "#@!";
         // Error message prefix if we can add the error message before `^~~~~~`:
         // +1 for the additional space between `error_message` and '^'.
         const pre_length = compiler_error_start.len + error_message.len + 1;
         var string: SmallString = undefined;
-        if (line_range.start >= pre_length) {
+        if (error_columns.start >= pre_length) {
             // Error goes before "^~~~~", e.g.
             // `#@!     this is an error ^~~~~`
-            const total_length: usize = @intCast(line_range.end);
+            const total_length: usize = @intCast(error_columns.end);
             string = try SmallString.allocExactly(total_length);
             var buffer = string.buffer();
             @memcpy(buffer[0..compiler_error_start.len], compiler_error_start);
             // -1 for the space between `error_message` and '^'
-            const error_message_start = line_error.start - error_message.len - 1;
+            const error_message_start = error_columns.start - error_message.len - 1;
             @memset(buffer[compiler_error_start.len..error_message_start], ' ');
-            @memcpy(buffer[error_message_start .. line_error.start - 1], error_message);
-            buffer[line_error.start - 1] = ' ';
-            buffer[line_error.start] = '^';
-            @memset(buffer[line_error.start + 1 .. line_error.end], '~');
+            @memcpy(buffer[error_message_start .. error_columns.start - 1], error_message);
+            buffer[error_columns.start - 1] = ' ';
+            buffer[error_columns.start] = '^';
+            @memset(buffer[error_columns.start + 1 .. error_columns.end], '~');
         } else {
             // Error goes after ^~~~~, e.g.,
             // `#@!  ^~~~~ this is an error`
-            const squiggles_start = @max(compiler_error_start.len, line_error.start);
-            const total_length: usize = @max(compiler_error_start.len, line_error.end) + error_message.len + 1;
+            const squiggles_start = @max(compiler_error_start.len, error_columns.start);
+            const total_length: usize = @max(compiler_error_start.len, error_columns.end) + error_message.len + 1;
             string = try SmallString.allocExactly(total_length);
             var buffer = string.buffer();
             // Always add in the starting `#@!`:
             @memcpy(buffer[0..compiler_error_start.len], compiler_error_start);
-            if (line_error.start >= compiler_error_start.len) {
+            if (error_columns.start >= compiler_error_start.len) {
                 // Error comes completely after `#@!`, earliest at `#@!^~~~ there's an error here`
-                @memset(buffer[compiler_error_start.len..line_error.start], ' ');
-                buffer[line_error.start] = '^';
-                @memset(buffer[line_error.start + 1 .. line_error.end], '~');
-                buffer[line_error.end] = ' ';
-                @memcpy(buffer[line_error.end + 1 ..], error_message);
-            } else if (line_error.end > compiler_error_start.len) {
+                @memset(buffer[compiler_error_start.len..error_columns.start], ' ');
+                buffer[error_columns.start] = '^';
+                @memset(buffer[error_columns.start + 1 .. error_columns.end], '~');
+                buffer[error_columns.end] = ' ';
+                @memcpy(buffer[error_columns.end + 1 ..], error_message);
+            } else if (error_columns.end > compiler_error_start.len) {
                 // Error was hitting into `#@!` a bit, just truncate `^~~`
                 // `^~~~~ the error message`  +
                 // `#@!`    =
                 // `#@!~~ the error message`
-                @memset(buffer[squiggles_start..line_error.end], '~');
-                buffer[line_error.end] = ' ';
-                @memcpy(buffer[line_error.end + 1 ..], error_message);
+                @memset(buffer[squiggles_start..error_columns.end], '~');
+                buffer[error_columns.end] = ' ';
+                @memcpy(buffer[error_columns.end + 1 ..], error_message);
             } else {
                 // Error is completely within the `#@!` part, so just show
                 // `#@! the error message`
@@ -283,7 +285,7 @@ pub const Tokenizer = struct {
         return string;
     }
 
-    fn printErrorMessage(self: *Tokenizer, after_line_index: usize, line_range: SmallString.Range, error_message: []const u8) void {
+    fn printErrorMessage(self: *Tokenizer, after_line_index: usize, error_columns: SmallString.Range, error_message: []const u8) void {
         // TODO: also print line[after_line_index]
         _ = self;
         common.stderr.print(
@@ -291,8 +293,8 @@ pub const Tokenizer = struct {
             .{
                 error_message,
                 after_line_index,
-                line_range.start,
-                line_range.end,
+                error_columns.start,
+                error_columns.end,
             },
         ) catch {};
     }
@@ -565,7 +567,7 @@ test "invalid tokenizer operators" {
     }
 }
 
-test "Tokenizer.addErrorLine" {
+test "Tokenizer.addErrorAt" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
     try tokenizer.file.lines.append(SmallString.noAlloc("zeroth"));
@@ -574,21 +576,22 @@ test "Tokenizer.addErrorLine" {
     try tokenizer.file.lines.append(SmallString.noAlloc("third"));
     try tokenizer.file.lines.append(SmallString.noAlloc("fourth"));
     try tokenizer.file.lines.append(SmallString.noAlloc("fifth"));
+    try tokenizer.complete();
 
     // Add errors backwards since they'll be ignored for earlier errors otherwise.
-    tokenizer.addErrorLine(5, .{ .start = 15, .end = 16 }, "bookmarked");
-    tokenizer.addErrorLine(4, .{ .start = 11, .end = 16 }, "pad");
-    tokenizer.addErrorLine(3, .{ .start = 10, .end = 14 }, "far out error");
-    tokenizer.addErrorLine(2, .{ .start = 4, .end = 7 }, "with squiggles");
-    tokenizer.addErrorLine(1, .{ .start = 3, .end = 4 }, "immediate caret");
-    tokenizer.addErrorLine(0, .{ .start = 0, .end = 3 }, "hidden caret and squiggles");
+    tokenizer.addErrorAt(5 * 3 + 1, .{ .start = 15, .end = 16 }, "bookmarked");
+    tokenizer.addErrorAt(4 * 3 + 1, .{ .start = 11, .end = 16 }, "pad");
+    tokenizer.addErrorAt(3 * 3 + 1, .{ .start = 10, .end = 14 }, "far out error");
+    tokenizer.addErrorAt(2 * 3 + 1, .{ .start = 4, .end = 7 }, "with squiggles");
+    tokenizer.addErrorAt(1 * 3 + 1, .{ .start = 3, .end = 4 }, "immediate caret");
+    tokenizer.addErrorAt(0 * 3 + 1, .{ .start = 0, .end = 3 }, "hidden caret and squiggles");
 
-    try tokenizer.file.lines.inBounds(2 * 5 + 1).expectEqualsString("#@! bookmarked ^");
-    try tokenizer.file.lines.inBounds(2 * 4 + 1).expectEqualsString("#@!    pad ^~~~~");
-    try tokenizer.file.lines.inBounds(2 * 3 + 1).expectEqualsString("#@!       ^~~~ far out error");
+    try tokenizer.file.lines.inBounds(5 * 2 + 1).expectEqualsString("#@! bookmarked ^");
+    try tokenizer.file.lines.inBounds(4 * 2 + 1).expectEqualsString("#@!    pad ^~~~~");
+    try tokenizer.file.lines.inBounds(3 * 2 + 1).expectEqualsString("#@!       ^~~~ far out error");
     try tokenizer.file.lines.inBounds(2 * 2 + 1).expectEqualsString("#@! ^~~ with squiggles");
-    try tokenizer.file.lines.inBounds(2 * 1 + 1).expectEqualsString("#@!^ immediate caret");
-    try tokenizer.file.lines.inBounds(2 * 0 + 1).expectEqualsString("#@! hidden caret and squiggles");
+    try tokenizer.file.lines.inBounds(1 * 2 + 1).expectEqualsString("#@!^ immediate caret");
+    try tokenizer.file.lines.inBounds(0 * 2 + 1).expectEqualsString("#@! hidden caret and squiggles");
 }
 
 test "tokenizer tokenizing" {
