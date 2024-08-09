@@ -66,7 +66,7 @@ pub const Tokenizer = struct {
             count += 1;
         }
         if (count > 1) {
-            std.debug.print("expected 0 or 1 token increments, not {d}\n", .{count});
+            common.stderr.print("expected 0 or 1 token increments, not {d}\n", .{count}) catch {};
         }
         return self.tokens.inBounds(token_index);
     }
@@ -161,7 +161,7 @@ pub const Tokenizer = struct {
         errdefer {
             self.addErrorLine(
                 self.lastTokenizedLineIndex(),
-                File.LineRange.of(initial_char_index, self.farthest_char_index),
+                SmallString.Range.of(initial_char_index, self.farthest_char_index),
                 "invalid operator",
             );
         }
@@ -194,14 +194,96 @@ pub const Tokenizer = struct {
         return operator;
     }
 
-    fn addErrorLine(self: *Tokenizer, after_line_index: usize, line_range: File.LineRange, error_message: []const u8) void {
-        // TODO: these comments need to be completely skipped when parsing
-        const compiler_error_start = "#@!$ ";
-        _ = compiler_error_start;
+    // TODO: add some optional "extra lines" to add as well as the error message
+    //      for extra debugging help.
+    fn addErrorLine(self: *Tokenizer, after_line_index: usize, line_range: SmallString.Range, error_message: []const u8) void {
+        // TODO: these comment lines need to be skipped while parsing and removed from self.file
+        //      i.e., any line starting with '#@!'
+        var string = getErrorLine(line_range, error_message) catch {
+            self.printErrorMessage(after_line_index, line_range, error_message);
+            return;
+        };
+        self.file.lines.insert(after_line_index + 1, string) catch {
+            self.file.lines.inBounds(after_line_index).printLine(common.stderr) catch {};
+            string.printLine(common.stderr) catch {};
+            string.deinit();
+            return;
+        };
+        // TODO: print `lines[after_line_index]` and `string` to common.stderr.
+        //      get fancy with the colors around line_range.
+    }
+
+    fn getErrorLine(line_range: SmallString.Range, error_message: []const u8) SmallString.Error!SmallString {
+        const line_error: common.Range(usize) = .{
+            .start = @intCast(line_range.start),
+            .end = @intCast(line_range.end),
+        };
+        const compiler_error_start = "#@!";
+        // Error message prefix if we can add the error message before `^~~~~~`:
+        // +1 for the additional space between `error_message` and '^'.
+        const pre_length = compiler_error_start.len + error_message.len + 1;
+        var string: SmallString = undefined;
+        if (line_range.start >= pre_length) {
+            // Error goes before "^~~~~", e.g.
+            // `#@!     this is an error ^~~~~`
+            const total_length: usize = @intCast(line_range.end);
+            string = try SmallString.allocExactly(total_length);
+            var buffer = string.buffer();
+            @memcpy(buffer[0..compiler_error_start.len], compiler_error_start);
+            // -1 for the space between `error_message` and '^'
+            const error_message_start = line_error.start - error_message.len - 1;
+            @memset(buffer[compiler_error_start.len..error_message_start], ' ');
+            @memcpy(buffer[error_message_start .. line_error.start - 1], error_message);
+            buffer[line_error.start - 1] = ' ';
+            buffer[line_error.start] = '^';
+            @memset(buffer[line_error.start + 1 .. line_error.end], '~');
+        } else {
+            // Error goes after ^~~~~, e.g.,
+            // `#@!  ^~~~~ this is an error`
+            const squiggles_start = @max(compiler_error_start.len, line_error.start);
+            const total_length: usize = @max(compiler_error_start.len, line_error.end) + error_message.len + 1;
+            string = try SmallString.allocExactly(total_length);
+            var buffer = string.buffer();
+            // Always add in the starting `#@!`:
+            @memcpy(buffer[0..compiler_error_start.len], compiler_error_start);
+            if (line_error.start >= compiler_error_start.len) {
+                // Error comes completely after `#@!`, earliest at `#@!^~~~ there's an error here`
+                @memset(buffer[compiler_error_start.len..line_error.start], ' ');
+                buffer[line_error.start] = '^';
+                @memset(buffer[line_error.start + 1 .. line_error.end], '~');
+                buffer[line_error.end + 1] = ' ';
+                @memcpy(buffer[line_error.end + 1 ..], error_message);
+            } else if (line_error.end > compiler_error_start.len) {
+                // Error was hitting into `#@!` a bit, just truncate `^~~`
+                // `^~~~~ the error message`  +
+                // `#@!`    =
+                // `#@!~~ the error message`
+                @memset(buffer[squiggles_start..line_error.end], '~');
+                buffer[line_error.end] = ' ';
+                @memcpy(buffer[line_error.end + 1 ..], error_message);
+            } else {
+                // Error is completely within the `#@!` part, so just show
+                // `#@! the error message`
+                buffer[compiler_error_start.len] = ' ';
+                @memcpy(buffer[compiler_error_start.len + 1 ..], error_message);
+            }
+        }
+        string.sign();
+        return string;
+    }
+
+    fn printErrorMessage(self: *Tokenizer, after_line_index: usize, line_range: SmallString.Range, error_message: []const u8) void {
+        // TODO: also print line[after_line_index]
         _ = self;
-        _ = after_line_index;
-        _ = line_range;
-        _ = error_message;
+        common.stderr.print(
+            "error {s} on line {d}:{d}-{d}\n",
+            .{
+                error_message,
+                after_line_index,
+                line_range.start,
+                line_range.end,
+            },
+        ) catch {};
     }
 };
 
@@ -466,7 +548,9 @@ test "invalid tokenizer operators" {
         // an implementation detail.
         try std.testing.expectError(TokenError.invalid_token, tokenizer.at(1));
 
-        // TODO: test that file.lines was added to with the error
+        try tokenizer.file.lines.inBounds(0).expectEquals(line);
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! invalid operator");
+        try tokenizer.file.lines.inBounds(2).expectEqualsString("second line");
     }
 }
 

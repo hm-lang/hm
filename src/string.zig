@@ -14,7 +14,16 @@ const StringError = error{
 // };
 
 pub const Small = extern struct {
+    pub const Error = StringError;
     pub const max_size: usize = std.math.maxInt(u16);
+
+    /// Each `Small` will only ever get to 65535 as the max size, so
+    /// 65534 will be the max (non-empty) `start` field and
+    /// 65535 will be the max `end` field, so a `u16` type is ok here.
+    pub const Range = common.Range(u16);
+    pub inline fn range(start: anytype, end: anytype) Range {
+        return .{ .start = @intCast(start), .end = @intCast(end) };
+    }
 
     size: u16 = 0,
     short: [6]u8 = undefined,
@@ -159,6 +168,10 @@ pub const Small = extern struct {
         }
     }
 
+    pub inline fn in(self: *const Small, in_range: Range) []const u8 {
+        return self.slice()[@intCast(in_range.start)..@intCast(in_range.end)];
+    }
+
     pub fn slice(self: *const Small) []const u8 {
         const medium_size = comptime get_medium_size();
 
@@ -169,6 +182,14 @@ pub const Small = extern struct {
             const full_buffer: *const [Small.max_size]u8 = @ptrCast(self.remaining.pointer);
             return full_buffer[0..self.size];
         }
+    }
+
+    pub inline fn printLine(self: *const Small, writer: anytype) !void {
+        try writer.print("{s}\n", .{self.slice()});
+    }
+
+    pub inline fn print(self: *const Small, writer: anytype) !void {
+        try writer.print("{s}", .{self.slice()});
     }
 
     pub fn equals(self: Small, other: Small) bool {
@@ -192,6 +213,10 @@ pub const Small = extern struct {
             std.debug.print("expected {s} to NOT equal {s}\n", .{ a.slice(), b.slice() });
         }
         try std.testing.expect(!equal);
+    }
+
+    pub fn expectEqualsString(self: Small, string: []const u8) !void {
+        try std.testing.expectEqualStrings(string, self.slice());
     }
 };
 

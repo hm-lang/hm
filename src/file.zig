@@ -16,12 +16,7 @@ pub const FileError = error{
 
 pub const File = struct {
     /// I hope your files aren't bigger than `u16`.
-    pub const LinesRange = common.Range(usize);
-
-    /// Each line is a `SmallString`, so we'll only ever get to 65535
-    /// as the max size, so 65534 will be the max `start` field and
-    /// 65535 will be the max `end` field, so a `u16` type is ok here.
-    pub const LineRange = common.Range(u16);
+    pub const Range = common.Range(usize);
 
     /// File will take this into ownership.
     path: SmallString = .{},
@@ -43,6 +38,7 @@ pub const File = struct {
         defer file.close();
 
         for (self.lines.items()) |line| {
+            // TODO: can we somehow use `line.printLine(file)`??
             file.writeAll(line.slice()) catch {
                 return FileError.WriteError;
             };

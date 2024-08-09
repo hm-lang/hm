@@ -11,6 +11,10 @@ pub const allocator: std.mem.Allocator = if (testing)
 else
     gpa.allocator();
 
+pub const stdout = std.io.getStdOut().writer();
+pub const stderr = std.io.getStdErr().writer();
+// TODO: mock stdout/stderr for tests to ensure we're writing the right things.
+
 pub fn swap(a: anytype, b: anytype) void {
     const c = a.*;
     a.* = b.*;
