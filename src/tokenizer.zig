@@ -196,7 +196,8 @@ pub const Tokenizer = struct {
 
     // TODO: add some optional "extra lines" to add as well as the error message
     //      for extra debugging help.
-    fn addErrorLine(self: *Tokenizer, after_line_index: usize, line_range: SmallString.Range, error_message: []const u8) void {
+    // TODO: switch to `at_token_index` instead of `after_line_index`, maybe rename to `addErrorLineAt`
+    pub fn addErrorLine(self: *Tokenizer, after_line_index: usize, line_range: SmallString.Range, error_message: []const u8) void {
         // TODO: these comment lines need to be skipped while parsing and removed from self.file
         //      i.e., any line starting with '#@!'
         var string = getErrorLine(line_range, error_message) catch {
@@ -209,6 +210,16 @@ pub const Tokenizer = struct {
             string.deinit();
             return;
         };
+        // This can't happen while tokenizing, but if we come back in parsing and add an error,
+        // we'll want to ensure that our tokenizer stays where it expects.
+        // TODO: add a test for this.
+        // TODO: we probably need to increment every Token.newline *after* this point, because
+        //      `lineIndexAt` will no longer work.  alternatively we say that we break invariants
+        //      after `addErrorLine` and that users should no longer try to grab tokens.
+        // TODO: add a `error_after` usize which comes down from usize.max if we `addErrorLineAt`.
+        if (self.farthest_line_index > after_line_index) {
+            self.farthest_line_index += 1;
+        }
         // TODO: print `lines[after_line_index]` and `string` to common.stderr.
         //      get fancy with the colors around line_range.
     }
@@ -251,7 +262,7 @@ pub const Tokenizer = struct {
                 @memset(buffer[compiler_error_start.len..line_error.start], ' ');
                 buffer[line_error.start] = '^';
                 @memset(buffer[line_error.start + 1 .. line_error.end], '~');
-                buffer[line_error.end + 1] = ' ';
+                buffer[line_error.end] = ' ';
                 @memcpy(buffer[line_error.end + 1 ..], error_message);
             } else if (line_error.end > compiler_error_start.len) {
                 // Error was hitting into `#@!` a bit, just truncate `^~~`
@@ -552,6 +563,32 @@ test "invalid tokenizer operators" {
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! invalid operator");
         try tokenizer.file.lines.inBounds(2).expectEqualsString("second line");
     }
+}
+
+test "Tokenizer.addErrorLine" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+    try tokenizer.file.lines.append(SmallString.noAlloc("zeroth"));
+    try tokenizer.file.lines.append(SmallString.noAlloc("first"));
+    try tokenizer.file.lines.append(SmallString.noAlloc("second"));
+    try tokenizer.file.lines.append(SmallString.noAlloc("third"));
+    try tokenizer.file.lines.append(SmallString.noAlloc("fourth"));
+    try tokenizer.file.lines.append(SmallString.noAlloc("fifth"));
+
+    // Add errors backwards since they'll be ignored for earlier errors otherwise.
+    tokenizer.addErrorLine(5, .{ .start = 15, .end = 16 }, "bookmarked");
+    tokenizer.addErrorLine(4, .{ .start = 11, .end = 16 }, "pad");
+    tokenizer.addErrorLine(3, .{ .start = 10, .end = 14 }, "far out error");
+    tokenizer.addErrorLine(2, .{ .start = 4, .end = 7 }, "with squiggles");
+    tokenizer.addErrorLine(1, .{ .start = 3, .end = 4 }, "immediate caret");
+    tokenizer.addErrorLine(0, .{ .start = 0, .end = 3 }, "hidden caret and squiggles");
+
+    try tokenizer.file.lines.inBounds(2 * 5 + 1).expectEqualsString("#@! bookmarked ^");
+    try tokenizer.file.lines.inBounds(2 * 4 + 1).expectEqualsString("#@!    pad ^~~~~");
+    try tokenizer.file.lines.inBounds(2 * 3 + 1).expectEqualsString("#@!       ^~~~ far out error");
+    try tokenizer.file.lines.inBounds(2 * 2 + 1).expectEqualsString("#@! ^~~ with squiggles");
+    try tokenizer.file.lines.inBounds(2 * 1 + 1).expectEqualsString("#@!^ immediate caret");
+    try tokenizer.file.lines.inBounds(2 * 0 + 1).expectEqualsString("#@! hidden caret and squiggles");
 }
 
 test "tokenizer tokenizing" {
