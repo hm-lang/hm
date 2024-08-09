@@ -151,7 +151,7 @@ pub const Small = extern struct {
         return self.slice()[index];
     }
 
-    pub inline fn count(self: *const Small) usize {
+    pub inline fn count(self: *const Small) u16 {
         return self.size;
     }
 
@@ -170,6 +170,10 @@ pub const Small = extern struct {
 
     pub inline fn in(self: *const Small, in_range: Range) []const u8 {
         return self.slice()[@intCast(in_range.start)..@intCast(in_range.end)];
+    }
+
+    pub inline fn fullRange(self: *const Small) Range {
+        return .{ .start = 0, .end = self.size };
     }
 
     pub fn slice(self: *const Small) []const u8 {

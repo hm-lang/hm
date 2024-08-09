@@ -102,13 +102,13 @@ test "reading this file works" {
 
     try file.read();
 
-    var line = try file.lines.at(0);
+    var line = file.lines.at(0).?;
     try std.testing.expectEqualStrings(line.slice(), "const common = @import(\"common.zig\");");
 
-    line = try file.lines.at(1);
+    line = file.lines.at(1).?;
     try std.testing.expectEqualStrings(line.slice(), "const owned_list = @import(\"owned_list.zig\");");
 
-    line = try file.lines.at(-1);
+    line = file.lines.at(-1).?;
     try std.testing.expectEqualStrings(line.slice(), "// last line of file");
 }
 

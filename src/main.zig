@@ -1,5 +1,6 @@
 const std = @import("std");
 
+pub const token = @import("token.zig");
 pub const tokenizer = @import("tokenizer.zig");
 pub const SmallString = @import("string.zig").Small;
 pub const File = @import("file.zig").File;

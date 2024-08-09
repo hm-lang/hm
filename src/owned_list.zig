@@ -34,25 +34,32 @@ pub fn OwnedList(comptime T: type) type {
             return self.array.items.len;
         }
 
+        /// If in bounds, returns non-null; if `at_index < 0` then will
+        /// try to return from the end of the list.
         /// Returns a "reference" -- don't free it.
-        pub inline fn at(self: *Self, at_index: anytype) OwnedListError!T {
+        pub inline fn at(self: *const Self, at_index: anytype) ?T {
             const count_i64: i64 = @intCast(self.count());
             std.debug.assert(count_i64 >= 0);
             var index: i64 = @intCast(at_index);
             if (index < 0) {
                 index += count_i64;
                 if (index < 0) {
-                    return OwnedListError.out_of_bounds;
+                    return null;
                 }
             } else if (index >= count_i64) {
-                return OwnedListError.out_of_bounds;
+                return null;
             }
             return self.array.items[@intCast(index)];
         }
 
+        pub inline fn before(self: *const Self, index: usize) ?T {
+            const before_index = common.before(index) catch return null;
+            return self.at(before_index);
+        }
+
         /// Returns a "reference" -- don't free it.
         pub inline fn inBounds(self: *const Self, index: usize) T {
-            assert(index < self.count());
+            std.debug.assert(index < self.count());
             return self.array.items[index];
         }
 

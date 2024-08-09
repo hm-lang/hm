@@ -21,6 +21,23 @@ pub fn swap(a: anytype, b: anytype) void {
     b.* = c;
 }
 
+const BackError = error{
+    no_back,
+};
+
+pub inline fn before(a: anytype) BackError!@TypeOf(a) {
+    return back(a, 1);
+}
+
+// TODO: consider getting rid of these and using `count() -> i64` so that we
+// can easily do `@max(0, count() - amount)`
+pub inline fn back(start: anytype, amount: anytype) BackError!@TypeOf(start) {
+    if (start >= amount) {
+        return start - amount;
+    }
+    return BackError.no_back;
+}
+
 pub fn Range(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -32,6 +49,19 @@ pub fn Range(comptime T: type) type {
 
         pub fn of(the_start: anytype, the_end: anytype) Self {
             return .{ .start = @intCast(the_start), .end = @intCast(the_end) };
+        }
+
+        pub inline fn count(self: Self) T {
+            return self.end - self.start;
+        }
+
+        pub fn equals(self: Self, other: Self) bool {
+            return self.start == other.start and self.end == other.end;
+        }
+
+        pub fn expectEquals(self: Self, other: Self) !void {
+            try std.testing.expectEqual(other.start, self.start);
+            try std.testing.expectEqual(other.end, self.end);
         }
     };
 }

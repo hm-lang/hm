@@ -2,25 +2,28 @@ const common = @import("common.zig");
 const owned_list = @import("owned_list.zig");
 const SmallString = @import("string.zig").Small;
 const File = @import("file.zig").File;
+const Token = @import("token.zig").Token;
 
 const OwnedSmalls = owned_list.OwnedList(SmallString);
 const OwnedTokens = owned_list.OwnedList(Token);
 
 const std = @import("std");
 
-const TokenError = error{
+const TokenizerError = error{
     out_of_memory,
     out_of_tokens,
-    invalid_token,
 };
 
 pub const Tokenizer = struct {
     tokens: OwnedTokens = OwnedTokens.init(),
     file: File = .{},
-    farthest_line_index: usize = 0,
-    farthest_char_index: usize = 0,
-    // TODO: add an `error_past_token_index: usize = std.math.max(usize)`
-    //      which gets updated and throws `error_past_this` if you're trying to access past it.
+    farthest_line_index: u32 = 0,
+    farthest_char_index: u16 = 0,
+    /// This is the last token that you can grab, which is set by EOF or an error.
+    /// If you ever backdate an error via `addErrorAt`, that will become the last
+    /// "valid" token and you won't be able to grab tokens past that point anymore
+    /// via `at()`.  (Not recommended, but you could still do so via `tokens.at`.)
+    last_token_index: usize = std.math.maxInt(usize),
 
     pub fn deinit(self: *Tokenizer) void {
         self.tokens.deinit();
@@ -32,12 +35,9 @@ pub const Tokenizer = struct {
     /// You should already have looked up to the token index via `at()` before calling this,
     /// so this has undefined behavior if it can't allocate the necessary tokens up to
     /// the passed-in `for_token_index`.
-    fn lineIndexAt(self: *Tokenizer, at_token_index: usize) usize {
+    fn lineIndexAt(self: *const Tokenizer, at_token_index: usize) usize {
+        std.debug.assert(at_token_index < self.tokens.count());
         var token_index: i64 = @intCast(at_token_index);
-        if (token_index >= self.tokens.count()) {
-            std.debug.print("try to get rid of these calls\n", .{});
-            return 0;
-        }
         while (token_index >= 0) {
             const token = self.tokens.inBounds(@intCast(token_index));
             switch (token) {
@@ -50,9 +50,54 @@ pub const Tokenizer = struct {
         return 0;
     }
 
-    fn lastTokenIndex(self: *Tokenizer) TokenError!usize {
+    /// Gets the line columns for the given token.
+    fn columnsAt(self: *const Tokenizer, at_token_index: usize) SmallString.Range {
+        std.debug.assert(at_token_index < self.tokens.count());
+        const token = self.tokens.inBounds(at_token_index);
+        switch (token) {
+            .invalid => |invalid| return invalid.columns,
+            .newline => |line_index| {
+                const line_length = self.file.lines.inBounds(line_index - 1).count();
+                return .{ .start = common.before(line_length) catch 0, .end = line_length };
+            },
+            .tab => |tab_u| {
+                // TODO: switch to u16 in tab: `Token{tab: u16}`
+                const tab: u16 = @intCast(tab_u);
+                return .{ .start = tab, .end = tab + 1 };
+            },
+            else => if (self.tokens.before(at_token_index)) |before_token| {
+                switch (before_token) {
+                    .tab => |tab_u| {
+                        const tab: u16 = @intCast(tab_u);
+                        return .{ .start = tab, .end = tab + token.countChars() };
+                    },
+                    else => {
+                        // We add an implied tab between everything that's not
+                        // whitespace (see `fn appendToken`).  So we're not sure
+                        // what's happening here, so go ham.
+                        std.debug.print("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{});
+                        return self.fullLineColumnsAt(at_token_index);
+                    },
+                }
+            } else {
+                std.debug.print("expected to see a tab at tokens[0]\n", .{});
+                return self.fullLineColumnsAt(at_token_index);
+            },
+        }
+    }
+
+    fn fullLineColumnsAt(self: *const Tokenizer, at_token_index: usize) SmallString.Range {
+        const line_index = self.lineIndexAt(at_token_index);
+        if (self.file.lines.at(line_index)) |line| {
+            return line.fullRange();
+        } else {
+            return .{ .start = 0, .end = 16 };
+        }
+    }
+
+    fn lastTokenIndex(self: *Tokenizer) TokenizerError!usize {
         const count = self.tokens.count();
-        return if (count > 0) count - 1 else TokenError.out_of_tokens;
+        return if (count > 0) count - 1 else TokenizerError.out_of_tokens;
     }
 
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
@@ -60,46 +105,74 @@ pub const Tokenizer = struct {
     /// care about the next token (or a slice of them) and not the last token.
     /// Plus it's not obvious if that should be the current last token or
     /// the last token after we've completed adding all tokens.
-    pub fn at(self: *Tokenizer, token_index: usize) TokenError!Token {
-        var count: usize = 0;
-        while (token_index >= self.tokens.count()) {
-            // We'll just keep appending `.end` to `tokens` if you keep
-            // incrementing the index you pass in to `at()`, so don't do that.
-            _ = try self.addNextToken();
-            count += 1;
+    pub fn at(self: *Tokenizer, token_index: usize) TokenizerError!Token {
+        if (token_index > self.last_token_index) {
+            return TokenizerError.out_of_tokens;
         }
-        if (count > 1) {
-            common.stderr.print("expected 0 or 1 token increments, not {d}\n", .{count}) catch {};
+        while (token_index >= self.tokens.count()) {
+            _ = try self.addNextToken();
+            if (token_index > self.last_token_index) {
+                return TokenizerError.out_of_tokens;
+            }
         }
         return self.tokens.inBounds(token_index);
     }
 
-    fn complete(self: *Tokenizer) TokenError!void {
+    fn complete(self: *Tokenizer) TokenizerError!void {
         var last = try self.at(0);
         while (!last.equals(.end)) {
             last = try self.addNextToken();
         }
     }
 
-    fn addNextToken(self: *Tokenizer) TokenError!Token {
+    fn appendToken(self: *Tokenizer, next: Token) TokenizerError!void {
+        errdefer switch (next) {
+            .invalid => |invalid| {
+                common.stdout.print("ran out of memory adding an invalid token on {d}:{d}-{d}\n", .{
+                    self.farthest_line_index,
+                    invalid.columns.start,
+                    invalid.columns.end,
+                }) catch {};
+                @panic("ran out of memory");
+            },
+            else => {},
+        };
         const starting_char_index = self.farthest_char_index;
         const original_count = self.tokens.count();
-        const next = try self.getNextExplicitToken();
         if (next.isWhitespace() or (original_count > 0 and self.tokens.inBounds(original_count - 1).isTab())) {
             // No need to add an implied tab between existing whitespace...
         } else {
             // Add an "implied" tab so we can keep track of where we are.
             self.tokens.append(Token{ .tab = starting_char_index }) catch {
-                return TokenError.out_of_memory;
+                return TokenizerError.out_of_memory;
             };
         }
         self.tokens.append(next) catch {
-            return TokenError.out_of_memory;
+            return TokenizerError.out_of_memory;
         };
+        switch (next) {
+            .invalid => |invalid| {
+                const error_message = switch (invalid.type) {
+                    .operator => "invalid operator",
+                };
+                self.addErrorAt(self.tokens.count() - 1, error_message);
+            },
+            .end => {
+                self.last_token_index = self.tokens.count() - 1;
+            },
+            else => {},
+        }
+    }
+
+    fn addNextToken(self: *Tokenizer) TokenizerError!Token {
+        const next = try self.getNextExplicitToken();
+        try self.appendToken(next);
         return next;
     }
 
-    fn getNextExplicitToken(self: *Tokenizer) TokenError!Token {
+    /// This should only fail for memory issues (e.g., allocating a string
+    /// for an identifier).  Return an `InvalidToken` otherwise.
+    fn getNextExplicitToken(self: *Tokenizer) TokenizerError!Token {
         if (self.farthest_line_index >= self.file.lines.count()) {
             return .end;
         }
@@ -131,7 +204,7 @@ pub const Tokenizer = struct {
                 // TODO: '"' and '\''
                 // TODO: '[', '(', and '{', with corresponding ']', ')', and '}'.
                 // TODO: '#'.
-                else => return Token{ .operator = try self.getNextOperator(line) },
+                else => return self.getNextOperator(line),
             }
         }
     }
@@ -139,10 +212,11 @@ pub const Tokenizer = struct {
     fn getNewline(self: *Tokenizer) Token {
         self.farthest_char_index = 0;
         self.farthest_line_index += 1;
+        // TODO: if self.farthest_line_index wraps to 0, addErrorAt
         return Token{ .newline = self.farthest_line_index };
     }
 
-    fn getNextIdentifier(self: *Tokenizer, line: SmallString) TokenError!SmallString {
+    fn getNextIdentifier(self: *Tokenizer, line: SmallString) TokenizerError!SmallString {
         // We've already checked and there's an alphabetical character at the self.farthest_char_index.
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
@@ -155,16 +229,14 @@ pub const Tokenizer = struct {
             }
         }
         return SmallString.init(line.slice()[initial_char_index..self.farthest_char_index]) catch {
-            return TokenError.out_of_memory;
+            return TokenizerError.out_of_memory;
         };
     }
 
-    fn getNextOperator(self: *Tokenizer, line: SmallString) TokenError!u64 {
+    fn getNextOperator(self: *Tokenizer, line: SmallString) Token {
         const initial_char_index = self.farthest_char_index;
         errdefer {
-            self.addErrorAt(
-                self.lastTokenIndex() catch 0,
-                SmallString.Range.of(initial_char_index, self.farthest_char_index),
+            self.appendInvalidToken(
                 "invalid operator",
             );
         }
@@ -179,7 +251,7 @@ pub const Tokenizer = struct {
         }
         const buffer = line.slice()[initial_char_index..self.farthest_char_index];
         if (buffer.len > 8) {
-            return TokenError.invalid_token;
+            return self.getInvalidToken(initial_char_index, Token.InvalidType.operator);
         }
         const small = SmallString.init(buffer) catch unreachable;
         const operator = small.little64() catch unreachable;
@@ -191,27 +263,40 @@ pub const Tokenizer = struct {
             SmallString.as64("/"),
             => {},
             else => {
-                return TokenError.invalid_token;
+                return self.getInvalidToken(initial_char_index, Token.InvalidType.operator);
             },
         }
-        return operator;
+        return Token{ .operator = operator };
     }
 
+    /// The final column will be assumed to be self.farthest_char_index.
+    fn getInvalidToken(self: *const Tokenizer, start_column: u16, invalid_type: Token.InvalidType) Token {
+        return Token{ .invalid = .{
+            .columns = .{ .start = start_column, .end = self.farthest_char_index },
+            .type = invalid_type,
+        } };
+    }
+
+    /// Indicates that the token at a given token index is an error.
     // TODO: add some optional "extra lines" to add as well as the error message
     //      for extra debugging help.
     /// Adds an error around the given token index (i.e., on the line after that token).
-    // TODO: we probably should be able to add `error_columns` based on `at_token_index`.
-    //      but we probably need to add a `Token.invalid: SmallString` and add it, then look its columns up.
-    pub fn addErrorAt(self: *Tokenizer, at_token_index: usize, error_columns: SmallString.Range, error_message: []const u8) void {
-        const after_line_index = self.lineIndexAt(at_token_index);
+    pub fn addErrorAt(self: *Tokenizer, at_token_index: usize, error_message: []const u8) void {
+        std.debug.assert(at_token_index < self.tokens.count());
+        std.debug.assert(at_token_index < self.last_token_index);
+        self.last_token_index = at_token_index;
+        const error_columns = self.columnsAt(at_token_index);
+        const error_line_index = self.lineIndexAt(at_token_index);
         // TODO: these comment lines need to be skipped while parsing and removed from self.file
         //      i.e., any line starting with '#@!'
         var string = getErrorLine(error_columns, error_message) catch {
-            self.printErrorMessage(after_line_index, error_columns, error_message);
+            self.printErrorMessage(error_line_index, error_columns, error_message);
             return;
         };
-        self.file.lines.insert(after_line_index + 1, string) catch {
-            self.file.lines.inBounds(after_line_index).printLine(common.stderr) catch {};
+        // TODO: remove
+        std.debug.print("error line {d}:{d}-{d}\n{s}\n", .{ error_line_index, error_columns.start, error_columns.end, string.slice() });
+        self.file.lines.insert(error_line_index + 1, string) catch {
+            self.file.lines.inBounds(error_line_index).printLine(common.stderr) catch {};
             string.printLine(common.stderr) catch {};
             string.deinit();
             return;
@@ -223,10 +308,10 @@ pub const Tokenizer = struct {
         //      `lineIndexAt` will no longer work.  alternatively we say that we break invariants
         //      after `addErrorLine` and that users should no longer try to grab tokens.
         // TODO: add a `error_after` usize which comes down from usize.max if we `addErrorLineAt`.
-        if (self.farthest_line_index > after_line_index) {
+        if (self.farthest_line_index > error_line_index) {
             self.farthest_line_index += 1;
         }
-        // TODO: print `lines[after_line_index]` and `string` to common.stderr.
+        // TODO: print `lines[error_line_index]` and `string` to common.stderr.
         //      get fancy with the colors around error_columns.
     }
 
@@ -285,212 +370,20 @@ pub const Tokenizer = struct {
         return string;
     }
 
-    fn printErrorMessage(self: *Tokenizer, after_line_index: usize, error_columns: SmallString.Range, error_message: []const u8) void {
-        // TODO: also print line[after_line_index]
+    fn printErrorMessage(self: *Tokenizer, error_line_index: usize, error_columns: SmallString.Range, error_message: []const u8) void {
+        // TODO: also print line[error_line_index]
         _ = self;
         common.stderr.print(
             "error {s} on line {d}:{d}-{d}\n",
             .{
                 error_message,
-                after_line_index,
+                error_line_index,
                 error_columns.start,
                 error_columns.end,
             },
         ) catch {};
     }
 };
-
-pub const TokenTag = enum {
-    end,
-    starts_upper,
-    starts_lower,
-    newline,
-    tab,
-    operator,
-};
-
-pub const Token = union(TokenTag) {
-    end: void,
-    starts_upper: SmallString,
-    starts_lower: SmallString,
-    newline: usize,
-    tab: usize,
-    operator: u64,
-
-    // TODO: add more of these tag helpers
-    pub fn isNewline(self: Token) bool {
-        return std.meta.activeTag(self) == TokenTag.newline;
-    }
-
-    pub fn isTab(self: Token) bool {
-        return std.meta.activeTag(self) == TokenTag.tab;
-    }
-
-    pub fn isWhitespace(self: Token) bool {
-        switch (std.meta.activeTag(self)) {
-            TokenTag.newline, TokenTag.tab, TokenTag.end => return true,
-            else => return false,
-        }
-    }
-
-    pub fn deinit(self: Token) void {
-        const tag = std.meta.activeTag(self);
-        const info = switch (@typeInfo(Token)) {
-            .Union => |info| info,
-            else => unreachable,
-        };
-        inline for (info.fields) |field_info| {
-            if (@field(TokenTag, field_info.name) == tag) {
-                const SubToken = @TypeOf(@field(self, field_info.name));
-                if (std.meta.hasMethod(SubToken, "deinit")) {
-                    // For some reason, we can't do `@field(self, field_info.name).deinit()`
-                    // since that assumes the field will be `const`.
-                    var sub_token = @field(self, field_info.name);
-                    sub_token.deinit();
-                }
-            }
-        }
-    }
-
-    pub fn equals(a: Token, b: Token) bool {
-        const tag_a = std.meta.activeTag(a);
-        const tag_b = std.meta.activeTag(b);
-        if (tag_a != tag_b) return false;
-
-        const info = switch (@typeInfo(Token)) {
-            .Union => |info| info,
-            else => unreachable,
-        };
-        inline for (info.fields) |field_info| {
-            if (@field(TokenTag, field_info.name) == tag_a) {
-                const SubToken = @TypeOf(@field(a, field_info.name));
-                if (std.meta.hasMethod(SubToken, "equals")) {
-                    return @field(a, field_info.name).equals(@field(b, field_info.name));
-                } else {
-                    return @field(a, field_info.name) == @field(b, field_info.name);
-                }
-            }
-        }
-        return false;
-    }
-
-    pub fn expectEquals(a: Token, b: Token) !void {
-        // TODO: add an `errdefer` that will std.debug.print both `self` and `other`
-        const tag_a = std.meta.activeTag(a);
-        const tag_b = std.meta.activeTag(b);
-        try std.testing.expectEqual(tag_b, tag_a);
-
-        const info = switch (@typeInfo(Token)) {
-            .Union => |info| info,
-            else => unreachable,
-        };
-        inline for (info.fields) |field_info| {
-            if (@field(TokenTag, field_info.name) == tag_a) {
-                const SubToken = @TypeOf(@field(a, field_info.name));
-                if (std.meta.hasMethod(SubToken, "expectEquals")) {
-                    try @field(a, field_info.name).expectEquals(@field(b, field_info.name));
-                    return;
-                } else {
-                    try std.testing.expectEqual(@field(b, field_info.name), @field(a, field_info.name));
-                    return;
-                }
-            }
-        }
-        try std.testing.expect(false);
-    }
-
-    pub fn expectNotEquals(a: Token, b: Token) !void {
-        const tag_a = std.meta.activeTag(a);
-        const tag_b = std.meta.activeTag(b);
-        if (tag_a != tag_b) {
-            return;
-        }
-
-        const info = switch (@typeInfo(Token)) {
-            .Union => |info| info,
-            else => unreachable,
-        };
-        inline for (info.fields) |field_info| {
-            if (@field(TokenTag, field_info.name) == tag_a) {
-                const SubToken = @TypeOf(@field(a, field_info.name));
-                if (std.meta.hasMethod(SubToken, "expectNotEquals")) {
-                    try @field(a, field_info.name).expectNotEquals(@field(b, field_info.name));
-                    return;
-                } else {
-                    try std.testing.expect(@field(a, field_info.name) != @field(b, field_info.name));
-                    return;
-                }
-            }
-        }
-        try std.testing.expect(false);
-    }
-};
-
-test "token equality" {
-    const end: Token = .end;
-    try std.testing.expect(end.equals(.end));
-    try end.expectEquals(.end);
-
-    const starts_upper = Token{ .starts_upper = try SmallString.init("Cabbage") };
-    try starts_upper.expectNotEquals(end);
-    try std.testing.expect(!starts_upper.equals(.end));
-    try starts_upper.expectEquals(starts_upper);
-    try std.testing.expect(starts_upper.equals(starts_upper));
-    try starts_upper.expectNotEquals(Token{ .starts_upper = try SmallString.init("Apples") });
-    try std.testing.expect(!starts_upper.equals(Token{ .starts_upper = try SmallString.init("Apples") }));
-
-    const starts_lower = Token{ .starts_lower = try SmallString.init("Cabbage") };
-    try starts_lower.expectNotEquals(end);
-    try std.testing.expect(!starts_lower.equals(end));
-    try starts_lower.expectNotEquals(starts_upper);
-    try std.testing.expect(!starts_lower.equals(starts_upper));
-    try starts_lower.expectEquals(starts_lower);
-    try std.testing.expect(starts_lower.equals(starts_lower));
-    try starts_lower.expectNotEquals(Token{ .starts_lower = try SmallString.init("Apples") });
-    try std.testing.expect(!starts_lower.equals(Token{ .starts_lower = try SmallString.init("Apples") }));
-
-    const newline = Token{ .newline = 123 };
-    try newline.expectNotEquals(end);
-    try std.testing.expect(!newline.equals(end));
-    try newline.expectNotEquals(starts_upper);
-    try std.testing.expect(!newline.equals(starts_upper));
-    try newline.expectNotEquals(starts_lower);
-    try std.testing.expect(!newline.equals(starts_lower));
-    try newline.expectEquals(newline);
-    try std.testing.expect(newline.equals(newline));
-    try newline.expectNotEquals(Token{ .newline = 456 });
-    try std.testing.expect(!newline.equals(Token{ .newline = 456 }));
-
-    const tab = Token{ .tab = 123 };
-    try tab.expectNotEquals(end);
-    try std.testing.expect(!tab.equals(end));
-    try tab.expectNotEquals(starts_upper);
-    try std.testing.expect(!tab.equals(starts_upper));
-    try tab.expectNotEquals(starts_lower);
-    try std.testing.expect(!tab.equals(starts_lower));
-    try tab.expectNotEquals(newline);
-    try std.testing.expect(!tab.equals(newline));
-    try tab.expectEquals(tab);
-    try std.testing.expect(tab.equals(tab));
-    try tab.expectNotEquals(Token{ .tab = 456 });
-    try std.testing.expect(!tab.equals(Token{ .tab = 456 }));
-
-    const operator = Token{ .operator = 123 };
-    try operator.expectNotEquals(end);
-    try std.testing.expect(!operator.equals(end));
-    try operator.expectNotEquals(starts_upper);
-    try std.testing.expect(!operator.equals(starts_upper));
-    try operator.expectNotEquals(starts_lower);
-    try std.testing.expect(!operator.equals(starts_lower));
-    try operator.expectNotEquals(newline);
-    try std.testing.expect(!operator.equals(newline));
-    try operator.expectNotEquals(Token{ .tab = 123 });
-    try std.testing.expect(!operator.equals(Token{ .tab = 123 }));
-    try operator.expectEquals(operator);
-    try std.testing.expect(operator.equals(operator));
-    try operator.expectNotEquals(Token{ .operator = 456 });
-    try std.testing.expect(!operator.equals(Token{ .operator = 456 }));
-}
 
 test "basic tokenizer functionality" {
     var tokenizer: Tokenizer = .{};
@@ -556,10 +449,11 @@ test "invalid tokenizer operators" {
         try tokenizer.file.lines.append(line);
         try tokenizer.file.lines.append(SmallString.noAlloc("second line"));
 
-        // Technically we'll get an error even with `tokenizer.at(0)`
-        // because we backfill an implicit tab, but that's a bit of
-        // an implementation detail.
-        try std.testing.expectError(TokenError.invalid_token, tokenizer.at(1));
+        const token = try tokenizer.at(1);
+        try token.expectEquals(Token{ .invalid = .{
+            .columns = line.fullRange(),
+            .type = Token.InvalidType.operator,
+        } });
 
         try tokenizer.file.lines.inBounds(0).expectEquals(line);
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! invalid operator");
@@ -570,21 +464,21 @@ test "invalid tokenizer operators" {
 test "Tokenizer.addErrorAt" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
-    try tokenizer.file.lines.append(SmallString.noAlloc("zeroth"));
-    try tokenizer.file.lines.append(SmallString.noAlloc("first"));
-    try tokenizer.file.lines.append(SmallString.noAlloc("second"));
-    try tokenizer.file.lines.append(SmallString.noAlloc("third"));
-    try tokenizer.file.lines.append(SmallString.noAlloc("fourth"));
-    try tokenizer.file.lines.append(SmallString.noAlloc("fifth"));
+    try tokenizer.file.lines.append(try SmallString.init("ze ro"));
+    try tokenizer.file.lines.append(try SmallString.init("on e"));
+    try tokenizer.file.lines.append(try SmallString.init("two ddd"));
+    try tokenizer.file.lines.append(try SmallString.init("third     cccc"));
+    try tokenizer.file.lines.append(try SmallString.init("fourth     BBBBB"));
+    try tokenizer.file.lines.append(try SmallString.init("fifth          a"));
     try tokenizer.complete();
 
-    // Add errors backwards since they'll be ignored for earlier errors otherwise.
-    tokenizer.addErrorAt(5 * 3 + 1, .{ .start = 15, .end = 16 }, "bookmarked");
-    tokenizer.addErrorAt(4 * 3 + 1, .{ .start = 11, .end = 16 }, "pad");
-    tokenizer.addErrorAt(3 * 3 + 1, .{ .start = 10, .end = 14 }, "far out error");
-    tokenizer.addErrorAt(2 * 3 + 1, .{ .start = 4, .end = 7 }, "with squiggles");
-    tokenizer.addErrorAt(1 * 3 + 1, .{ .start = 3, .end = 4 }, "immediate caret");
-    tokenizer.addErrorAt(0 * 3 + 1, .{ .start = 0, .end = 3 }, "hidden caret and squiggles");
+    // Add errors backwards since they'll be broken by earlier errors otherwise.
+    tokenizer.addErrorAt(5 * 5 + 3, "bookmarked"); // target the second identifier
+    tokenizer.addErrorAt(4 * 5 + 3, "pad");
+    tokenizer.addErrorAt(3 * 5 + 3, "far out error");
+    tokenizer.addErrorAt(2 * 5 + 3, "with squiggles");
+    tokenizer.addErrorAt(1 * 5 + 3, "immediate caret");
+    tokenizer.addErrorAt(0 * 5 + 1, "hidden caret and squiggles"); // target the first identifier
 
     try tokenizer.file.lines.inBounds(5 * 2 + 1).expectEqualsString("#@! bookmarked ^");
     try tokenizer.file.lines.inBounds(4 * 2 + 1).expectEqualsString("#@!    pad ^~~~~");
