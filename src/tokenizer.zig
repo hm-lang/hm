@@ -733,104 +733,49 @@ test "tokenizer parentheses ok" {
 
     try tokenizer.file.lines.append(try SmallString.init("([{"));
     try tokenizer.file.lines.append(try SmallString.init("    }  ()[]{[[]( )]} ]   )"));
+    try tokenizer.complete();
 
-    var count: usize = 0;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 0 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.paren });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 1 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 2 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.brace });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .newline = 1 });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 4 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.brace });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 7 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.paren });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 8 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.paren });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 9 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 10 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.bracket });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 11 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.brace });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 12 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 13 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 14 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.bracket });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 15 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.paren });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 17 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.paren });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 18 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.bracket }); // bad
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 19 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.brace });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 21 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.bracket });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 25 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.paren });
-
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(Token{ .newline = 2 });
-    count += 1;
-    try (try tokenizer.at(count)).expectEquals(.end);
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .tab = 0 },
+        Token{ .open = Token.Open.paren },
+        Token{ .tab = 1 },
+        Token{ .open = Token.Open.bracket },
+        Token{ .tab = 2 },
+        Token{ .open = Token.Open.brace },
+        Token{ .newline = 1 },
+        Token{ .tab = 4 },
+        Token{ .close = Token.Close.brace },
+        Token{ .tab = 7 },
+        Token{ .open = Token.Open.paren },
+        Token{ .tab = 8 },
+        Token{ .close = Token.Close.paren },
+        Token{ .tab = 9 },
+        Token{ .open = Token.Open.bracket },
+        Token{ .tab = 10 },
+        Token{ .close = Token.Close.bracket },
+        Token{ .tab = 11 },
+        Token{ .open = Token.Open.brace },
+        Token{ .tab = 12 },
+        Token{ .open = Token.Open.bracket },
+        Token{ .tab = 13 },
+        Token{ .open = Token.Open.bracket },
+        Token{ .tab = 14 },
+        Token{ .close = Token.Close.bracket },
+        Token{ .tab = 15 },
+        Token{ .open = Token.Open.paren },
+        Token{ .tab = 17 },
+        Token{ .close = Token.Close.paren },
+        Token{ .tab = 18 },
+        Token{ .close = Token.Close.bracket },
+        Token{ .tab = 19 },
+        Token{ .close = Token.Close.brace },
+        Token{ .tab = 21 },
+        Token{ .close = Token.Close.bracket },
+        Token{ .tab = 25 },
+        Token{ .close = Token.Close.paren },
+        Token{ .newline = 2 },
+        .end,
+    });
 }
 
 test "tokenizer parentheses failure" {
@@ -852,7 +797,7 @@ test "tokenizer parentheses failure" {
         try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
             .columns = .{ .start = 5, .end = 6 },
             .type = Token.InvalidType.expected_close_paren,
-        }});
+        } });
 
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!  ^ expected `)`");
     }
@@ -874,7 +819,7 @@ test "tokenizer parentheses failure" {
         try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
             .columns = .{ .start = 3, .end = 4 },
             .type = Token.InvalidType.expected_close_bracket,
-        }});
+        } });
 
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!^ expected `]`");
     }
@@ -896,7 +841,7 @@ test "tokenizer parentheses failure" {
         try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
             .columns = .{ .start = 17, .end = 18 },
             .type = Token.InvalidType.expected_close_brace,
-        }});
+        } });
 
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! expected `}` ^");
     }
@@ -913,7 +858,7 @@ test "tokenizer parentheses failure" {
         try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
             .columns = .{ .start = 1, .end = 2 },
             .type = Token.InvalidType.unexpected_close,
-        }});
+        } });
 
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! no corresponding open");
     }

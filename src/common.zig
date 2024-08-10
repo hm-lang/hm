@@ -52,6 +52,24 @@ pub inline fn when(a: anytype, comptime predicate: fn (Found(@TypeOf(a))) bool) 
     };
 }
 
+pub fn printSlice(slice: anytype, writer: anytype) !void {
+    try writer.print("[", .{});
+    for (slice) |item| {
+        if (std.meta.hasMethod(@TypeOf(item), "print")) {
+            try item.print(writer);
+            try writer.print(", ", .{});
+        } else {
+            try writer.print("{}, ", .{item});
+        }
+    }
+    try writer.print("]", .{});
+}
+
+pub fn printSliceLine(slice: anytype, writer: anytype) !void {
+    try printSlice(slice, writer);
+    try writer.print("\n", .{});
+}
+
 pub inline fn before(a: anytype) ?@TypeOf(a) {
     return back(a, 1);
 }

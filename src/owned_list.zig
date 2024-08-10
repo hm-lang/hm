@@ -106,21 +106,27 @@ pub fn OwnedList(comptime T: type) type {
         }
 
         pub inline fn expectEquals(self: Self, other: Self) !void {
+            try self.expectEqualsSlice(other.items());
+        }
+
+        pub fn expectEqualsSlice(self: Self, other: []const T) !void {
             errdefer {
                 common.stderr.print("expected:\n", .{}) catch {};
-                other.printLine(common.stderr) catch {};
+                common.printSliceLine(other, common.stderr) catch {};
 
                 common.stderr.print("got:\n", .{}) catch {};
                 self.printLine(common.stderr) catch {};
             }
-            // TODO: add an `errdefer` that will std.debug.print both `self` and `other`
-            try std.testing.expectEqual(other.count(), self.count());
+            try std.testing.expectEqual(other.len, self.count());
 
             for (0..self.count()) |index| {
                 const self_item = self.inBounds(index);
-                const other_item = other.inBounds(index);
+                const other_item = other[index];
                 if (std.meta.hasMethod(T, "expectEquals")) {
-                    try self_item.expectEquals(other_item);
+                    self_item.expectEquals(other_item) catch |e| {
+                        common.stderr.print("\nnot equal at index {d}\n\n", .{index}) catch {};
+                        return e;
+                    };
                 } else {
                     try std.testing.expectEqual(other_item, self_item);
                 }
@@ -133,16 +139,7 @@ pub fn OwnedList(comptime T: type) type {
         }
 
         pub fn print(self: Self, writer: anytype) !void {
-            try writer.print("[", .{});
-            for (self.items()) |item| {
-                if (std.meta.hasMethod(T, "print")) {
-                    try item.print(writer);
-                    try writer.print(", ", .{});
-                } else {
-                    try writer.print("{}, ", .{item});
-                }
-            }
-            try writer.print("]", .{});
+            try common.printSlice(self.items(), writer);
         }
     };
 }
