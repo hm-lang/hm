@@ -258,7 +258,6 @@ pub const Tokenizer = struct {
                 return;
             }
             _ = self.file.lines.remove(self.farthest_line_index);
-            // TODO: test that we deinit here.
             line.deinit();
         }
     }
@@ -559,8 +558,12 @@ test "tokenizer tokenizing" {
     defer tokenizer.deinit();
 
     try tokenizer.file.lines.append(try SmallString.init("  Hello w_o_rld   /  "));
+    try tokenizer.file.lines.append(try SmallString.init("#@! ^ this was an error last time"));
     try tokenizer.file.lines.append(try SmallString.init("Second2    -l1ne   "));
+    try tokenizer.file.lines.append(try SmallString.init("#@! if we have multiple lines"));
+    try tokenizer.file.lines.append(try SmallString.init("#@! it's because of additional info"));
     try tokenizer.file.lines.append(try SmallString.init("sp3cial* Fin_ancial  +  _problems"));
+    try tokenizer.file.lines.append(try SmallString.init("#@!    assume we should get rid of this"));
 
     var count: usize = 0;
     var token = try tokenizer.at(count);
@@ -695,4 +698,9 @@ test "tokenizer tokenizing" {
     token = try tokenizer.at(count);
     try token.expectEquals(.end);
     try std.testing.expectEqual(3, tokenizer.lineIndexAt(count));
+
+    // Tokenizer will clean up the compile errors in the file automatically:
+    try tokenizer.file.lines.inBounds(0).expectEqualsString("  Hello w_o_rld   /  ");
+    try tokenizer.file.lines.inBounds(1).expectEqualsString("Second2    -l1ne   ");
+    try tokenizer.file.lines.inBounds(2).expectEqualsString("sp3cial* Fin_ancial  +  _problems");
 }
