@@ -14,6 +14,8 @@ const StringError = error{
 // };
 
 pub const Small = extern struct {
+    const Self = @This();
+
     pub const Error = StringError;
     pub const max_size: usize = std.math.maxInt(u16);
 

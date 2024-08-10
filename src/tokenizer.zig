@@ -125,7 +125,7 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn appendToken(self: *Tokenizer, next: Token) TokenizerError!void {
+    fn appendToken(self: *Tokenizer, starting_char_index: u16, next: Token) TokenizerError!void {
         errdefer switch (next) {
             .invalid => |invalid| {
                 common.stdout.print("ran out of memory adding an invalid token on {d}:{d}-{d}\n", .{
@@ -137,7 +137,6 @@ pub const Tokenizer = struct {
             },
             else => {},
         };
-        const starting_char_index = self.farthest_char_index;
         const original_count = self.tokens.count();
         if (next.isWhitespace() or (original_count > 0 and self.tokens.inBounds(original_count - 1).isTab())) {
             // No need to add an implied tab between existing whitespace...
@@ -165,8 +164,11 @@ pub const Tokenizer = struct {
     }
 
     fn addNextToken(self: *Tokenizer) TokenizerError!Token {
+        // We need to pass in the `starting_char_index` in case we need to
+        // add an implicit tab before appending the next explicit token.
+        const starting_char_index = self.farthest_char_index;
         const next = try self.getNextExplicitToken();
-        try self.appendToken(next);
+        try self.appendToken(starting_char_index, next);
         return next;
     }
 
@@ -293,8 +295,6 @@ pub const Tokenizer = struct {
             self.printErrorMessage(error_line_index, error_columns, error_message);
             return;
         };
-        // TODO: remove
-        std.debug.print("error line {d}:{d}-{d}\n{s}\n", .{ error_line_index, error_columns.start, error_columns.end, string.slice() });
         self.file.lines.insert(error_line_index + 1, string) catch {
             self.file.lines.inBounds(error_line_index).printLine(common.stderr) catch {};
             string.printLine(common.stderr) catch {};

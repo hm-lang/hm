@@ -13,7 +13,50 @@ pub const TokenTag = enum {
 };
 
 pub const Token = union(TokenTag) {
+    const Self = @This();
+
     pub const InvalidType = InvalidTokenType;
+
+    pub fn printLine(self: Self, writer: anytype) !void {
+        try self.print(writer);
+        try writer.print("\n", .{});
+    }
+
+    pub fn print(self: Self, writer: anytype) !void {
+        switch (self) {
+            .invalid => |invalid| {
+                try writer.print("Token{{ .invalid = .{{ .columns = .{{ start = {d}, .end = {d} }}, .type = {d} }} }}", .{
+                    invalid.columns.start,
+                    invalid.columns.end,
+                    @intFromEnum(invalid.type),
+                });
+            },
+            .end => {
+                try writer.print(".end", .{});
+            },
+            .starts_upper => |string| {
+                try writer.print("Token{{ .starts_upper = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\")}}", .{});
+            },
+            .starts_lower => |string| {
+                try writer.print("Token{{ .starts_lower = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\")}}", .{});
+            },
+            .newline => |value| {
+                try writer.print("Token{{ .newline = {d} }}", .{value});
+            },
+            .tab => |value| {
+                try writer.print("Token{{ .tab = {d} }}", .{value});
+            },
+            .operator => |operator| {
+                try writer.print("Token{{ .starts_lower = SmallString.noAlloc(\"", .{});
+                try SmallString.init64(operator).print(writer);
+                try writer.print("\")}}", .{});
+            },
+        }
+    }
 
     invalid: InvalidToken,
     end: void,
