@@ -246,24 +246,61 @@ pub const InvalidToken = struct {
 };
 
 const InvalidTokenType = enum {
+    const Self = @This();
+
     operator,
-    expected_closing_paren,     // ()
-    expected_closing_bracket,   // []
-    expected_closing_brace,     // {}
+    expected_close_paren,
+    expected_close_bracket,
+    expected_close_brace,
+    unexpected_close, // there was a close with no open paren/brace/bracket
+
+    pub fn error_message(self: Self) []const u8 {
+        return switch (self) {
+            .operator => "invalid operator",
+            // Had a `(` somewhere that was closed by something else...
+            .expected_close_paren => "expected `)`",
+            // Had a `[` somewhere that was closed by something else...
+            .expected_close_bracket => "expected `]`",
+            // Had a `{` somewhere that was closed by something else...
+            .expected_close_brace => "expected `}`",
+            // Had a close that didn't have a corresponding open
+            .unexpected_close => "no corresponding open",
+        };
+    }
+
+    pub fn expected_close(for_open: Token.Open) Self {
+        return @enumFromInt(@intFromEnum(Self.expected_close_paren) + @intFromEnum(for_open));
+    }
 };
+
+test "invalid token" {
+    try std.testing.expectEqual(InvalidTokenType.expected_close_paren, InvalidTokenType.expected_close(Token.Open.paren));
+    try std.testing.expectEqual(InvalidTokenType.expected_close_bracket, InvalidTokenType.expected_close(Token.Open.bracket));
+    try std.testing.expectEqual(InvalidTokenType.expected_close_brace, InvalidTokenType.expected_close(Token.Open.brace));
+}
 
 test "token equality" {
     const invalid = Token{ .invalid = .{ .columns = .{ .start = 3, .end = 8 }, .type = InvalidTokenType.operator } };
     try invalid.expectEquals(invalid);
     try std.testing.expect(invalid.equals(invalid));
-    try invalid.expectNotEquals(Token{ .invalid = .{
-        .columns = .{ .start = 4, .end = 8 }, // different start
-        .type = InvalidTokenType.operator,
-    }});
-    try invalid.expectNotEquals(Token{ .invalid = .{
-        .columns = .{ .start = 3, .end = 4 }, // different end
-        .type = InvalidTokenType.operator,
-    }});
+    try invalid.expectNotEquals(Token{
+        .invalid = .{
+            .columns = .{ .start = 4, .end = 8 }, // different start
+            .type = InvalidTokenType.operator,
+        },
+    });
+    try invalid.expectNotEquals(Token{
+        .invalid = .{
+            .columns = .{ .start = 3, .end = 4 }, // different end
+            .type = InvalidTokenType.operator,
+        },
+    });
+    try invalid.expectNotEquals(Token{
+        .invalid = .{
+            .columns = .{ .start = 3, .end = 8 }, // same
+            .type = InvalidTokenType.unexpected_close, // different
+        },
+    });
 
     const end: Token = .end;
     try std.testing.expect(end.equals(.end));

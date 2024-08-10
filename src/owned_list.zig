@@ -66,7 +66,13 @@ pub fn OwnedList(comptime T: type) type {
         pub inline fn remove(self: *Self, index: usize) ?T {
             return if (index < self.count())
                 self.array.orderedRemove(index)
-            else null;
+            else
+                null;
+        }
+
+        pub inline fn pop(self: *Self) ?T {
+            const last_index = common.before(self.count()) orelse return null;
+            return self.array.orderedRemove(last_index);
         }
 
         /// This list will take ownership of `t`.

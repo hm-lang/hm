@@ -87,16 +87,7 @@ pub const Tokenizer = struct {
         // Some tokens have secondary effects.
         switch (next) {
             .invalid => |invalid| {
-                const error_message = switch (invalid.type) {
-                    .operator => "invalid operator",
-                    // Had a `(` somewhere that was closed by something else...
-                    .expected_closing_paren => "expected `)`",
-                    // Had a `[` somewhere that was closed by something else...
-                    .expected_closing_bracket => "expected `]`",
-                    // Had a `{` somewhere that was closed by something else...
-                    .expected_closing_brace => "expected `}`",
-                };
-                self.addErrorAt(self.tokens.count() - 1, error_message);
+                self.addErrorAt(self.tokens.count() - 1, invalid.type.error_message());
             },
             .end => {
                 self.last_token_index = self.tokens.count() - 1;
@@ -106,6 +97,9 @@ pub const Tokenizer = struct {
                     @panic("you have too many lines in this file, we overflowed a u32");
                 }
                 self.removeNextErrorLines();
+            },
+            .open => |open| {
+                self.opens.append(open) catch return TokenizerError.out_of_memory;
             },
             else => {},
         }
@@ -152,11 +146,41 @@ pub const Tokenizer = struct {
                 'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
                 // TODO: '@' => return Token { ???: self.getNextIdentifier(line) },
                 // TODO: '"' and '\''
-                // TODO: '[', '(', and '{', with corresponding ']', ')', and '}'.
                 // TODO: '#'.
+                '(' => return try self.getNextOpen(Token.Open.paren),
+                '[' => return try self.getNextOpen(Token.Open.bracket),
+                '{' => return try self.getNextOpen(Token.Open.brace),
+                ')' => return self.getNextClose(Token.Close.paren),
+                ']' => return self.getNextClose(Token.Close.bracket),
+                '}' => return self.getNextClose(Token.Close.brace),
                 else => return self.getNextOperator(line),
             }
         }
+    }
+
+    fn getNextOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
+        self.farthest_char_index += 1;
+        self.opens.append(open) catch return TokenizerError.out_of_memory;
+        return Token{ .open = open };
+    }
+
+    fn getNextClose(self: *Tokenizer, close: Token.Close) Token {
+        const initial_char_index = self.farthest_char_index;
+        self.farthest_char_index += 1;
+
+        const last_open = self.opens.pop() orelse return Token{ .invalid = .{
+            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+            .type = .unexpected_close,
+        } };
+
+        if (last_open != close) {
+            return Token{ .invalid = .{
+                .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+                .type = Token.InvalidType.expected_close(last_open),
+            } };
+        }
+
+        return Token{ .close = close };
     }
 
     fn getNextNewline(self: *Tokenizer) Token {
