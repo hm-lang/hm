@@ -6,6 +6,7 @@ const Token = @import("token.zig").Token;
 
 const OwnedSmalls = owned_list.OwnedList(SmallString);
 const OwnedTokens = owned_list.OwnedList(Token);
+const OwnedOpens = owned_list.OwnedList(Token.Open);
 
 const std = @import("std");
 
@@ -16,6 +17,8 @@ const TokenizerError = error{
 
 pub const Tokenizer = struct {
     tokens: OwnedTokens = OwnedTokens.init(),
+    // TODO: push here whenever we encounter ([{ and pop whenever we see }])
+    opens: OwnedOpens = OwnedOpens.init(),
     file: File = .{},
     farthest_line_index: u32 = 0,
     farthest_char_index: u16 = 0,
@@ -27,6 +30,7 @@ pub const Tokenizer = struct {
 
     pub fn deinit(self: *Tokenizer) void {
         self.tokens.deinit();
+        self.opens.deinit();
         self.file.deinit();
     }
 
@@ -155,6 +159,12 @@ pub const Tokenizer = struct {
             .invalid => |invalid| {
                 const error_message = switch (invalid.type) {
                     .operator => "invalid operator",
+                    // Had a `(` somewhere that was closed by something else...
+                    .expected_closing_paren => "expected `)`",
+                    // Had a `[` somewhere that was closed by something else...
+                    .expected_closing_bracket => "expected `]`",
+                    // Had a `{` somewhere that was closed by something else...
+                    .expected_closing_brace => "expected `}`",
                 };
                 self.addErrorAt(self.tokens.count() - 1, error_message);
             },

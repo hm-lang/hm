@@ -10,12 +10,79 @@ pub const TokenTag = enum {
     newline,
     tab,
     operator,
+    open,
+    close,
 };
 
 pub const Token = union(TokenTag) {
     const Self = @This();
 
     pub const InvalidType = InvalidTokenType;
+    pub const Open = enum {
+        paren,
+        bracket,
+        brace,
+    };
+    pub const Close = Open;
+
+    invalid: InvalidToken,
+    end: void,
+    starts_upper: SmallString,
+    starts_lower: SmallString,
+    newline: usize,
+    tab: usize,
+    operator: u64,
+    open: Open,
+    close: Close,
+
+    pub fn deinit(self: Token) void {
+        const tag = std.meta.activeTag(self);
+        const info = switch (@typeInfo(Token)) {
+            .Union => |info| info,
+            else => unreachable,
+        };
+        inline for (info.fields) |field_info| {
+            if (@field(TokenTag, field_info.name) == tag) {
+                const SubToken = @TypeOf(@field(self, field_info.name));
+                if (std.meta.hasMethod(SubToken, "deinit")) {
+                    // For some reason, we can't do `@field(self, field_info.name).deinit()`
+                    // since that assumes the field will be `const`.
+                    var sub_token = @field(self, field_info.name);
+                    sub_token.deinit();
+                }
+            }
+        }
+    }
+
+    pub fn countChars(self: Token) u16 {
+        return switch (self) {
+            .invalid => |invalid| invalid.columns.count(),
+            .end => 0,
+            .starts_upper => |string| string.count(),
+            .starts_lower => |string| string.count(),
+            .newline => 0,
+            .tab => 4,
+            .operator => |operator| SmallString.init64(operator).count(),
+            .open => 1,
+            .close => 1,
+        };
+    }
+
+    // TODO: add more of these tag helpers
+    pub fn isNewline(self: Token) bool {
+        return std.meta.activeTag(self) == TokenTag.newline;
+    }
+
+    pub fn isTab(self: Token) bool {
+        return std.meta.activeTag(self) == TokenTag.tab;
+    }
+
+    pub fn isWhitespace(self: Token) bool {
+        switch (std.meta.activeTag(self)) {
+            TokenTag.newline, TokenTag.tab, TokenTag.end => return true,
+            else => return false,
+        }
+    }
 
     pub fn printLine(self: Self, writer: anytype) !void {
         try self.print(writer);
@@ -55,62 +122,33 @@ pub const Token = union(TokenTag) {
                 try SmallString.init64(operator).print(writer);
                 try writer.print("\")}}", .{});
             },
+            .open => |open| {
+                try writer.print("Token{{ .open = Token.Open.{s} }}", .{charsOpenClose(open)});
+            },
+            .close => |close| {
+                try writer.print("Token{{ .close = Token.Close.{s} }}", .{charsOpenClose(close)});
+            },
         }
     }
 
-    invalid: InvalidToken,
-    end: void,
-    starts_upper: SmallString,
-    starts_lower: SmallString,
-    newline: usize,
-    tab: usize,
-    operator: u64,
-
-    pub fn deinit(self: Token) void {
-        const tag = std.meta.activeTag(self);
-        const info = switch (@typeInfo(Token)) {
-            .Union => |info| info,
-            else => unreachable,
-        };
-        inline for (info.fields) |field_info| {
-            if (@field(TokenTag, field_info.name) == tag) {
-                const SubToken = @TypeOf(@field(self, field_info.name));
-                if (std.meta.hasMethod(SubToken, "deinit")) {
-                    // For some reason, we can't do `@field(self, field_info.name).deinit()`
-                    // since that assumes the field will be `const`.
-                    var sub_token = @field(self, field_info.name);
-                    sub_token.deinit();
-                }
-            }
-        }
+    pub fn charsOpenClose(open: Open) []u8 {
+        return @typeInfo(Open).Enum.fields[@intFromEnum(open)].name;
     }
 
-    pub fn countChars(self: Token) u16 {
-        return switch (self) {
-            .invalid => |invalid| invalid.columns.count(),
-            .end => 0,
-            .starts_upper => |string| string.count(),
-            .starts_lower => |string| string.count(),
-            .newline => 0,
-            .tab => 4,
-            .operator => |operator| SmallString.init64(operator).count(),
+    pub fn openChar(open: Open) u8 {
+        return switch (open) {
+            Open.paren => '(',
+            Open.bracket => '[',
+            Open.brace => '{',
         };
     }
 
-    // TODO: add more of these tag helpers
-    pub fn isNewline(self: Token) bool {
-        return std.meta.activeTag(self) == TokenTag.newline;
-    }
-
-    pub fn isTab(self: Token) bool {
-        return std.meta.activeTag(self) == TokenTag.tab;
-    }
-
-    pub fn isWhitespace(self: Token) bool {
-        switch (std.meta.activeTag(self)) {
-            TokenTag.newline, TokenTag.tab, TokenTag.end => return true,
-            else => return false,
-        }
+    pub fn closeChar(close: Close) u8 {
+        return switch (close) {
+            Close.paren => ')',
+            Close.bracket => ']',
+            Close.brace => '}',
+        };
     }
 
     pub fn equals(a: Token, b: Token) bool {
@@ -209,9 +247,24 @@ pub const InvalidToken = struct {
 
 const InvalidTokenType = enum {
     operator,
+    expected_closing_paren,     // ()
+    expected_closing_bracket,   // []
+    expected_closing_brace,     // {}
 };
 
 test "token equality" {
+    const invalid = Token{ .invalid = .{ .columns = .{ .start = 3, .end = 8 }, .type = InvalidTokenType.operator } };
+    try invalid.expectEquals(invalid);
+    try std.testing.expect(invalid.equals(invalid));
+    try invalid.expectNotEquals(Token{ .invalid = .{
+        .columns = .{ .start = 4, .end = 8 }, // different start
+        .type = InvalidTokenType.operator,
+    }});
+    try invalid.expectNotEquals(Token{ .invalid = .{
+        .columns = .{ .start = 3, .end = 4 }, // different end
+        .type = InvalidTokenType.operator,
+    }});
+
     const end: Token = .end;
     try std.testing.expect(end.equals(.end));
     try end.expectEquals(.end);
