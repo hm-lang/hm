@@ -63,6 +63,12 @@ pub fn OwnedList(comptime T: type) type {
             return self.array.items[index];
         }
 
+        pub inline fn remove(self: *Self, index: usize) ?T {
+            return if (index < self.count())
+                self.array.orderedRemove(index)
+            else null;
+        }
+
         /// This list will take ownership of `t`.
         pub inline fn append(self: *Self, t: T) OwnedListError!void {
             self.array.append(common.allocator, t) catch {

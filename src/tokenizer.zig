@@ -34,76 +34,6 @@ pub const Tokenizer = struct {
         self.file.deinit();
     }
 
-    /// Returns the line index for the given token index.
-    /// Looks backwards to find the nearest `newline` token.
-    /// You should already have looked up to the token index via `at()` before calling this,
-    /// so this has undefined behavior if it can't allocate the necessary tokens up to
-    /// the passed-in `for_token_index`.
-    fn lineIndexAt(self: *const Tokenizer, at_token_index: usize) usize {
-        std.debug.assert(at_token_index < self.tokens.count());
-        var token_index: i64 = @intCast(at_token_index);
-        while (token_index >= 0) {
-            const token = self.tokens.inBounds(@intCast(token_index));
-            switch (token) {
-                .newline => |line_index| {
-                    return line_index;
-                },
-                else => token_index -= 1,
-            }
-        }
-        return 0;
-    }
-
-    /// Gets the line columns for the given token.
-    fn columnsAt(self: *const Tokenizer, at_token_index: usize) SmallString.Range {
-        std.debug.assert(at_token_index < self.tokens.count());
-        const token = self.tokens.inBounds(at_token_index);
-        switch (token) {
-            .invalid => |invalid| return invalid.columns,
-            .newline => |line_index| {
-                const line_length = self.file.lines.inBounds(line_index - 1).count();
-                return .{ .start = common.before(line_length) orelse 0, .end = line_length };
-            },
-            .tab => |tab_u| {
-                // TODO: switch to u16 in tab: `Token{tab: u16}`
-                const tab: u16 = @intCast(tab_u);
-                return .{ .start = tab, .end = tab + 1 };
-            },
-            else => if (self.tokens.before(at_token_index)) |before_token| {
-                switch (before_token) {
-                    .tab => |tab_u| {
-                        const tab: u16 = @intCast(tab_u);
-                        return .{ .start = tab, .end = tab + token.countChars() };
-                    },
-                    else => {
-                        // We add an implied tab between everything that's not
-                        // whitespace (see `fn appendToken`).  So we're not sure
-                        // what's happening here, so go ham.
-                        std.debug.print("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{});
-                        return self.fullLineColumnsAt(at_token_index);
-                    },
-                }
-            } else {
-                std.debug.print("expected to see a tab at tokens[0]\n", .{});
-                return self.fullLineColumnsAt(at_token_index);
-            },
-        }
-    }
-
-    fn fullLineColumnsAt(self: *const Tokenizer, at_token_index: usize) SmallString.Range {
-        const line_index = self.lineIndexAt(at_token_index);
-        if (self.file.lines.at(line_index)) |line| {
-            return line.fullRange();
-        } else {
-            return .{ .start = 0, .end = 16 };
-        }
-    }
-
-    fn lastTokenIndex(self: *Tokenizer) TokenizerError!usize {
-        const count = self.tokens.count();
-        return if (count > 0) count - 1 else TokenizerError.out_of_tokens;
-    }
-
     /// Do not deinitialize the returned `Token`, it's owned by `Tokenizer`.
     /// You're not allowed to negative-index this because you should only
     /// care about the next token (or a slice of them) and not the last token.
@@ -175,6 +105,7 @@ pub const Tokenizer = struct {
                 if (self.farthest_line_index == 0) {
                     @panic("you have too many lines in this file, we overflowed a u32");
                 }
+                self.removeNextErrorLines();
             },
             else => {},
         }
@@ -197,7 +128,7 @@ pub const Tokenizer = struct {
         }
         const line = self.file.lines.inBounds(self.farthest_line_index);
         if (self.farthest_char_index >= line.count()) {
-            return self.getNewline();
+            return self.getNextNewline();
         }
         const starting_char = line.inBounds(self.farthest_char_index);
         const starts_with_whitespace = starting_char == ' ';
@@ -206,7 +137,7 @@ pub const Tokenizer = struct {
                 self.farthest_char_index += 1;
                 if (self.farthest_char_index >= line.count()) {
                     // Ignore whitespace at the end of a line.
-                    return self.getNewline();
+                    return self.getNextNewline();
                 }
                 if (line.inBounds(self.farthest_char_index) != ' ') {
                     return Token{ .tab = self.farthest_char_index };
@@ -228,7 +159,7 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn getNewline(self: *Tokenizer) Token {
+    fn getNextNewline(self: *Tokenizer) Token {
         self.farthest_char_index = 0;
         self.farthest_line_index += 1;
         // TODO: if self.farthest_line_index wraps to 0, addErrorAt
@@ -306,8 +237,6 @@ pub const Tokenizer = struct {
         self.last_token_index = at_token_index;
         const error_columns = self.columnsAt(at_token_index);
         const error_line_index = self.lineIndexAt(at_token_index);
-        // TODO: these comment lines need to be skipped while parsing and removed from self.file
-        //      i.e., any line starting with '#@!'
         var string = getErrorLine(error_columns, error_message) catch {
             self.printErrorMessage(error_line_index, error_columns, error_message);
             return;
@@ -320,6 +249,18 @@ pub const Tokenizer = struct {
         };
         // TODO: print `lines[error_line_index]` and `string` to common.stderr.
         //      get fancy with the colors around error_columns.
+    }
+
+    fn removeNextErrorLines(self: *Tokenizer) void {
+        while (self.farthest_line_index < self.file.lines.count()) {
+            var line = self.file.lines.inBounds(self.farthest_line_index);
+            if (!line.contains("#@!", common.At.start)) {
+                return;
+            }
+            _ = self.file.lines.remove(self.farthest_line_index);
+            // TODO: test that we deinit here.
+            line.deinit();
+        }
     }
 
     fn getErrorLine(error_columns: SmallString.Range, error_message: []const u8) SmallString.Error!SmallString {
@@ -390,6 +331,74 @@ pub const Tokenizer = struct {
             },
         ) catch {};
     }
+
+    /// Returns the line index for the given token index.
+    /// Looks backwards to find the nearest `newline` token.
+    /// You should already have looked up to the token index via `at()` before calling this,
+    /// so this has undefined behavior if it can't allocate the necessary tokens up to
+    /// the passed-in `for_token_index`.
+    fn lineIndexAt(self: *const Tokenizer, at_token_index: usize) usize {
+        std.debug.assert(at_token_index < self.tokens.count());
+        var token_index: i64 = @intCast(at_token_index);
+        while (token_index >= 0) {
+            const token = self.tokens.inBounds(@intCast(token_index));
+            switch (token) {
+                .newline => |line_index| {
+                    return line_index;
+                },
+                else => token_index -= 1,
+            }
+        }
+        return 0;
+    }
+
+    /// Gets the line columns for the given token.
+    fn columnsAt(self: *const Tokenizer, at_token_index: usize) SmallString.Range {
+        std.debug.assert(at_token_index < self.tokens.count());
+        const token = self.tokens.inBounds(at_token_index);
+        switch (token) {
+            .invalid => |invalid| return invalid.columns,
+            .newline => |line_index| {
+                const line_length = self.file.lines.inBounds(line_index - 1).count();
+                return .{ .start = common.before(line_length) orelse 0, .end = line_length };
+            },
+            .tab => |tab| {
+                return .{ .start = tab, .end = tab + 1 };
+            },
+            else => if (self.tokens.before(at_token_index)) |before_token| {
+                switch (before_token) {
+                    .tab => |tab_u| {
+                        const tab: u16 = @intCast(tab_u);
+                        return .{ .start = tab, .end = tab + token.countChars() };
+                    },
+                    else => {
+                        // We add an implied tab between everything that's not
+                        // whitespace (see `fn appendToken`).  So we're not sure
+                        // what's happening here, so go ham.
+                        std.debug.print("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{});
+                        return self.fullLineColumnsAt(at_token_index);
+                    },
+                }
+            } else {
+                std.debug.print("expected to see a tab at tokens[0]\n", .{});
+                return self.fullLineColumnsAt(at_token_index);
+            },
+        }
+    }
+
+    fn fullLineColumnsAt(self: *const Tokenizer, at_token_index: usize) SmallString.Range {
+        const line_index = self.lineIndexAt(at_token_index);
+        if (self.file.lines.at(line_index)) |line| {
+            return line.fullRange();
+        } else {
+            return .{ .start = 0, .end = 16 };
+        }
+    }
+
+    fn lastTokenIndex(self: *Tokenizer) TokenizerError!usize {
+        const count = self.tokens.count();
+        return if (count > 0) count - 1 else TokenizerError.out_of_tokens;
+    }
 };
 
 test "basic tokenizer functionality" {
@@ -436,7 +445,7 @@ test "valid tokenizer operators" {
         count += 1;
 
         token = try tokenizer.at(count);
-        try token.expectEquals(Token{ .newline = line_index + 1 });
+        try token.expectEquals(Token{ .newline = @intCast(line_index + 1) });
         count += 1;
     }
 }

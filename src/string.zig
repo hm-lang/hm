@@ -27,6 +27,13 @@ pub const Small = extern struct {
         return .{ .start = @intCast(start), .end = @intCast(end) };
     }
 
+    // TODO: rename to `get_no_alloc_size()`
+    fn get_medium_size() comptime_int {
+        const small: Small = .{};
+        const smallest_size = @sizeOf(@TypeOf(small.short));
+        return smallest_size + @sizeOf(@TypeOf(small.remaining.if_small));
+    }
+
     size: u16 = 0,
     short: [6]u8 = undefined,
     remaining: extern union {
@@ -34,11 +41,33 @@ pub const Small = extern struct {
         pointer: *u8,
     } = undefined,
 
-    // TODO: rename to `get_no_alloc_size()`
-    fn get_medium_size() comptime_int {
-        const small: Small = .{};
-        const smallest_size = @sizeOf(@TypeOf(small.short));
-        return smallest_size + @sizeOf(@TypeOf(small.remaining.if_small));
+    pub fn deinit(self: *Small) void {
+        if (self.size > get_medium_size()) {
+            common.allocator.free(self.buffer());
+        }
+        self.size = 0;
+    }
+
+    pub fn renew(self: *Small, new_chars: []const u8) StringError!void {
+        const new_string = try Small.init(new_chars);
+        self.deinit();
+        self.* = new_string;
+    }
+
+    pub inline fn init(chars: []const u8) StringError!Small {
+        var string = try Small.allocExactly(chars.len);
+        @memcpy(string.buffer(), chars);
+        string.sign();
+        return string;
+    }
+
+    pub inline fn as64(chars: anytype) u64 {
+        // We're expecting `chars` to be `*const [n:0]u8` with n <= 8
+        if (chars.len > 8) {
+            @compileError("Small.as64 must have 8 characters or less");
+        }
+
+        return internalAs64(chars);
     }
 
     /// Initializes a `Small` that is just on the stack (no allocations on the heap).
@@ -95,29 +124,6 @@ pub const Small = extern struct {
                 std.debug.print("shouldn't have had a problem signing {d} characters\n", .{chars.len});
             };
         }
-    }
-
-    pub fn deinit(self: *Small) void {
-        if (self.size > get_medium_size()) {
-            common.allocator.free(self.buffer());
-        }
-        self.size = 0;
-    }
-
-    pub inline fn init(chars: []const u8) StringError!Small {
-        var string = try Small.allocExactly(chars.len);
-        @memcpy(string.buffer(), chars);
-        string.sign();
-        return string;
-    }
-
-    pub inline fn as64(chars: anytype) u64 {
-        // We're expecting `chars` to be `*const [n:0]u8` with n <= 8
-        if (chars.len > 8) {
-            @compileError("Small.as64 must have 8 characters or less");
-        }
-
-        return internalAs64(chars);
     }
 
     pub fn signature(self: *const Small) []const u8 {
@@ -188,6 +194,15 @@ pub const Small = extern struct {
             const full_buffer: *const [Small.max_size]u8 = @ptrCast(self.remaining.pointer);
             return full_buffer[0..self.size];
         }
+    }
+
+    pub fn contains(self: Small, message: []const u8, where: common.At) bool {
+        if (self.count() < message.len) {
+            return false;
+        }
+        return switch (where) {
+            common.At.start => std.mem.eql(u8, self.in(range(0, message.len)), message),
+        };
     }
 
     pub inline fn printLine(self: *const Small, writer: anytype) !void {
@@ -405,7 +420,9 @@ test "too large of a string" {
 
 test "copies all bytes of short string" {
     // This is mostly just me verifying how zig does memory.
-    // We want string copies to be safe.
+    // We want string copies to be safe.  Note that the address
+    // of `string.slice()` may change if copied, e.g., for
+    // `noAlloc` strings.
     var string_src = Small.noAlloc("0123456789abcd");
     string_src.size = 5;
 
@@ -417,4 +434,29 @@ test "copies all bytes of short string" {
     }
     try string_src.expectEquals(Small.noAlloc(":;<=>?@ABCklmn"));
     try string_dst.expectEquals(Small.noAlloc("01234"));
+}
+
+test "contains At.start for long string" {
+    var string = try Small.init("long string should test this as well");
+    defer string.deinit();
+
+    try std.testing.expect(string.contains("lon", common.At.start));
+    try std.testing.expect(string.contains("long string should tes", common.At.start));
+    try std.testing.expect(string.contains("long string should test this as well", common.At.start));
+
+    try std.testing.expect(!string.contains("long string should test this as well!", common.At.start));
+    try std.testing.expect(!string.contains("short string", common.At.start));
+    try std.testing.expect(!string.contains("string", common.At.start));
+}
+
+test "contains At.start for short string" {
+    const string = Small.noAlloc("short string!");
+
+    try std.testing.expect(string.contains("shor", common.At.start));
+    try std.testing.expect(string.contains("short strin", common.At.start));
+    try std.testing.expect(string.contains("short string!", common.At.start));
+
+    try std.testing.expect(!string.contains("short string!?", common.At.start));
+    try std.testing.expect(!string.contains("long string", common.At.start));
+    try std.testing.expect(!string.contains("string", common.At.start));
 }
