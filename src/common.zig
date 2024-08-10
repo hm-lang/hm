@@ -34,6 +34,14 @@ pub fn assert(a: anytype) Found(@TypeOf(a)) {
     }
 }
 
+pub fn when(a: anytype, comptime predicate: fn(Found(@TypeOf(a))) bool) bool {
+    if (a) |non_null| {
+        return predicate(non_null);
+    } else {
+        return false;
+    }
+}
+
 const BackError = error{
     no_back,
 };
@@ -185,5 +193,26 @@ test "sign works well for small even-sized buffers" {
 test "assert works" {
     var my_int: ?Range(i32) = null;
     my_int = .{ .start = 123, .end = 456 };
-    try std.testing.expectEqual(assert(my_int).start, 123);
+    try std.testing.expectEqual(123, assert(my_int).start);
+}
+
+test "when works with nullables" {
+    const Test = struct {
+        fn smallRange(range: Range(i32)) bool {
+            return range.start < 10;
+        }
+        fn bigRange(range: Range(i32)) bool {
+            return range.start >= 10;
+        }
+    };
+    var my_int: ?Range(i32) = null;
+    // with null:
+    try std.testing.expectEqual(false, when(my_int, Test.smallRange));
+
+    // when not null...
+    my_int = .{ .start = 123, .end = 456 };
+    // ... but predicate is false:
+    try std.testing.expectEqual(false, when(my_int, Test.smallRange));
+    // ... and predicate is true:
+    try std.testing.expectEqual(true, when(my_int, Test.bigRange));
 }

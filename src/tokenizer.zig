@@ -137,8 +137,9 @@ pub const Tokenizer = struct {
             },
             else => {},
         };
-        const original_count = self.tokens.count();
-        if (next.isWhitespace() or (original_count > 0 and self.tokens.inBounds(original_count - 1).isTab())) {
+        const initial_count = self.tokens.count();
+
+        if (next.isWhitespace() or common.when(self.tokens.before(initial_count), Token.isTab)) {
             // No need to add an implied tab between existing whitespace...
         } else {
             // Add an "implied" tab so we can keep track of where we are.
