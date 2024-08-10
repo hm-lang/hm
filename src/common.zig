@@ -21,6 +21,19 @@ pub fn swap(a: anytype, b: anytype) void {
     b.* = c;
 }
 
+// TODO: extend to pull out the non-error OR the non-null type.
+pub fn Found(comptime T: type) type {
+    return @typeInfo(T).Optional.child;
+}
+
+pub fn assert(a: anytype) Found(@TypeOf(a)) {
+    if (a) |non_null| {
+        return non_null;
+    } else {
+        @panic("expected `assert` argument to be non-null");
+    }
+}
+
 const BackError = error{
     no_back,
 };
@@ -167,4 +180,10 @@ test "sign works well for small even-sized buffers" {
 
     try sign(&buffer, "big" ** 10000);
     try std.testing.expectEqualStrings("b30000", &buffer);
+}
+
+test "assert works" {
+    var my_int: ?Range(i32) = null;
+    my_int = .{ .start = 123, .end = 456 };
+    try std.testing.expectEqual(assert(my_int).start, 123);
 }
