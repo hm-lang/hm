@@ -149,6 +149,7 @@ pub const Tokenizer = struct {
         self.tokens.append(next) catch {
             return TokenizerError.out_of_memory;
         };
+        // Some tokens have secondary effects.
         switch (next) {
             .invalid => |invalid| {
                 const error_message = switch (invalid.type) {
@@ -158,6 +159,11 @@ pub const Tokenizer = struct {
             },
             .end => {
                 self.last_token_index = self.tokens.count() - 1;
+            },
+            .newline => {
+                if (self.farthest_line_index == 0) {
+                    @panic("you have too many lines in this file, we overflowed a u32");
+                }
             },
             else => {},
         }
