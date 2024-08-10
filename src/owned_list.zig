@@ -53,7 +53,7 @@ pub fn OwnedList(comptime T: type) type {
         }
 
         pub inline fn before(self: *const Self, index: usize) ?T {
-            const before_index = common.before(index) catch return null;
+            const before_index = common.before(index) orelse return null;
             return self.at(before_index);
         }
 

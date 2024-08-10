@@ -48,21 +48,17 @@ pub inline fn when(a: anytype, comptime predicate: fn (Found(@TypeOf(a))) bool) 
     };
 }
 
-const BackError = error{
-    no_back,
-};
-
-pub inline fn before(a: anytype) BackError!@TypeOf(a) {
+pub inline fn before(a: anytype) ?@TypeOf(a) {
     return back(a, 1);
 }
 
 // TODO: consider getting rid of these and using `count() -> i64` so that we
 // can easily do `@max(0, count() - amount)`
-pub inline fn back(start: anytype, amount: anytype) BackError!@TypeOf(start) {
+pub inline fn back(start: anytype, amount: anytype) ?@TypeOf(start) {
     if (start >= amount) {
         return start - amount;
     }
-    return BackError.no_back;
+    return null;
 }
 
 pub fn Range(comptime T: type) type {
@@ -203,7 +199,8 @@ test "assert works with nullables" {
 }
 
 test "assert works with error unions" {
-    var my_range: BackError!Range(i32) = BackError.no_back;
+    const Err = error{err};
+    var my_range: Err!Range(i32) = Err.err;
     my_range = .{ .start = 123, .end = 456 };
     try std.testing.expectEqual(456, assert(my_range).end);
 }
@@ -216,10 +213,14 @@ test "when works with nullables" {
         fn bigRange(range: Range(i32)) bool {
             return range.end - range.start >= 10;
         }
+        fn alwaysTrue(range: Range(i32)) bool {
+            _ = range;
+            return true;
+        }
     };
     var my_range: ?Range(i32) = null;
     // with null:
-    try std.testing.expectEqual(false, when(my_range, Test.smallRange));
+    try std.testing.expectEqual(false, when(my_range, Test.alwaysTrue));
 
     // when not null...
     my_range = .{ .start = 123, .end = 456 };
@@ -237,10 +238,15 @@ test "when works with error unions" {
         fn bigRange(range: Range(i32)) bool {
             return range.end - range.start >= 10;
         }
+        fn alwaysTrue(range: Range(i32)) bool {
+            _ = range;
+            return true;
+        }
     };
-    var my_range: BackError!Range(i32) = BackError.no_back;
+    const Err = error{err};
+    var my_range: Err!Range(i32) = Err.err;
     // with an error:
-    try std.testing.expectEqual(false, when(my_range, Test.smallRange));
+    try std.testing.expectEqual(false, when(my_range, Test.alwaysTrue));
 
     // when not an error...
     my_range = .{ .start = 123, .end = 456 };

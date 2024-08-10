@@ -58,7 +58,7 @@ pub const Tokenizer = struct {
             .invalid => |invalid| return invalid.columns,
             .newline => |line_index| {
                 const line_length = self.file.lines.inBounds(line_index - 1).count();
-                return .{ .start = common.before(line_length) catch 0, .end = line_length };
+                return .{ .start = common.before(line_length) orelse 0, .end = line_length };
             },
             .tab => |tab_u| {
                 // TODO: switch to u16 in tab: `Token{tab: u16}`
