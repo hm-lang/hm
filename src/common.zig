@@ -21,25 +21,31 @@ pub fn swap(a: anytype, b: anytype) void {
     b.* = c;
 }
 
-// TODO: extend to pull out the non-error OR the non-null type.
 pub fn Found(comptime T: type) type {
-    return @typeInfo(T).Optional.child;
+    return switch (@typeInfo(T)) {
+        .Optional => |optional| optional.child,
+        .ErrorUnion => |error_union| error_union.payload,
+        else => @compileError("should use an `Optional` or `ErrorUnion` type inside `Found`"),
+    };
 }
 
-pub fn assert(a: anytype) Found(@TypeOf(a)) {
-    if (a) |non_null| {
-        return non_null;
-    } else {
-        @panic("expected `assert` argument to be non-null");
-    }
+pub inline fn assert(a: anytype) Found(@TypeOf(a)) {
+    return switch (@typeInfo(@TypeOf(a))) {
+        .Optional => if (a) |not_null| not_null else @panic("expected `assert` argument to be non-null"),
+        .ErrorUnion => a catch @panic("expected `assert` argument to not be an error"),
+        else => @compileError("should use an `Optional` or `ErrorUnion` type inside `assert`"),
+    };
 }
 
-pub fn when(a: anytype, comptime predicate: fn(Found(@TypeOf(a))) bool) bool {
-    if (a) |non_null| {
-        return predicate(non_null);
-    } else {
-        return false;
-    }
+pub inline fn when(a: anytype, comptime predicate: fn (Found(@TypeOf(a))) bool) bool {
+    return switch (@typeInfo(@TypeOf(a))) {
+        .Optional => if (a) |not_null| predicate(not_null) else false,
+        .ErrorUnion => {
+            const not_error = a catch return false;
+            return predicate(not_error);
+        },
+        else => @compileError("should use an `Optional` or `ErrorUnion` type inside `when`"),
+    };
 }
 
 const BackError = error{
@@ -190,29 +196,56 @@ test "sign works well for small even-sized buffers" {
     try std.testing.expectEqualStrings("b30000", &buffer);
 }
 
-test "assert works" {
-    var my_int: ?Range(i32) = null;
-    my_int = .{ .start = 123, .end = 456 };
-    try std.testing.expectEqual(123, assert(my_int).start);
+test "assert works with nullables" {
+    var my_range: ?Range(i32) = null;
+    my_range = .{ .start = 123, .end = 456 };
+    try std.testing.expectEqual(123, assert(my_range).start);
+}
+
+test "assert works with error unions" {
+    var my_range: BackError!Range(i32) = BackError.no_back;
+    my_range = .{ .start = 123, .end = 456 };
+    try std.testing.expectEqual(456, assert(my_range).end);
 }
 
 test "when works with nullables" {
     const Test = struct {
         fn smallRange(range: Range(i32)) bool {
-            return range.start < 10;
+            return range.end - range.start < 10;
         }
         fn bigRange(range: Range(i32)) bool {
-            return range.start >= 10;
+            return range.end - range.start >= 10;
         }
     };
-    var my_int: ?Range(i32) = null;
+    var my_range: ?Range(i32) = null;
     // with null:
-    try std.testing.expectEqual(false, when(my_int, Test.smallRange));
+    try std.testing.expectEqual(false, when(my_range, Test.smallRange));
 
     // when not null...
-    my_int = .{ .start = 123, .end = 456 };
+    my_range = .{ .start = 123, .end = 456 };
     // ... but predicate is false:
-    try std.testing.expectEqual(false, when(my_int, Test.smallRange));
+    try std.testing.expectEqual(false, when(my_range, Test.smallRange));
     // ... and predicate is true:
-    try std.testing.expectEqual(true, when(my_int, Test.bigRange));
+    try std.testing.expectEqual(true, when(my_range, Test.bigRange));
+}
+
+test "when works with error unions" {
+    const Test = struct {
+        fn smallRange(range: Range(i32)) bool {
+            return range.end - range.start < 10;
+        }
+        fn bigRange(range: Range(i32)) bool {
+            return range.end - range.start >= 10;
+        }
+    };
+    var my_range: BackError!Range(i32) = BackError.no_back;
+    // with an error:
+    try std.testing.expectEqual(false, when(my_range, Test.smallRange));
+
+    // when not an error...
+    my_range = .{ .start = 123, .end = 456 };
+    // ... but predicate is false:
+    try std.testing.expectEqual(false, when(my_range, Test.smallRange));
+    // ... and predicate is true:
+    try std.testing.expectEqual(true, when(my_range, Test.bigRange));
 }
