@@ -286,8 +286,8 @@ pub const Tokenizer = struct {
     fn getErrorLine(error_columns: SmallString.Range, error_message: []const u8) SmallString.Error!SmallString {
         const compiler_error_start = "#@!";
         // Error message prefix if we can add the error message before `^~~~~~`:
-        // +1 for the additional space between `error_message` and '^'.
-        const pre_length = compiler_error_start.len + error_message.len + 1;
+        // +2 for the additional spaces before and after `error_message`.
+        const pre_length = compiler_error_start.len + error_message.len + 2;
         var string: SmallString = undefined;
         if (error_columns.start >= pre_length) {
             // Error goes before "^~~~~", e.g.
@@ -296,6 +296,7 @@ pub const Tokenizer = struct {
             string = try SmallString.allocExactly(total_length);
             var buffer = string.buffer();
             @memcpy(buffer[0..compiler_error_start.len], compiler_error_start);
+            buffer[compiler_error_start.len] = ' ';
             // -1 for the space between `error_message` and '^'
             const error_message_start = error_columns.start - error_message.len - 1;
             @memset(buffer[compiler_error_start.len..error_message_start], ' ');
@@ -830,4 +831,90 @@ test "tokenizer parentheses ok" {
     try (try tokenizer.at(count)).expectEquals(Token{ .newline = 2 });
     count += 1;
     try (try tokenizer.at(count)).expectEquals(.end);
+}
+
+test "tokenizer parentheses failure" {
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        // Keeping balance in the universe: [
+        try tokenizer.file.lines.append(try SmallString.init("(    ]"));
+
+        var count: usize = 0;
+        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 0 });
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.paren });
+
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 5 });
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 5, .end = 6 },
+            .type = Token.InvalidType.expected_close_paren,
+        }});
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!  ^ expected `)`");
+    }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        // Keeping balance in the universe: (
+        try tokenizer.file.lines.append(try SmallString.init("  [)"));
+
+        var count: usize = 0;
+        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 2 });
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
+
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 3 });
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 3, .end = 4 },
+            .type = Token.InvalidType.expected_close_bracket,
+        }});
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!^ expected `]`");
+    }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        // Keeping balance in the universe: [
+        try tokenizer.file.lines.append(try SmallString.init("    {            ]"));
+
+        var count: usize = 0;
+        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 4 });
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.brace });
+
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 17 });
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 17, .end = 18 },
+            .type = Token.InvalidType.expected_close_brace,
+        }});
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! expected `}` ^");
+    }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        // Keeping balance in the universe: [
+        try tokenizer.file.lines.append(try SmallString.init(" ]"));
+
+        var count: usize = 0;
+        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 1 });
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 1, .end = 2 },
+            .type = Token.InvalidType.unexpected_close,
+        }});
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! no corresponding open");
+    }
 }
