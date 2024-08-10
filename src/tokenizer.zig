@@ -301,16 +301,6 @@ pub const Tokenizer = struct {
             string.deinit();
             return;
         };
-        // This can't happen while tokenizing, but if we come back in parsing and add an error,
-        // we'll want to ensure that our tokenizer stays where it expects.
-        // TODO: add a test for this.
-        // TODO: we probably need to increment every Token.newline *after* this point, because
-        //      `lineIndexAt` will no longer work.  alternatively we say that we break invariants
-        //      after `addErrorLine` and that users should no longer try to grab tokens.
-        // TODO: add a `error_after` usize which comes down from usize.max if we `addErrorLineAt`.
-        if (self.farthest_line_index > error_line_index) {
-            self.farthest_line_index += 1;
-        }
         // TODO: print `lines[error_line_index]` and `string` to common.stderr.
         //      get fancy with the colors around error_columns.
     }
@@ -449,8 +439,7 @@ test "invalid tokenizer operators" {
         try tokenizer.file.lines.append(line);
         try tokenizer.file.lines.append(SmallString.noAlloc("second line"));
 
-        const token = try tokenizer.at(1);
-        try token.expectEquals(Token{ .invalid = .{
+        try (try tokenizer.at(1)).expectEquals(Token{ .invalid = .{
             .columns = line.fullRange(),
             .type = Token.InvalidType.operator,
         } });
@@ -458,6 +447,57 @@ test "invalid tokenizer operators" {
         try tokenizer.file.lines.inBounds(0).expectEquals(line);
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! invalid operator");
         try tokenizer.file.lines.inBounds(2).expectEqualsString("second line");
+    }
+}
+
+test "indented invalid tokenizer operators" {
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+        try tokenizer.file.lines.append(try SmallString.init("                     =+="));
+
+        try (try tokenizer.at(1)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 21, .end = 24 },
+            .type = Token.InvalidType.operator,
+        } });
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! invalid operator ^~~");
+    }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+        try tokenizer.file.lines.append(SmallString.noAlloc(" +-+"));
+
+        try (try tokenizer.at(1)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 1, .end = 4 },
+            .type = Token.InvalidType.operator,
+        } });
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!~ invalid operator");
+    }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+        try tokenizer.file.lines.append(SmallString.noAlloc("       -----/"));
+
+        try (try tokenizer.at(1)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 7, .end = 13 },
+            .type = Token.InvalidType.operator,
+        } });
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!    ^~~~~~ invalid operator");
+    }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+        try tokenizer.file.lines.append(SmallString.noAlloc("%%%%%%%%%%")); // > 8 chars to test buffer overrun
+
+        try (try tokenizer.at(1)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 0, .end = 10 },
+            .type = Token.InvalidType.operator,
+        } });
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!~~~~~~~ invalid operator");
     }
 }
 
