@@ -106,6 +106,13 @@ pub fn OwnedList(comptime T: type) type {
         }
 
         pub inline fn expectEquals(self: Self, other: Self) !void {
+            errdefer {
+                common.stderr.print("expected:\n", .{}) catch {};
+                other.printLine(common.stderr) catch {};
+
+                common.stderr.print("got:\n", .{}) catch {};
+                self.printLine(common.stderr) catch {};
+            }
             // TODO: add an `errdefer` that will std.debug.print both `self` and `other`
             try std.testing.expectEqual(other.count(), self.count());
 
@@ -118,6 +125,24 @@ pub fn OwnedList(comptime T: type) type {
                     try std.testing.expectEqual(other_item, self_item);
                 }
             }
+        }
+
+        pub fn printLine(self: Self, writer: anytype) !void {
+            try self.print(writer);
+            try writer.print("\n", .{});
+        }
+
+        pub fn print(self: Self, writer: anytype) !void {
+            try writer.print("[", .{});
+            for (self.items()) |item| {
+                if (std.meta.hasMethod(T, "print")) {
+                    try item.print(writer);
+                    try writer.print(", ", .{});
+                } else {
+                    try writer.print("{}, ", .{item});
+                }
+            }
+            try writer.print("]", .{});
         }
     };
 }

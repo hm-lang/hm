@@ -1,4 +1,5 @@
 pub const SmallString = @import("string.zig").Small;
+const common = @import("common.zig");
 
 const std = @import("std");
 
@@ -22,6 +23,24 @@ pub const Token = union(TokenTag) {
         paren,
         bracket,
         brace,
+
+        pub fn slice(self: Open) []const u8 {
+            return switch (self) {
+                .paren => "paren",
+                .bracket => "bracket",
+                .brace => "brace",
+            };
+        }
+
+        pub fn printLine(self: Open, writer: anytype) !void {
+            try self.print(writer);
+            try writer.print("\n", .{});
+        }
+
+        pub fn print(self: Open, writer: anytype) !void {
+            // TODO: consider doing separate `Open.paren` and `Close.brace` logic.
+            try writer.print("{s}", .{self.slice()});
+        }
     };
     pub const Close = Open;
 
@@ -123,16 +142,12 @@ pub const Token = union(TokenTag) {
                 try writer.print("\")}}", .{});
             },
             .open => |open| {
-                try writer.print("Token{{ .open = Token.Open.{s} }}", .{charsOpenClose(open)});
+                try writer.print("Token{{ .open = Token.Open.{s} }}", .{open.slice()});
             },
             .close => |close| {
-                try writer.print("Token{{ .close = Token.Close.{s} }}", .{charsOpenClose(close)});
+                try writer.print("Token{{ .close = Token.Close.{s} }}", .{close.slice()});
             },
         }
-    }
-
-    pub fn charsOpenClose(open: Open) []u8 {
-        return @typeInfo(Open).Enum.fields[@intFromEnum(open)].name;
     }
 
     pub fn openChar(open: Open) u8 {
@@ -174,7 +189,13 @@ pub const Token = union(TokenTag) {
     }
 
     pub fn expectEquals(a: Token, b: Token) !void {
-        // TODO: add an `errdefer` that will std.debug.print both `self` and `other`
+        errdefer {
+            common.stderr.print("expected:\n", .{}) catch {};
+            b.printLine(common.stderr) catch {};
+
+            common.stderr.print("got:\n", .{}) catch {};
+            a.printLine(common.stderr) catch {};
+        }
         const tag_a = std.meta.activeTag(a);
         const tag_b = std.meta.activeTag(b);
         try std.testing.expectEqual(tag_b, tag_a);
@@ -199,6 +220,10 @@ pub const Token = union(TokenTag) {
     }
 
     pub fn expectNotEquals(a: Token, b: Token) !void {
+        errdefer {
+            common.stderr.print("expected NOT this, but got it:\n", .{}) catch {};
+            a.printLine(common.stderr) catch {};
+        }
         const tag_a = std.meta.activeTag(a);
         const tag_b = std.meta.activeTag(b);
         if (tag_a != tag_b) {

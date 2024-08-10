@@ -98,9 +98,6 @@ pub const Tokenizer = struct {
                 }
                 self.removeNextErrorLines();
             },
-            .open => |open| {
-                self.opens.append(open) catch return TokenizerError.out_of_memory;
-            },
             else => {},
         }
     }
@@ -727,4 +724,110 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.inBounds(0).expectEqualsString("  Hello w_o_rld   /  ");
     try tokenizer.file.lines.inBounds(1).expectEqualsString("Second2    -l1ne   ");
     try tokenizer.file.lines.inBounds(2).expectEqualsString("sp3cial* Fin_ancial  +  _problems");
+}
+
+test "tokenizer parentheses ok" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    try tokenizer.file.lines.append(try SmallString.init("([{"));
+    try tokenizer.file.lines.append(try SmallString.init("    }  ()[]{[[]( )]} ]   )"));
+
+    var count: usize = 0;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 0 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.paren });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 1 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 2 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.brace });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .newline = 1 });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 4 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.brace });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 7 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.paren });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 8 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.paren });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 9 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 10 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.bracket });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 11 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.brace });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 12 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 13 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 14 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.bracket });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 15 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.paren });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 17 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.paren });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 18 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.bracket }); // bad
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 19 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.brace });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 21 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.bracket });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .tab = 25 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .close = Token.Close.paren });
+
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(Token{ .newline = 2 });
+    count += 1;
+    try (try tokenizer.at(count)).expectEquals(.end);
 }
