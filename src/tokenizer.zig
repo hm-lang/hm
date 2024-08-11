@@ -16,6 +16,8 @@ const TokenizerError = error{
 };
 
 pub const Tokenizer = struct {
+    const Self = @This();
+
     tokens: OwnedTokens = OwnedTokens.init(),
     // TODO: push here whenever we encounter ([{ and pop whenever we see }])
     opens: OwnedOpens = OwnedOpens.init(),
@@ -73,11 +75,14 @@ pub const Tokenizer = struct {
         };
         const initial_count = self.tokens.count();
 
-        if (next.isWhitespace() or common.when(self.tokens.before(initial_count), Token.isTab)) {
-            // No need to add an implied tab between existing whitespace...
+        if (next.isWhitespace() or common.when(self.tokens.before(initial_count), Token.isSpacing)) {
+            // No need to add implicit spacing between existing whitespace...
         } else {
-            // Add an "implied" tab so we can keep track of where we are.
-            self.tokens.append(Token{ .tab = starting_char_index }) catch {
+            // Add implied spacing so we can keep track of where we are.
+            self.tokens.append(Token{ .spacing = .{
+                .absolute = starting_char_index,
+                .relative = 0,
+            } }) catch {
                 return TokenizerError.out_of_memory;
             };
         }
@@ -121,6 +126,7 @@ pub const Tokenizer = struct {
         if (self.farthest_char_index >= line.count()) {
             return self.getNextNewline();
         }
+        const initial_char_index = self.farthest_char_index;
         const starting_char = line.inBounds(self.farthest_char_index);
         const starts_with_whitespace = starting_char == ' ';
         if (starts_with_whitespace) {
@@ -131,7 +137,10 @@ pub const Tokenizer = struct {
                     return self.getNextNewline();
                 }
                 if (line.inBounds(self.farthest_char_index) != ' ') {
-                    return Token{ .tab = self.farthest_char_index };
+                    return Token{ .spacing = .{
+                        .absolute = self.farthest_char_index,
+                        .relative = self.farthest_char_index - initial_char_index,
+                    } };
                 }
             }
         } else {
@@ -423,25 +432,24 @@ pub const Tokenizer = struct {
                 const line_length = self.file.lines.inBounds(line_index - 1).count();
                 return .{ .start = common.before(line_length) orelse 0, .end = line_length };
             },
-            .tab => |tab| {
-                return .{ .start = tab, .end = tab + 1 };
+            .spacing => |spacing| {
+                return .{ .start = spacing.absolute, .end = spacing.absolute + @max(1, spacing.relative) };
             },
             else => if (self.tokens.before(at_token_index)) |before_token| {
                 switch (before_token) {
-                    .tab => |tab_u| {
-                        const tab: u16 = @intCast(tab_u);
-                        return .{ .start = tab, .end = tab + token.countChars() };
+                    .spacing => |spacing| {
+                        return .{ .start = spacing.absolute, .end = spacing.absolute + token.countChars() };
                     },
                     else => {
-                        // We add an implied tab between everything that's not
+                        // We add implicit spacing between everything that's not
                         // whitespace (see `fn appendToken`).  So we're not sure
                         // what's happening here, so go ham.
-                        std.debug.print("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{});
+                        common.stderr.print("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{}) catch {};
                         return self.fullLineColumnsAt(at_token_index);
                     },
                 }
             } else {
-                std.debug.print("expected to see a tab at tokens[0]\n", .{});
+                common.stderr.print("expected to see spacing at tokens[0]\n", .{}) catch {};
                 return self.fullLineColumnsAt(at_token_index);
             },
         }
@@ -498,7 +506,7 @@ test "valid tokenizer operators" {
         const line = tokenizer.file.lines.inBounds(line_index);
 
         var token = try tokenizer.at(count);
-        try token.expectEquals(Token{ .tab = 0 });
+        try token.expectEquals(Token{ .spacing = .{ .absolute = 0, .relative = 0 } });
         count += 1;
 
         token = try tokenizer.at(count);
@@ -634,44 +642,44 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.append(try SmallString.init("sp3cial* Fin_ancial  +  _problems"));
     try tokenizer.file.lines.append(try SmallString.init("#@!    assume we should get rid of this"));
     // TODO: test number tokenizing errors like `45e123.4` and `123.456.789`
-    try tokenizer.file.lines.append(try SmallString.init("8 123 45.6e123 7E10"));
+    try tokenizer.file.lines.append(try SmallString.init("8 123 45.6e123   7E10"));
 
     try tokenizer.complete();
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
-        Token{ .tab = 2 },
+        Token{ .spacing = .{ .absolute = 2, .relative = 2 } },
         Token{ .starts_upper = SmallString.noAlloc("Hello") },
-        Token{ .tab = 8 }, // absolute tab
+        Token{ .spacing = .{ .absolute = 8, .relative = 1 } },
         Token{ .starts_lower = SmallString.noAlloc("w_o_rld2") },
-        Token{ .tab = 18 },
+        Token{ .spacing = .{ .absolute = 18, .relative = 2 } },
         Token{ .operator = '/' },
-        // Ignores tab/whitespace at the end
+        // Ignores spacing at the end
         Token{ .newline = 1 },
-        Token{ .tab = 0 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .number = SmallString.noAlloc("2.73456") },
-        Token{ .tab = 11 },
+        Token{ .spacing = .{ .absolute = 11, .relative = 4 } },
         Token{ .operator = '-' },
-        Token{ .tab = 12 }, // implied tab
+        Token{ .spacing = .{ .absolute = 12, .relative = 0 } },
         Token{ .starts_lower = SmallString.noAlloc("l1ne") },
-        // Ignores tab/whitespace at the end
+        // Ignores spacing at the end
         Token{ .newline = 2 },
-        Token{ .tab = 0 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .starts_lower = SmallString.noAlloc("sp3cial") },
-        Token{ .tab = 7 }, // implied tab
+        Token{ .spacing = .{ .absolute = 7, .relative = 0 } },
         Token{ .operator = '*' },
-        Token{ .tab = 9 },
+        Token{ .spacing = .{ .absolute = 9, .relative = 1 } },
         Token{ .starts_upper = SmallString.noAlloc("Fin_ancial") },
-        Token{ .tab = 21 },
+        Token{ .spacing = .{ .absolute = 21, .relative = 2 } },
         Token{ .operator = '+' },
-        Token{ .tab = 24 },
+        Token{ .spacing = .{ .absolute = 24, .relative = 2 } },
         Token{ .starts_upper = SmallString.noAlloc("_problems") },
         Token{ .newline = 3 },
-        Token{ .tab = 0 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .number = SmallString.noAlloc("8") },
-        Token{ .tab = 2 },
+        Token{ .spacing = .{ .absolute = 2, .relative = 1 } },
         Token{ .number = SmallString.noAlloc("123") },
-        Token{ .tab = 6 },
+        Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
         Token{ .number = SmallString.noAlloc("45.6e123") },
-        Token{ .tab = 15 },
+        Token{ .spacing = .{ .absolute = 17, .relative = 3 } },
         Token{ .number = SmallString.noAlloc("7E10") },
         Token{ .newline = 4 },
         .end,
@@ -681,7 +689,7 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.inBounds(0).expectEqualsString("  Hello w_o_rld2  /  ");
     try tokenizer.file.lines.inBounds(1).expectEqualsString("2.73456    -l1ne   ");
     try tokenizer.file.lines.inBounds(2).expectEqualsString("sp3cial* Fin_ancial  +  _problems");
-    try tokenizer.file.lines.inBounds(3).expectEqualsString("8 123 45.6e123 7E10");
+    try tokenizer.file.lines.inBounds(3).expectEqualsString("8 123 45.6e123   7E10");
 }
 
 test "tokenizer parentheses ok" {
@@ -693,42 +701,42 @@ test "tokenizer parentheses ok" {
     try tokenizer.complete();
 
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
-        Token{ .tab = 0 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .open = Token.Open.paren },
-        Token{ .tab = 1 },
+        Token{ .spacing = .{ .absolute = 1, .relative = 0 } },
         Token{ .open = Token.Open.bracket },
-        Token{ .tab = 2 },
+        Token{ .spacing = .{ .absolute = 2, .relative = 0 } },
         Token{ .open = Token.Open.brace },
         Token{ .newline = 1 },
-        Token{ .tab = 4 },
+        Token{ .spacing = .{ .absolute = 4, .relative = 4 } },
         Token{ .close = Token.Close.brace },
-        Token{ .tab = 7 },
+        Token{ .spacing = .{ .absolute = 7, .relative = 2 } },
         Token{ .open = Token.Open.paren },
-        Token{ .tab = 8 },
+        Token{ .spacing = .{ .absolute = 8, .relative = 0 } },
         Token{ .close = Token.Close.paren },
-        Token{ .tab = 9 },
+        Token{ .spacing = .{ .absolute = 9, .relative = 0 } },
         Token{ .open = Token.Open.bracket },
-        Token{ .tab = 10 },
+        Token{ .spacing = .{ .absolute = 10, .relative = 0 } },
         Token{ .close = Token.Close.bracket },
-        Token{ .tab = 11 },
+        Token{ .spacing = .{ .absolute = 11, .relative = 0 } },
         Token{ .open = Token.Open.brace },
-        Token{ .tab = 12 },
+        Token{ .spacing = .{ .absolute = 12, .relative = 0 } },
         Token{ .open = Token.Open.bracket },
-        Token{ .tab = 13 },
+        Token{ .spacing = .{ .absolute = 13, .relative = 0 } },
         Token{ .open = Token.Open.bracket },
-        Token{ .tab = 14 },
+        Token{ .spacing = .{ .absolute = 14, .relative = 0 } },
         Token{ .close = Token.Close.bracket },
-        Token{ .tab = 15 },
+        Token{ .spacing = .{ .absolute = 15, .relative = 0 } },
         Token{ .open = Token.Open.paren },
-        Token{ .tab = 17 },
+        Token{ .spacing = .{ .absolute = 17, .relative = 1 } },
         Token{ .close = Token.Close.paren },
-        Token{ .tab = 18 },
+        Token{ .spacing = .{ .absolute = 18, .relative = 0 } },
         Token{ .close = Token.Close.bracket },
-        Token{ .tab = 19 },
+        Token{ .spacing = .{ .absolute = 19, .relative = 0 } },
         Token{ .close = Token.Close.brace },
-        Token{ .tab = 21 },
+        Token{ .spacing = .{ .absolute = 21, .relative = 1 } },
         Token{ .close = Token.Close.bracket },
-        Token{ .tab = 25 },
+        Token{ .spacing = .{ .absolute = 25, .relative = 3 } },
         Token{ .close = Token.Close.paren },
         Token{ .newline = 2 },
         .end,
@@ -744,12 +752,12 @@ test "tokenizer parentheses failure" {
         try tokenizer.file.lines.append(try SmallString.init("(    ]"));
 
         var count: usize = 0;
-        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 0 });
+        try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 0, .relative = 0 } });
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.paren });
 
         count += 1;
-        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 5 });
+        try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 5, .relative = 4 } });
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
             .columns = .{ .start = 5, .end = 6 },
@@ -766,12 +774,12 @@ test "tokenizer parentheses failure" {
         try tokenizer.file.lines.append(try SmallString.init("  [)"));
 
         var count: usize = 0;
-        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 2 });
+        try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 2, .relative = 2 } });
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
 
         count += 1;
-        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 3 });
+        try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 3, .relative = 0 } });
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
             .columns = .{ .start = 3, .end = 4 },
@@ -788,12 +796,12 @@ test "tokenizer parentheses failure" {
         try tokenizer.file.lines.append(try SmallString.init("    {            ]"));
 
         var count: usize = 0;
-        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 4 });
+        try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 4, .relative = 4 } });
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.brace });
 
         count += 1;
-        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 17 });
+        try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 17, .relative = 12 } });
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
             .columns = .{ .start = 17, .end = 18 },
@@ -810,7 +818,7 @@ test "tokenizer parentheses failure" {
         try tokenizer.file.lines.append(try SmallString.init(" ]"));
 
         var count: usize = 0;
-        try (try tokenizer.at(count)).expectEquals(Token{ .tab = 1 });
+        try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 1, .relative = 1 } });
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
             .columns = .{ .start = 1, .end = 2 },
