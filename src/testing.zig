@@ -79,3 +79,42 @@ test "can get lines printed to stdout" {
         SmallString.noAlloc("one print"),
     });
 }
+
+test "can get lines printed to stderr" {
+    const common = @import("common.zig");
+
+    try common.stderr.print("one\ntwo\nthree\n", .{});
+    try common.stderr.print("fo..", .{});
+    try common.stderr.print("u...", .{});
+    try common.stderr.print("r..\n", .{});
+
+    var lines = common.stderr.pullLines();
+    defer lines.deinit();
+    try lines.expectEqualsSlice(&[_]SmallString{
+        SmallString.noAlloc("one"),
+        SmallString.noAlloc("two"),
+        SmallString.noAlloc("three"),
+        SmallString.noAlloc("fo..u...r.."),
+    });
+}
+
+test "can get lines printed to stdout and stderr" {
+    const common = @import("common.zig");
+
+    try common.stdout.print("out", .{});
+    try common.stderr.print("ERR", .{});
+    try common.stdout.print("WARD\n", .{});
+    try common.stderr.print("or\n", .{});
+
+    var lines = common.stderr.pullLines();
+    try lines.expectEqualsSlice(&[_]SmallString{
+        SmallString.noAlloc("ERRor"),
+    });
+    lines.deinit();
+
+    lines = common.stdout.pullLines();
+    try lines.expectEqualsSlice(&[_]SmallString{
+        SmallString.noAlloc("outWARD"),
+    });
+    lines.deinit();
+}
