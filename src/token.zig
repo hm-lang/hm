@@ -198,12 +198,13 @@ pub const Token = union(TokenTag) {
     }
 
     pub fn expectEquals(a: Token, b: Token) !void {
+        const stderr = std.io.getStdErr().writer();
         errdefer {
-            common.stderr.print("expected:\n", .{}) catch {};
-            b.printLine(common.stderr) catch {};
+            stderr.print("expected:\n", .{}) catch {};
+            b.printLine(stderr) catch {};
 
-            common.stderr.print("got:\n", .{}) catch {};
-            a.printLine(common.stderr) catch {};
+            stderr.print("got:\n", .{}) catch {};
+            a.printLine(stderr) catch {};
         }
         const tag_a = std.meta.activeTag(a);
         const tag_b = std.meta.activeTag(b);
@@ -229,9 +230,10 @@ pub const Token = union(TokenTag) {
     }
 
     pub fn expectNotEquals(a: Token, b: Token) !void {
+        const stderr = std.io.getStdErr().writer();
         errdefer {
-            common.stderr.print("expected NOT this, but got it:\n", .{}) catch {};
-            a.printLine(common.stderr) catch {};
+            stderr.print("expected NOT this, but got it:\n", .{}) catch {};
+            a.printLine(stderr) catch {};
         }
         const tag_a = std.meta.activeTag(a);
         const tag_b = std.meta.activeTag(b);

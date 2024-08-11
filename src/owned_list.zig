@@ -110,12 +110,13 @@ pub fn OwnedList(comptime T: type) type {
         }
 
         pub fn expectEqualsSlice(self: Self, other: []const T) !void {
+            const stderr = std.io.getStdErr().writer();
             errdefer {
-                common.stderr.print("expected:\n", .{}) catch {};
-                common.printSliceLine(other, common.stderr) catch {};
+                stderr.print("expected:\n", .{}) catch {};
+                common.printSliceLine(other, stderr) catch {};
 
-                common.stderr.print("got:\n", .{}) catch {};
-                self.printLine(common.stderr) catch {};
+                stderr.print("got:\n", .{}) catch {};
+                self.printLine(stderr) catch {};
             }
             try std.testing.expectEqual(other.len, self.count());
 
@@ -124,7 +125,7 @@ pub fn OwnedList(comptime T: type) type {
                 const other_item = other[index];
                 if (std.meta.hasMethod(T, "expectEquals")) {
                     self_item.expectEquals(other_item) catch |e| {
-                        common.stderr.print("\nnot equal at index {d}\n\n", .{index}) catch {};
+                        stderr.print("\nnot equal at index {d}\n\n", .{index}) catch {};
                         return e;
                     };
                 } else {

@@ -626,26 +626,28 @@ test "tokenizer tokenizing" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
 
-    try tokenizer.file.lines.append(try SmallString.init("  Hello w_o_rld   /  "));
+    try tokenizer.file.lines.append(try SmallString.init("  Hello w_o_rld2  /  "));
     try tokenizer.file.lines.append(try SmallString.init("#@! ^ this was an error last time"));
-    try tokenizer.file.lines.append(try SmallString.init("Second2    -l1ne   "));
+    try tokenizer.file.lines.append(try SmallString.init("2.73456    -l1ne   "));
     try tokenizer.file.lines.append(try SmallString.init("#@! if we have multiple lines"));
     try tokenizer.file.lines.append(try SmallString.init("#@! it's because of additional info"));
     try tokenizer.file.lines.append(try SmallString.init("sp3cial* Fin_ancial  +  _problems"));
     try tokenizer.file.lines.append(try SmallString.init("#@!    assume we should get rid of this"));
+    // TODO: test number tokenizing errors like `45e123.4` and `123.456.789`
+    try tokenizer.file.lines.append(try SmallString.init("8 123 45.6e123 7E10"));
 
     try tokenizer.complete();
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .tab = 2 },
         Token{ .starts_upper = SmallString.noAlloc("Hello") },
         Token{ .tab = 8 }, // absolute tab
-        Token{ .starts_lower = SmallString.noAlloc("w_o_rld") },
+        Token{ .starts_lower = SmallString.noAlloc("w_o_rld2") },
         Token{ .tab = 18 },
         Token{ .operator = '/' },
         // Ignores tab/whitespace at the end
         Token{ .newline = 1 },
         Token{ .tab = 0 },
-        Token{ .starts_upper = SmallString.noAlloc("Second2") },
+        Token{ .number = SmallString.noAlloc("2.73456") },
         Token{ .tab = 11 },
         Token{ .operator = '-' },
         Token{ .tab = 12 }, // implied tab
@@ -663,13 +665,23 @@ test "tokenizer tokenizing" {
         Token{ .tab = 24 },
         Token{ .starts_upper = SmallString.noAlloc("_problems") },
         Token{ .newline = 3 },
+        Token{ .tab = 0 },
+        Token{ .number = SmallString.noAlloc("8") },
+        Token{ .tab = 2 },
+        Token{ .number = SmallString.noAlloc("123") },
+        Token{ .tab = 6 },
+        Token{ .number = SmallString.noAlloc("45.6e123") },
+        Token{ .tab = 15 },
+        Token{ .number = SmallString.noAlloc("7E10") },
+        Token{ .newline = 4 },
         .end,
     });
 
     // Tokenizer will clean up the compile errors in the file automatically:
-    try tokenizer.file.lines.inBounds(0).expectEqualsString("  Hello w_o_rld   /  ");
-    try tokenizer.file.lines.inBounds(1).expectEqualsString("Second2    -l1ne   ");
+    try tokenizer.file.lines.inBounds(0).expectEqualsString("  Hello w_o_rld2  /  ");
+    try tokenizer.file.lines.inBounds(1).expectEqualsString("2.73456    -l1ne   ");
     try tokenizer.file.lines.inBounds(2).expectEqualsString("sp3cial* Fin_ancial  +  _problems");
+    try tokenizer.file.lines.inBounds(3).expectEqualsString("8 123 45.6e123 7E10");
 }
 
 test "tokenizer parentheses ok" {
