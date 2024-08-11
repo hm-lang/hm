@@ -6,10 +6,11 @@ const std = @import("std");
 pub const TokenTag = enum {
     invalid,
     end,
-    starts_upper,
-    starts_lower,
     newline,
     tab,
+    starts_upper,
+    starts_lower,
+    number,
     operator,
     open,
     close,
@@ -46,10 +47,12 @@ pub const Token = union(TokenTag) {
 
     invalid: InvalidToken,
     end: void,
-    starts_upper: SmallString,
-    starts_lower: SmallString,
     newline: u32,
     tab: u16,
+    starts_upper: SmallString,
+    starts_lower: SmallString,
+    // We don't try to create a `dbl` or `int` here, just represent it faithfully for now.
+    number: SmallString,
     operator: u64,
     open: Open,
     close: Close,
@@ -77,10 +80,11 @@ pub const Token = union(TokenTag) {
         return switch (self) {
             .invalid => |invalid| invalid.columns.count(),
             .end => 0,
-            .starts_upper => |string| string.count(),
-            .starts_lower => |string| string.count(),
             .newline => 0,
             .tab => 4,
+            .starts_upper => |string| string.count(),
+            .starts_lower => |string| string.count(),
+            .number => |string| string.count(),
             .operator => |operator| SmallString.init64(operator).count(),
             .open => 1,
             .close => 1,
@@ -120,6 +124,12 @@ pub const Token = union(TokenTag) {
             .end => {
                 try writer.print(".end", .{});
             },
+            .newline => |value| {
+                try writer.print("Token{{ .newline = {d} }}", .{value});
+            },
+            .tab => |value| {
+                try writer.print("Token{{ .tab = {d} }}", .{value});
+            },
             .starts_upper => |string| {
                 try writer.print("Token{{ .starts_upper = try SmallString.init(\"", .{});
                 try string.print(writer);
@@ -130,14 +140,13 @@ pub const Token = union(TokenTag) {
                 try string.print(writer);
                 try writer.print("\")}}", .{});
             },
-            .newline => |value| {
-                try writer.print("Token{{ .newline = {d} }}", .{value});
-            },
-            .tab => |value| {
-                try writer.print("Token{{ .tab = {d} }}", .{value});
+            .number => |number| {
+                try writer.print("Token{{ .number = try SmallString.init(\"", .{});
+                try number.print(writer);
+                try writer.print("\")}}", .{});
             },
             .operator => |operator| {
-                try writer.print("Token{{ .starts_lower = SmallString.noAlloc(\"", .{});
+                try writer.print("Token{{ .operator = SmallString.as64(\"", .{});
                 try SmallString.init64(operator).print(writer);
                 try writer.print("\")}}", .{});
             },
@@ -278,6 +287,7 @@ const InvalidTokenType = enum {
     expected_close_bracket,
     expected_close_brace,
     unexpected_close, // there was a close with no open paren/brace/bracket
+    number,
 
     pub fn error_message(self: Self) []const u8 {
         return switch (self) {
@@ -290,6 +300,7 @@ const InvalidTokenType = enum {
             .expected_close_brace => "expected `}`",
             // Had a close that didn't have a corresponding open
             .unexpected_close => "no corresponding open",
+            .number => "invalid number",
         };
     }
 

@@ -150,6 +150,7 @@ pub const Tokenizer = struct {
                 ')' => return self.getNextClose(Token.Close.paren),
                 ']' => return self.getNextClose(Token.Close.bracket),
                 '}' => return self.getNextClose(Token.Close.brace),
+                '0'...'9' => return self.getNextNumber(line),
                 else => return self.getNextOperator(line),
             }
         }
@@ -202,6 +203,45 @@ pub const Tokenizer = struct {
         return SmallString.init(line.slice()[initial_char_index..self.farthest_char_index]) catch {
             return TokenizerError.out_of_memory;
         };
+    }
+
+    fn getNextNumber(self: *Tokenizer, line: SmallString) TokenizerError!Token {
+        // We've already checked and there's a numerical character at the self.farthest_char_index.
+        const initial_char_index = self.farthest_char_index;
+        self.farthest_char_index += 1;
+        var seen_e = false;
+        var seen_fraction_separator = false;
+        while (self.farthest_char_index < line.count()) {
+            switch (line.inBounds(self.farthest_char_index)) {
+                '0'...'9', '_' => {
+                    self.farthest_char_index += 1;
+                },
+                'e', 'E' => {
+                    self.farthest_char_index += 1;
+                    if (seen_e) {
+                        return Token{ .invalid = .{
+                            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+                            .type = Token.InvalidType.number,
+                        } };
+                    }
+                    seen_e = true;
+                },
+                '.' => {
+                    self.farthest_char_index += 1;
+                    if (seen_e or seen_fraction_separator) {
+                        return Token{ .invalid = .{
+                            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+                            .type = Token.InvalidType.number,
+                        } };
+                    }
+                    seen_fraction_separator = true;
+                },
+                else => break,
+            }
+        }
+        return Token{ .number = SmallString.init(line.slice()[initial_char_index..self.farthest_char_index]) catch {
+            return TokenizerError.out_of_memory;
+        } };
     }
 
     fn getNextOperator(self: *Tokenizer, line: SmallString) Token {
@@ -594,139 +634,37 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.append(try SmallString.init("sp3cial* Fin_ancial  +  _problems"));
     try tokenizer.file.lines.append(try SmallString.init("#@!    assume we should get rid of this"));
 
-    var count: usize = 0;
-    var token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 2 });
-    try std.testing.expectEqual(0, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Hello") });
-    try std.testing.expectEqual(0, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 8 }); // absolute tab
-    try std.testing.expectEqual(0, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("w_o_rld") });
-    try std.testing.expectEqual(0, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 18 });
-    try std.testing.expectEqual(0, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .operator = '/' });
-    try std.testing.expectEqual(0, tokenizer.lineIndexAt(count));
-
-    // Ignores tab/whitespace at the end
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .newline = 1 });
-    try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 0 });
-    try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Second2") });
-    try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 11 });
-    try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .operator = '-' });
-    try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 12 }); // implied tab
-    try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("l1ne") });
-    try std.testing.expectEqual(1, tokenizer.lineIndexAt(count));
-
-    // Ignores tab/whitespace at the end
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .newline = 2 });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 0 });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .starts_lower = SmallString.noAlloc("sp3cial") });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 7 }); // implied tab
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .operator = '*' });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 9 });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("Fin_ancial") });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 21 });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .operator = '+' });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .tab = 24 });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .starts_upper = SmallString.noAlloc("_problems") });
-    try std.testing.expectEqual(2, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(Token{ .newline = 3 });
-    try std.testing.expectEqual(3, tokenizer.lineIndexAt(count));
-
-    count += 1;
-    token = try tokenizer.at(count);
-    try token.expectEquals(.end);
-    try std.testing.expectEqual(3, tokenizer.lineIndexAt(count));
+    try tokenizer.complete();
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .tab = 2 },
+        Token{ .starts_upper = SmallString.noAlloc("Hello") },
+        Token{ .tab = 8 }, // absolute tab
+        Token{ .starts_lower = SmallString.noAlloc("w_o_rld") },
+        Token{ .tab = 18 },
+        Token{ .operator = '/' },
+        // Ignores tab/whitespace at the end
+        Token{ .newline = 1 },
+        Token{ .tab = 0 },
+        Token{ .starts_upper = SmallString.noAlloc("Second2") },
+        Token{ .tab = 11 },
+        Token{ .operator = '-' },
+        Token{ .tab = 12 }, // implied tab
+        Token{ .starts_lower = SmallString.noAlloc("l1ne") },
+        // Ignores tab/whitespace at the end
+        Token{ .newline = 2 },
+        Token{ .tab = 0 },
+        Token{ .starts_lower = SmallString.noAlloc("sp3cial") },
+        Token{ .tab = 7 }, // implied tab
+        Token{ .operator = '*' },
+        Token{ .tab = 9 },
+        Token{ .starts_upper = SmallString.noAlloc("Fin_ancial") },
+        Token{ .tab = 21 },
+        Token{ .operator = '+' },
+        Token{ .tab = 24 },
+        Token{ .starts_upper = SmallString.noAlloc("_problems") },
+        Token{ .newline = 3 },
+        .end,
+    });
 
     // Tokenizer will clean up the compile errors in the file automatically:
     try tokenizer.file.lines.inBounds(0).expectEqualsString("  Hello w_o_rld   /  ");
