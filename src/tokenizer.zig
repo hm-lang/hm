@@ -553,24 +553,31 @@ test "Tokenizer.addErrorAt" {
     defer tokenizer.deinit();
     try tokenizer.file.lines.append(try SmallString.init("ze ro"));
     try tokenizer.file.lines.append(try SmallString.init("on e"));
-    try tokenizer.file.lines.append(try SmallString.init("two ddd"));
-    try tokenizer.file.lines.append(try SmallString.init("third     cccc"));
-    try tokenizer.file.lines.append(try SmallString.init("fourth     BBBBB"));
-    try tokenizer.file.lines.append(try SmallString.init("fifth          a"));
+    try tokenizer.file.lines.append(try SmallString.init("t wo"));
+    try tokenizer.file.lines.append(try SmallString.init("th  ree"));
+    try tokenizer.file.lines.append(try SmallString.init("fourth     four"));
+    try tokenizer.file.lines.append(try SmallString.init("fifth       fifth"));
+    try tokenizer.file.lines.append(try SmallString.init("sixth          a"));
+    try tokenizer.file.lines.append(try SmallString.init("seventh             BB"));
     try tokenizer.complete();
 
     // Add errors backwards since they'll be broken by earlier errors otherwise.
-    tokenizer.addErrorAt(5 * 5 + 3, "bookmarked"); // target the second identifier
-    tokenizer.addErrorAt(4 * 5 + 3, "pad");
-    tokenizer.addErrorAt(3 * 5 + 3, "far out error");
-    tokenizer.addErrorAt(2 * 5 + 3, "with squiggles");
+    tokenizer.addErrorAt(7 * 5 + 3, "needs two spaces"); // target the second identifier
+    tokenizer.addErrorAt(6 * 5 + 3, "bookmarked");
+    tokenizer.addErrorAt(5 * 5 + 3, "five");
+    tokenizer.addErrorAt(4 * 5 + 3, "four out error");
+    tokenizer.addErrorAt(3 * 5 + 3, "with squiggles");
+    tokenizer.addErrorAt(2 * 5 + 3, "just squiggles");
     tokenizer.addErrorAt(1 * 5 + 3, "immediate caret");
     tokenizer.addErrorAt(0 * 5 + 1, "hidden caret and squiggles"); // target the first identifier
 
-    try tokenizer.file.lines.inBounds(5 * 2 + 1).expectEqualsString("#@! bookmarked ^");
-    try tokenizer.file.lines.inBounds(4 * 2 + 1).expectEqualsString("#@!    pad ^~~~~");
-    try tokenizer.file.lines.inBounds(3 * 2 + 1).expectEqualsString("#@!       ^~~~ far out error");
-    try tokenizer.file.lines.inBounds(2 * 2 + 1).expectEqualsString("#@! ^~~ with squiggles");
+    try tokenizer.file.lines.inBounds(7 * 2 + 1).expectEqualsString("#@!                 ^~ needs two spaces");
+    //                                     e.g., this doesn't work: "#@!needs two spaces ^~"
+    try tokenizer.file.lines.inBounds(6 * 2 + 1).expectEqualsString("#@! bookmarked ^");
+    try tokenizer.file.lines.inBounds(5 * 2 + 1).expectEqualsString("#@!    five ^~~~~");
+    try tokenizer.file.lines.inBounds(4 * 2 + 1).expectEqualsString("#@!        ^~~~ four out error");
+    try tokenizer.file.lines.inBounds(3 * 2 + 1).expectEqualsString("#@! ^~~ with squiggles");
+    try tokenizer.file.lines.inBounds(2 * 2 + 1).expectEqualsString("#@!~ just squiggles");
     try tokenizer.file.lines.inBounds(1 * 2 + 1).expectEqualsString("#@!^ immediate caret");
     try tokenizer.file.lines.inBounds(0 * 2 + 1).expectEqualsString("#@! hidden caret and squiggles");
 }
