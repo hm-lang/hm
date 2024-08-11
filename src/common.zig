@@ -1,12 +1,14 @@
+const testing = @import("testing.zig");
+
 const std = @import("std");
 const builtin = @import("builtin");
 
 pub const debug = builtin.mode == .Debug;
-pub const testing = builtin.is_test;
+pub const in_test = builtin.is_test;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-pub const allocator: std.mem.Allocator = if (testing)
+pub const allocator: std.mem.Allocator = if (in_test)
     std.testing.allocator
 else
     gpa.allocator();
@@ -15,9 +17,20 @@ pub const At = enum {
     start,
 };
 
-pub const stdout = std.io.getStdOut().writer();
-pub const stderr = std.io.getStdErr().writer();
-// TODO: mock stdout/stderr for tests to ensure we're writing the right things.
+// TODO: ideally we wouldn't create these in non-test environments.
+//       probably the best we can do is minimize the buffers internally.
+var stdout_data = testing.TestWriterData{};
+var stderr_data = testing.TestWriterData{};
+
+pub var stdout = if (in_test)
+    testing.TestWriter.init(&stdout_data)
+else
+    std.io.getStdOut().writer();
+
+pub var stderr = if (in_test)
+    testing.TestWriter.init(&stderr_data)
+else
+    std.io.getStdErr().writer();
 
 pub fn swap(a: anytype, b: anytype) void {
     const c = a.*;
