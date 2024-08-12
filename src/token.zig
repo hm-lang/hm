@@ -186,6 +186,33 @@ pub const Token = union(TokenTag) {
         };
     }
 
+    /// Returns null if `buffer` is an invalid operator, otherwise
+    /// the numerical value of the operator (see `SmallString.as64`).
+    pub fn convertOperator(buffer: []const u8) ?u64 {
+        // TODO: We could shortcircuit if len > maxLen of all valid operators below.
+        if (buffer.len > 8) {
+            return null;
+        }
+        const small = SmallString.init(buffer) catch unreachable;
+        const operator = small.little64() catch unreachable;
+        return switch (operator) {
+            SmallString.as64("="),
+            SmallString.as64("=="),
+            SmallString.as64("+"),
+            SmallString.as64("+="),
+            SmallString.as64("-"),
+            SmallString.as64("-="),
+            SmallString.as64("*"),
+            SmallString.as64("*="),
+            SmallString.as64("/"),
+            SmallString.as64("/="),
+            SmallString.as64("%"),
+            SmallString.as64("%="),
+            => operator,
+            else => null,
+        };
+    }
+
     pub fn equals(a: Token, b: Token) bool {
         const tag_a = std.meta.activeTag(a);
         const tag_b = std.meta.activeTag(b);
@@ -346,6 +373,14 @@ test "invalid token" {
     try std.testing.expectEqual(InvalidTokenType.expected_close_paren, InvalidTokenType.expected_close(Token.Open.paren));
     try std.testing.expectEqual(InvalidTokenType.expected_close_bracket, InvalidTokenType.expected_close(Token.Open.bracket));
     try std.testing.expectEqual(InvalidTokenType.expected_close_brace, InvalidTokenType.expected_close(Token.Open.brace));
+}
+
+test "valid operator tokens" {
+    const OwnedSmalls = @import("owned_list.zig").OwnedList(SmallString);
+    var operators = OwnedSmalls.init();
+    defer operators.deinit();
+
+    // TODO: `operators.appendAll(...)`
 }
 
 test "token equality" {

@@ -270,22 +270,9 @@ pub const Tokenizer = struct {
             }
         }
         const buffer = line.slice()[initial_char_index..self.farthest_char_index];
-        if (buffer.len > 8) {
+        const operator = Token.convertOperator(buffer) orelse {
             return self.getInvalidToken(initial_char_index, Token.InvalidType.operator);
-        }
-        const small = SmallString.init(buffer) catch unreachable;
-        const operator = small.little64() catch unreachable;
-        switch (operator) {
-            SmallString.as64("="),
-            SmallString.as64("+"),
-            SmallString.as64("-"),
-            SmallString.as64("*"),
-            SmallString.as64("/"),
-            => {},
-            else => {
-                return self.getInvalidToken(initial_char_index, Token.InvalidType.operator);
-            },
-        }
+        };
         return Token{ .operator = operator };
     }
 
