@@ -15,6 +15,7 @@ else
 
 pub const At = enum {
     start,
+    end,
 };
 
 // TODO: ideally we wouldn't create these in non-test environments.

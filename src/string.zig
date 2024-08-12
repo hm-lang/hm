@@ -197,11 +197,13 @@ pub const Small = extern struct {
     }
 
     pub fn contains(self: Small, message: []const u8, where: common.At) bool {
-        if (self.count() < message.len) {
+        const self_count = self.count();
+        if (self_count < message.len) {
             return false;
         }
         return switch (where) {
             common.At.start => std.mem.eql(u8, self.in(range(0, message.len)), message),
+            common.At.end => std.mem.eql(u8, self.in(range(self_count - message.len, self_count)), message),
         };
     }
 
@@ -459,4 +461,29 @@ test "contains At.start for short string" {
     try std.testing.expect(!string.contains("short string!?", common.At.start));
     try std.testing.expect(!string.contains("long string", common.At.start));
     try std.testing.expect(!string.contains("string", common.At.start));
+}
+
+test "contains At.end for long string" {
+    var string = try Small.init("long string should test this as well");
+    defer string.deinit();
+
+    try std.testing.expect(string.contains("ell", common.At.end));
+    try std.testing.expect(string.contains("is as well", common.At.end));
+    try std.testing.expect(string.contains("long string should test this as well", common.At.end));
+
+    try std.testing.expect(!string.contains("a long string should test this as well", common.At.end));
+    try std.testing.expect(!string.contains("not well", common.At.end));
+    try std.testing.expect(!string.contains("well!", common.At.end));
+}
+
+test "contains At.end for short string" {
+    const string = Small.noAlloc("short string!");
+
+    try std.testing.expect(string.contains("ing!", common.At.end));
+    try std.testing.expect(string.contains("string!", common.At.end));
+    try std.testing.expect(string.contains("short string!", common.At.end));
+
+    try std.testing.expect(!string.contains("1 short string!", common.At.end));
+    try std.testing.expect(!string.contains("long string!", common.At.end));
+    try std.testing.expect(!string.contains("string", common.At.end));
 }
