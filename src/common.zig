@@ -18,6 +18,10 @@ pub const At = enum {
     end,
 };
 
+pub const Error = error{
+    unknown,
+};
+
 // TODO: ideally we wouldn't create these in non-test environments.
 //       probably the best we can do is minimize the buffers internally.
 var stdout_data = testing.TestWriterData{};

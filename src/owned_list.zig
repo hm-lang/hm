@@ -19,6 +19,13 @@ pub fn OwnedList(comptime T: type) type {
             return .{};
         }
 
+        // This will take ownership of the items.
+        pub inline fn of(my_items: []const T) OwnedListError!Self {
+            var result = Self{};
+            try result.appendAll(my_items);
+            return result;
+        }
+
         pub inline fn deinit(self: *Self) void {
             if (std.meta.hasMethod(T, "deinit")) {
                 self.clear();
@@ -78,6 +85,13 @@ pub fn OwnedList(comptime T: type) type {
         /// This list will take ownership of `t`.
         pub inline fn append(self: *Self, t: T) OwnedListError!void {
             self.array.append(common.allocator, t) catch {
+                return OwnedListError.out_of_memory;
+            };
+        }
+
+        /// This list will take ownership of all `items`.
+        pub inline fn appendAll(self: *Self, more_items: []const T) OwnedListError!void {
+            self.array.appendSlice(common.allocator, more_items) catch {
                 return OwnedListError.out_of_memory;
             };
         }

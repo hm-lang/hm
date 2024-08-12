@@ -196,19 +196,59 @@ pub const Token = union(TokenTag) {
         const small = SmallString.init(buffer) catch unreachable;
         const operator = small.little64() catch unreachable;
         return switch (operator) {
+            SmallString.as64("++"),
+            SmallString.as64("--"),
             SmallString.as64("="),
             SmallString.as64("=="),
+            SmallString.as64("<"),
+            SmallString.as64("<="),
+            SmallString.as64(">"),
+            SmallString.as64(">="),
             SmallString.as64("+"),
             SmallString.as64("+="),
             SmallString.as64("-"),
             SmallString.as64("-="),
             SmallString.as64("*"),
             SmallString.as64("*="),
+            SmallString.as64("**"),
+            SmallString.as64("**="),
+            SmallString.as64("^"),
+            SmallString.as64("^="),
             SmallString.as64("/"),
             SmallString.as64("/="),
+            SmallString.as64("//"),
+            SmallString.as64("//="),
             SmallString.as64("%"),
             SmallString.as64("%="),
+            SmallString.as64("%%"),
+            SmallString.as64("%%="),
+            SmallString.as64("?"),
+            SmallString.as64("!"),
+            SmallString.as64("!="),
+            SmallString.as64(":"),
+            SmallString.as64("?:"),
+            SmallString.as64(";"),
+            SmallString.as64("?;"),
+            SmallString.as64("."),
+            SmallString.as64("?."),
+            SmallString.as64(","),
+            SmallString.as64("&&"),
+            SmallString.as64("&&="),
+            SmallString.as64("||"),
+            SmallString.as64("||="),
+            SmallString.as64("&"),
+            SmallString.as64("&="),
+            SmallString.as64("|"),
+            SmallString.as64("|="),
+            SmallString.as64("><"),
+            SmallString.as64("><="),
+            SmallString.as64("<>"),
+            SmallString.as64("<<"),
+            SmallString.as64("<<="),
+            SmallString.as64(">>"),
+            SmallString.as64(">>="),
             => operator,
+            // TODO: we probably can convert operators like ":=" to ":" here as well.
             else => null,
         };
     }
@@ -377,10 +417,86 @@ test "invalid token" {
 
 test "valid operator tokens" {
     const OwnedSmalls = @import("owned_list.zig").OwnedList(SmallString);
-    var operators = OwnedSmalls.init();
+    var operators = try OwnedSmalls.of(&[_]SmallString{
+        SmallString.noAlloc("++"),
+        SmallString.noAlloc("--"),
+        SmallString.noAlloc("="),
+        SmallString.noAlloc("=="),
+        SmallString.noAlloc("<"),
+        SmallString.noAlloc("<="),
+        SmallString.noAlloc(">"),
+        SmallString.noAlloc(">="),
+        SmallString.noAlloc("+"),
+        SmallString.noAlloc("+="),
+        SmallString.noAlloc("-"),
+        SmallString.noAlloc("-="),
+        SmallString.noAlloc("*"),
+        SmallString.noAlloc("*="),
+        SmallString.noAlloc("**"),
+        SmallString.noAlloc("**="),
+        SmallString.noAlloc("^"),
+        SmallString.noAlloc("^="),
+        SmallString.noAlloc("/"),
+        SmallString.noAlloc("/="),
+        SmallString.noAlloc("//"),
+        SmallString.noAlloc("//="),
+        SmallString.noAlloc("%"),
+        SmallString.noAlloc("%="),
+        SmallString.noAlloc("%%"),
+        SmallString.noAlloc("%%="),
+        SmallString.noAlloc("?"),
+        SmallString.noAlloc("!"),
+        SmallString.noAlloc("!="),
+        SmallString.noAlloc(":"),
+        SmallString.noAlloc("?:"),
+        SmallString.noAlloc(";"),
+        SmallString.noAlloc("?;"),
+        SmallString.noAlloc("."),
+        SmallString.noAlloc("?."),
+        SmallString.noAlloc(","),
+        SmallString.noAlloc("&&"),
+        SmallString.noAlloc("&&="),
+        SmallString.noAlloc("||"),
+        SmallString.noAlloc("||="),
+        SmallString.noAlloc("&"),
+        SmallString.noAlloc("&="),
+        SmallString.noAlloc("|"),
+        SmallString.noAlloc("|="),
+        SmallString.noAlloc("><"),
+        SmallString.noAlloc("><="),
+        SmallString.noAlloc("<>"),
+        SmallString.noAlloc("<<"),
+        SmallString.noAlloc("<<="),
+        SmallString.noAlloc(">>"),
+        SmallString.noAlloc(">>="),
+    });
     defer operators.deinit();
 
-    // TODO: `operators.appendAll(...)`
+    for (operators.items()) |operator| {
+        const value64 = Token.convertOperator(operator.slice()) orelse {
+            std.debug.print("expected {s} to be a valid operator\n", .{operator.slice()});
+            return common.Error.unknown;
+        };
+        const string_back = SmallString.init64(value64);
+        try operator.expectEquals(string_back);
+    }
+}
+
+test "invalid operator tokens" {
+    const OwnedSmalls = @import("owned_list.zig").OwnedList(SmallString);
+    var operators = try OwnedSmalls.of(&[_]SmallString{
+        SmallString.noAlloc("=?"),
+        SmallString.noAlloc("+++"),
+        SmallString.noAlloc("+-+"),
+        SmallString.noAlloc("/|\\"),
+    });
+    defer operators.deinit();
+
+    for (operators.items()) |operator| {
+        const value64 = Token.convertOperator(operator.slice()) orelse continue;
+
+        std.debug.print("expected {s} to be an invalid operator, got {d}\n", .{ operator.slice(), value64 });
+    }
 }
 
 test "token equality" {
