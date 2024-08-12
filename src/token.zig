@@ -14,6 +14,7 @@ pub const TokenTag = enum {
     operator,
     open,
     close,
+    annotation,
 };
 
 pub const Token = union(TokenTag) {
@@ -56,6 +57,7 @@ pub const Token = union(TokenTag) {
     operator: u64,
     open: Open,
     close: Close,
+    annotation: SmallString,
 
     pub fn deinit(self: Token) void {
         const tag = std.meta.activeTag(self);
@@ -88,6 +90,7 @@ pub const Token = union(TokenTag) {
             .operator => |operator| SmallString.init64(operator).count(),
             .open => 1,
             .close => 1,
+            .annotation => |string| string.count(),
         };
     }
 
@@ -143,9 +146,9 @@ pub const Token = union(TokenTag) {
                 try string.print(writer);
                 try writer.print("\")}}", .{});
             },
-            .number => |number| {
+            .number => |string| {
                 try writer.print("Token{{ .number = try SmallString.init(\"", .{});
-                try number.print(writer);
+                try string.print(writer);
                 try writer.print("\")}}", .{});
             },
             .operator => |operator| {
@@ -158,6 +161,11 @@ pub const Token = union(TokenTag) {
             },
             .close => |close| {
                 try writer.print("Token{{ .close = Token.Close.{s} }}", .{close.slice()});
+            },
+            .annotation => |string| {
+                try writer.print("Token{{ .annotation = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\")}}", .{});
             },
         }
     }

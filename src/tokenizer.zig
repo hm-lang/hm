@@ -148,9 +148,9 @@ pub const Tokenizer = struct {
                 'A'...'Z', '_' => return Token{ .starts_upper = try self.getNextIdentifier(line) },
                 // TODO: do we want to support `and` here?  we could just use `&&`
                 //      so that `X and(Y)` would be ok to overload.
-                //      mostly eventually we need `xor`.
+                //      mostly eventually we need `xor`. maybe just use `&|` or |&`
                 'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
-                // TODO: '@' => return Token { ???: self.getNextIdentifier(line) },
+                '@' => return Token{ .annotation = try self.getNextIdentifier(line) },
                 // TODO: '"' and '\''
                 // TODO: '#'.
                 '(' => return try self.getNextOpen(Token.Open.paren),
@@ -643,6 +643,7 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.append(try SmallString.init("#@!    assume we should get rid of this"));
     // TODO: test number tokenizing errors like `45e123.4` and `123.456.789`
     try tokenizer.file.lines.append(try SmallString.init("8 123 45.6e123   7E10"));
+    try tokenizer.file.lines.append(try SmallString.init("@[] @{} @() @ @hello_world  @A"));
 
     try tokenizer.complete();
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
@@ -682,6 +683,31 @@ test "tokenizer tokenizing" {
         Token{ .spacing = .{ .absolute = 17, .relative = 3 } },
         Token{ .number = SmallString.noAlloc("7E10") },
         Token{ .newline = 4 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .annotation = SmallString.noAlloc("@") },
+        Token{ .spacing = .{ .absolute = 1, .relative = 0 } },
+        Token{ .open = Token.Open.bracket },
+        Token{ .spacing = .{ .absolute = 2, .relative = 0 } },
+        Token{ .close = Token.Close.bracket },
+        Token{ .spacing = .{ .absolute = 4, .relative = 1 } },
+        Token{ .annotation = SmallString.noAlloc("@") },
+        Token{ .spacing = .{ .absolute = 5, .relative = 0 } },
+        Token{ .open = Token.Open.brace },
+        Token{ .spacing = .{ .absolute = 6, .relative = 0 } },
+        Token{ .close = Token.Close.brace },
+        Token{ .spacing = .{ .absolute = 8, .relative = 1 } },
+        Token{ .annotation = SmallString.noAlloc("@") },
+        Token{ .spacing = .{ .absolute = 9, .relative = 0 } },
+        Token{ .open = Token.Open.paren },
+        Token{ .spacing = .{ .absolute = 10, .relative = 0 } },
+        Token{ .close = Token.Close.paren },
+        Token{ .spacing = .{ .absolute = 12, .relative = 1 } },
+        Token{ .annotation = SmallString.noAlloc("@") },
+        Token{ .spacing = .{ .absolute = 14, .relative = 1 } },
+        Token{ .annotation = SmallString.noAlloc("@hello_world") },
+        Token{ .spacing = .{ .absolute = 28, .relative = 2 } },
+        Token{ .annotation = SmallString.noAlloc("@A") },
+        Token{ .newline = 5 },
         .end,
     });
 
@@ -690,6 +716,7 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.inBounds(1).expectEqualsString("2.73456    -l1ne   ");
     try tokenizer.file.lines.inBounds(2).expectEqualsString("sp3cial* Fin_ancial  +  _problems");
     try tokenizer.file.lines.inBounds(3).expectEqualsString("8 123 45.6e123   7E10");
+    try tokenizer.file.lines.inBounds(4).expectEqualsString("@[] @{} @() @ @hello_world  @A");
 }
 
 test "tokenizer parentheses ok" {
