@@ -145,76 +145,61 @@ pub const Tokenizer = struct {
             }
         } else {
             switch (starting_char) {
+                '#' => return try self.getNextComment(line),
                 'A'...'Z', '_' => return Token{ .starts_upper = try self.getNextIdentifier(line) },
                 // TODO: do we want to support `and` here?  we could just use `&&`
                 //      so that `X and(Y)` would be ok to overload.
                 //      mostly eventually we need `xor`. maybe just use `&|` or |&`
                 'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
+                '0'...'9' => return self.getNextNumber(line),
                 '@' => return Token{ .annotation = try self.getNextIdentifier(line) },
                 // TODO: '"' and '\''
-                // TODO: '#'.
                 '(' => return try self.getNextOpen(Token.Open.paren),
                 '[' => return try self.getNextOpen(Token.Open.bracket),
                 '{' => return try self.getNextOpen(Token.Open.brace),
                 ')' => return self.getNextClose(Token.Close.paren),
                 ']' => return self.getNextClose(Token.Close.bracket),
                 '}' => return self.getNextClose(Token.Close.brace),
-                '0'...'9' => return self.getNextNumber(line),
                 ',' => return self.getNextComma(line),
                 else => return self.getNextOperator(line),
             }
         }
     }
 
-    fn getNextComma(self: *Tokenizer, line: SmallString) Token {
+    fn getNextComment(self: *Tokenizer, line: SmallString) TokenizerError!Token {
+        std.debug.assert(line.at(self.farthest_char_index) == '#');
         const initial_char_index = self.farthest_char_index;
-        // Commas are special in that they should never be combined
-        // with other operators, e.g., ",+" should parse as ',' then '+'.
         self.farthest_char_index += 1;
-        if (line.at(self.farthest_char_index) != ',') {
-            return Token.comma;
-        }
-        // We have a problem, we should only have one comma.
-        // If you want to do something like `[,,3]` use `[Null, Null, 3]`
-        self.farthest_char_index += 1;
-        while (line.at(self.farthest_char_index) == ',') {
+        // TODO: multiline comments, if desired.
+        const midline_open = switch (line.at(self.farthest_char_index)) {
+            // TODO: '@' => compiler comment
+            '(' => Token.Open.paren,
+            '[' => Token.Open.bracket,
+            '{' => Token.Open.brace,
+            else => {
+                self.farthest_char_index = line.count();
+                return Token{ .comment = try smallString(line.slice()[initial_char_index..self.farthest_char_index]) };
+            },
+        };
+        const midline_close_char = midline_open.closeChar();
+        var end_on_hashtag = false;
+        while (true) {
             self.farthest_char_index += 1;
+            const char = line.at(self.farthest_char_index);
+            switch (char) {
+                0 => return Token{ .invalid = .{
+                    .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+                    .type = .invalid_midline_comment,
+                } },
+                '#' => if (end_on_hashtag) {
+                    self.farthest_char_index += 1;
+                    return Token{ .comment = try smallString(line.slice()[initial_char_index..self.farthest_char_index]) };
+                },
+                else => {
+                    end_on_hashtag = char == midline_close_char;
+                },
+            }
         }
-        return Token{ .invalid = .{
-            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
-            .type = .too_many_commas,
-        } };
-    }
-
-    fn getNextOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
-        self.farthest_char_index += 1;
-        self.opens.append(open) catch return TokenizerError.out_of_memory;
-        return Token{ .open = open };
-    }
-
-    fn getNextClose(self: *Tokenizer, close: Token.Close) Token {
-        const initial_char_index = self.farthest_char_index;
-        self.farthest_char_index += 1;
-
-        const last_open = self.opens.pop() orelse return Token{ .invalid = .{
-            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
-            .type = .unexpected_close,
-        } };
-
-        if (last_open != close) {
-            return Token{ .invalid = .{
-                .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
-                .type = Token.InvalidType.expected_close(last_open),
-            } };
-        }
-
-        return Token{ .close = close };
-    }
-
-    fn getNextNewline(self: *Tokenizer) Token {
-        self.farthest_char_index = 0;
-        self.farthest_line_index += 1;
-        return Token{ .newline = self.farthest_line_index };
     }
 
     fn getNextIdentifier(self: *Tokenizer, line: SmallString) TokenizerError!SmallString {
@@ -229,9 +214,7 @@ pub const Tokenizer = struct {
                 else => break,
             }
         }
-        return SmallString.init(line.slice()[initial_char_index..self.farthest_char_index]) catch {
-            return TokenizerError.out_of_memory;
-        };
+        return smallString(line.slice()[initial_char_index..self.farthest_char_index]);
     }
 
     fn getNextNumber(self: *Tokenizer, line: SmallString) TokenizerError!Token {
@@ -268,8 +251,57 @@ pub const Tokenizer = struct {
                 else => break,
             }
         }
-        return Token{ .number = SmallString.init(line.slice()[initial_char_index..self.farthest_char_index]) catch {
-            return TokenizerError.out_of_memory;
+        return Token{ .number = try smallString(line.slice()[initial_char_index..self.farthest_char_index]) };
+    }
+
+    fn getNextOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
+        self.farthest_char_index += 1;
+        self.opens.append(open) catch return TokenizerError.out_of_memory;
+        return Token{ .open = open };
+    }
+
+    fn getNextClose(self: *Tokenizer, close: Token.Close) Token {
+        const initial_char_index = self.farthest_char_index;
+        self.farthest_char_index += 1;
+
+        const last_open = self.opens.pop() orelse return Token{ .invalid = .{
+            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+            .type = .unexpected_close,
+        } };
+
+        if (last_open != close) {
+            return Token{ .invalid = .{
+                .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+                .type = Token.InvalidType.expected_close(last_open),
+            } };
+        }
+
+        return Token{ .close = close };
+    }
+
+    fn getNextNewline(self: *Tokenizer) Token {
+        self.farthest_char_index = 0;
+        self.farthest_line_index += 1;
+        return Token{ .newline = self.farthest_line_index };
+    }
+
+    fn getNextComma(self: *Tokenizer, line: SmallString) Token {
+        const initial_char_index = self.farthest_char_index;
+        // Commas are special in that they should never be combined
+        // with other operators, e.g., ",+" should parse as ',' then '+'.
+        self.farthest_char_index += 1;
+        if (line.at(self.farthest_char_index) != ',') {
+            return Token.comma;
+        }
+        // We have a problem, we should only have one comma.
+        // If you want to do something like `[,,3]` use `[Null, Null, 3]`
+        self.farthest_char_index += 1;
+        while (line.at(self.farthest_char_index) == ',') {
+            self.farthest_char_index += 1;
+        }
+        return Token{ .invalid = .{
+            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+            .type = .too_many_commas,
         } };
     }
 
@@ -492,6 +524,10 @@ pub const Tokenizer = struct {
     fn lastTokenIndex(self: *Tokenizer) TokenizerError!usize {
         const count = self.tokens.count();
         return if (count > 0) count - 1 else TokenizerError.out_of_tokens;
+    }
+
+    fn smallString(buffer: []const u8) TokenizerError!SmallString {
+        return SmallString.init(buffer) catch TokenizerError.out_of_memory;
     }
 };
 
@@ -931,4 +967,53 @@ test "tokenizer comma errors" {
 
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!   ^~~~~ too many commas");
     }
+}
+
+test "tokenizer comments" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+    try tokenizer.file.lines.append(try SmallString.init("# full comment"));
+    try tokenizer.file.lines.append(try SmallString.init("3#end the line"));
+    try tokenizer.file.lines.append(try SmallString.init("  B   #  also EOL"));
+    try tokenizer.file.lines.append(try SmallString.init("#( OH YEAH )# hi"));
+    // For balance, `[`
+    try tokenizer.file.lines.append(try SmallString.init("start  #[[great]]]#Finish"));
+    try tokenizer.file.lines.append(try SmallString.init("odd#{{ok}#")); // `}` for balance
+
+    try tokenizer.complete();
+
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .comment = SmallString.noAlloc("# full comment") },
+        Token{ .newline = 1 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .number = SmallString.noAlloc("3") },
+        Token{ .spacing = .{ .absolute = 1, .relative = 0 } },
+        Token{ .comment = SmallString.noAlloc("#end the line") },
+        Token{ .newline = 2 },
+        Token{ .spacing = .{ .absolute = 2, .relative = 2 } },
+        Token{ .starts_upper = SmallString.noAlloc("B") },
+        Token{ .spacing = .{ .absolute = 6, .relative = 3 } },
+        Token{ .comment = SmallString.noAlloc("#  also EOL") },
+        Token{ .newline = 3 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .comment = SmallString.noAlloc("#( OH YEAH )#") },
+        Token{ .spacing = .{ .absolute = 14, .relative = 1 } },
+        Token{ .starts_lower = SmallString.noAlloc("hi") },
+        Token{ .newline = 4 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .starts_lower = SmallString.noAlloc("start") },
+        Token{ .spacing = .{ .absolute = 7, .relative = 2 } },
+        // `[` for balance
+        Token{ .comment = SmallString.noAlloc("#[[great]]]#") },
+        Token{ .spacing = .{ .absolute = 19, .relative = 0 } },
+        Token{ .starts_upper = SmallString.noAlloc("Finish") },
+        Token{ .newline = 5 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .starts_lower = SmallString.noAlloc("odd") },
+        Token{ .spacing = .{ .absolute = 3, .relative = 0 } },
+        Token{ .comment = SmallString.noAlloc("#{{ok}#") }, // `}` for balance
+        Token{ .newline = 6 },
+        .end,
+    });
 }

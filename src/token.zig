@@ -15,6 +15,7 @@ pub const TokenTag = enum {
     open,
     close,
     annotation,
+    comment,
 };
 
 pub const Token = union(TokenTag) {
@@ -44,6 +45,22 @@ pub const Token = union(TokenTag) {
             // TODO: consider doing separate `Open.paren` and `Close.brace` logic.
             try writer.print("{s}", .{self.slice()});
         }
+
+        pub fn openChar(self: Open) u8 {
+            return switch (self) {
+                .paren => '(',
+                .bracket => '[',
+                .brace => '{',
+            };
+        }
+
+        pub fn closeChar(self: Open) u8 {
+            return switch (self) {
+                .paren => ')',
+                .bracket => ']',
+                .brace => '}',
+            };
+        }
     };
     pub const Close = Open;
 
@@ -59,6 +76,7 @@ pub const Token = union(TokenTag) {
     open: Open,
     close: Close,
     annotation: SmallString,
+    comment: SmallString,
 
     pub fn deinit(self: Token) void {
         const tag = std.meta.activeTag(self);
@@ -92,6 +110,7 @@ pub const Token = union(TokenTag) {
             .open => 1,
             .close => 1,
             .annotation => |string| string.count(),
+            .comment => |string| string.count(),
         };
     }
 
@@ -165,6 +184,11 @@ pub const Token = union(TokenTag) {
             },
             .annotation => |string| {
                 try writer.print("Token{{ .annotation = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\")}}", .{});
+            },
+            .comment => |string| {
+                try writer.print("Token{{ .comment = try SmallString.init(\"", .{});
                 try string.print(writer);
                 try writer.print("\")}}", .{});
             },
@@ -375,6 +399,7 @@ const InvalidTokenType = enum {
     unexpected_close, // there was a close with no open paren/brace/bracket
     number,
     too_many_commas,
+    invalid_midline_comment,
 
     pub fn error_message(self: Self) []const u8 {
         return switch (self) {
@@ -389,6 +414,7 @@ const InvalidTokenType = enum {
             .unexpected_close => "no corresponding open",
             .number => "invalid number",
             .too_many_commas => "too many commas",
+            .invalid_midline_comment => "midline comment should end this line",
         };
     }
 
