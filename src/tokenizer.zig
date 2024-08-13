@@ -160,6 +160,12 @@ pub const Tokenizer = struct {
                 ']' => return self.getNextClose(Token.Close.bracket),
                 '}' => return self.getNextClose(Token.Close.brace),
                 '0'...'9' => return self.getNextNumber(line),
+                ',' => {
+                    // Commas are special in that they should never be combined
+                    // with other operators, e.g., ",+" should parse as ',' then '+'.
+                    self.farthest_char_index += 1;
+                    return Token.comma;
+                },
                 else => return self.getNextOperator(line),
             }
         }
@@ -263,7 +269,25 @@ pub const Tokenizer = struct {
         self.farthest_char_index += 1;
         while (self.farthest_char_index < line.count()) {
             switch (line.inBounds(self.farthest_char_index)) {
-                '?', '~', '!', '@', '$', '%', '^', '&', '*', '/', '+', '-', '=', '>', '<', ':', ';', '.' => {
+                '?',
+                '~',
+                '!',
+                '@',
+                '$',
+                '%',
+                '^',
+                '&',
+                '*',
+                '/',
+                '+',
+                '-',
+                '=',
+                '>',
+                '<',
+                ':',
+                ';',
+                '.',
+                => {
                     self.farthest_char_index += 1;
                 },
                 else => break,
@@ -629,7 +653,9 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.append(try SmallString.init("sp3cial* Fin_ancial  +  _problems"));
     try tokenizer.file.lines.append(try SmallString.init("#@!    assume we should get rid of this"));
     // TODO: test number tokenizing errors like `45e123.4` and `123.456.789`
-    try tokenizer.file.lines.append(try SmallString.init("8 123 45.6e123   7E10"));
+    try tokenizer.file.lines.append(try SmallString.init("45.6e123   7E10 400."));
+    // TODO: test errors like multiple commas in a row (use `null, null, 3` for example instead of `,,3`)
+    try tokenizer.file.lines.append(try SmallString.init("3 ,+7,  ;= -80"));
     try tokenizer.file.lines.append(try SmallString.init("@[] @{} @() @ @hello_world  @A"));
 
     try tokenizer.complete();
@@ -662,14 +688,29 @@ test "tokenizer tokenizing" {
         Token{ .starts_upper = SmallString.noAlloc("_problems") },
         Token{ .newline = 3 },
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
-        Token{ .number = SmallString.noAlloc("8") },
-        Token{ .spacing = .{ .absolute = 2, .relative = 1 } },
-        Token{ .number = SmallString.noAlloc("123") },
-        Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
         Token{ .number = SmallString.noAlloc("45.6e123") },
-        Token{ .spacing = .{ .absolute = 17, .relative = 3 } },
+        Token{ .spacing = .{ .absolute = 11, .relative = 3 } },
         Token{ .number = SmallString.noAlloc("7E10") },
+        Token{ .spacing = .{ .absolute = 16, .relative = 1 } },
+        Token{ .number = SmallString.noAlloc("400.") },
         Token{ .newline = 4 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .number = SmallString.noAlloc("3") },
+        Token{ .spacing = .{ .absolute = 2, .relative = 1 } },
+        Token{ .operator = SmallString.as64(",") },
+        Token{ .spacing = .{ .absolute = 3, .relative = 0 } },
+        Token{ .operator = SmallString.as64("+") },
+        Token{ .spacing = .{ .absolute = 4, .relative = 0 } },
+        Token{ .number = SmallString.noAlloc("7") },
+        Token{ .spacing = .{ .absolute = 5, .relative = 0 } },
+        Token{ .operator = SmallString.as64(",") },
+        Token{ .spacing = .{ .absolute = 8, .relative = 2 } },
+        Token{ .operator = SmallString.as64(";") }, // note conversion from `;=` to `;`
+        Token{ .spacing = .{ .absolute = 11, .relative = 1 } },
+        Token{ .operator = SmallString.as64("-") },
+        Token{ .spacing = .{ .absolute = 12, .relative = 0 } },
+        Token{ .number = SmallString.noAlloc("80") },
+        Token{ .newline = 5 },
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .annotation = SmallString.noAlloc("@") },
         Token{ .spacing = .{ .absolute = 1, .relative = 0 } },
@@ -694,7 +735,7 @@ test "tokenizer tokenizing" {
         Token{ .annotation = SmallString.noAlloc("@hello_world") },
         Token{ .spacing = .{ .absolute = 28, .relative = 2 } },
         Token{ .annotation = SmallString.noAlloc("@A") },
-        Token{ .newline = 5 },
+        Token{ .newline = 6 },
         .end,
     });
 
@@ -702,8 +743,9 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.inBounds(0).expectEqualsString("  Hello w_o_rld2  /  ");
     try tokenizer.file.lines.inBounds(1).expectEqualsString("2.73456    -l1ne   ");
     try tokenizer.file.lines.inBounds(2).expectEqualsString("sp3cial* Fin_ancial  +  _problems");
-    try tokenizer.file.lines.inBounds(3).expectEqualsString("8 123 45.6e123   7E10");
-    try tokenizer.file.lines.inBounds(4).expectEqualsString("@[] @{} @() @ @hello_world  @A");
+    try tokenizer.file.lines.inBounds(3).expectEqualsString("45.6e123   7E10 400.");
+    try tokenizer.file.lines.inBounds(4).expectEqualsString("3 ,+7,  ;= -80");
+    try tokenizer.file.lines.inBounds(5).expectEqualsString("@[] @{} @() @ @hello_world  @A");
 }
 
 test "tokenizer parentheses ok" {

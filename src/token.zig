@@ -19,6 +19,7 @@ pub const TokenTag = enum {
 
 pub const Token = union(TokenTag) {
     const Self = @This();
+    pub const comma = Self{ .operator = ',' };
 
     pub const InvalidType = InvalidTokenType;
     pub const Open = enum {
