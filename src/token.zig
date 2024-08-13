@@ -214,7 +214,6 @@ pub const Token = union(TokenTag) {
     /// Returns null if `buffer` is an invalid operator, otherwise
     /// the numerical value of the operator (see `SmallString.as64`).
     pub fn convertOperator(buffer: []const u8) ?u64 {
-        // TODO: We could shortcircuit if len > maxLen of all valid operators below.
         if (buffer.len > 8) {
             return null;
         }
@@ -273,6 +272,14 @@ pub const Token = union(TokenTag) {
             SmallString.as64("<<="),
             SmallString.as64(">>"),
             SmallString.as64(">>="),
+            SmallString.as64("$"),
+            SmallString.as64("$$"),
+            SmallString.as64("$$$"),
+            SmallString.as64("$$$$"),
+            SmallString.as64("$$$$$"),
+            SmallString.as64("$$$$$$"),
+            SmallString.as64("$$$$$$$"),
+            SmallString.as64("$$$$$$$$"),
             => operator,
             // We also convert some unnecessarily verbose operators.
             SmallString.as64("?:=") => comptime SmallString.as64("?:"),
@@ -504,6 +511,14 @@ test "valid operator tokens" {
         SmallString.noAlloc("<<="),
         SmallString.noAlloc(">>"),
         SmallString.noAlloc(">>="),
+        SmallString.noAlloc("$"),
+        SmallString.noAlloc("$$"),
+        SmallString.noAlloc("$$$"),
+        SmallString.noAlloc("$$$$"),
+        SmallString.noAlloc("$$$$$"),
+        SmallString.noAlloc("$$$$$$"),
+        SmallString.noAlloc("$$$$$$$"),
+        SmallString.noAlloc("$$$$$$$$"),
     });
     defer operators.deinit();
 
