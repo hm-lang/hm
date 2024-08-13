@@ -160,15 +160,30 @@ pub const Tokenizer = struct {
                 ']' => return self.getNextClose(Token.Close.bracket),
                 '}' => return self.getNextClose(Token.Close.brace),
                 '0'...'9' => return self.getNextNumber(line),
-                ',' => {
-                    // Commas are special in that they should never be combined
-                    // with other operators, e.g., ",+" should parse as ',' then '+'.
-                    self.farthest_char_index += 1;
-                    return Token.comma;
-                },
+                ',' => return self.getNextComma(line),
                 else => return self.getNextOperator(line),
             }
         }
+    }
+
+    fn getNextComma(self: *Tokenizer, line: SmallString) Token {
+        const initial_char_index = self.farthest_char_index;
+        // Commas are special in that they should never be combined
+        // with other operators, e.g., ",+" should parse as ',' then '+'.
+        self.farthest_char_index += 1;
+        if (line.at(self.farthest_char_index) != ',') {
+            return Token.comma;
+        }
+        // We have a problem, we should only have one comma.
+        // If you want to do something like `[,,3]` use `[Null, Null, 3]`
+        self.farthest_char_index += 1;
+        while (line.at(self.farthest_char_index) == ',') {
+            self.farthest_char_index += 1;
+        }
+        return Token{ .invalid = .{
+            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+            .type = .too_many_commas,
+        } };
     }
 
     fn getNextOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
@@ -199,7 +214,6 @@ pub const Tokenizer = struct {
     fn getNextNewline(self: *Tokenizer) Token {
         self.farthest_char_index = 0;
         self.farthest_line_index += 1;
-        // TODO: if self.farthest_line_index wraps to 0, addErrorAt
         return Token{ .newline = self.farthest_line_index };
     }
 
@@ -654,7 +668,6 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.append(try SmallString.init("#@!    assume we should get rid of this"));
     // TODO: test number tokenizing errors like `45e123.4` and `123.456.789`
     try tokenizer.file.lines.append(try SmallString.init("45.6e123   7E10 400."));
-    // TODO: test errors like multiple commas in a row (use `null, null, 3` for example instead of `,,3`)
     try tokenizer.file.lines.append(try SmallString.init("3 ,+7,  ;= -80"));
     try tokenizer.file.lines.append(try SmallString.init("@[] @{} @() @ @hello_world  @A"));
 
@@ -882,5 +895,40 @@ test "tokenizer parentheses failure" {
         } });
 
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! no corresponding open");
+    }
+}
+
+test "tokenizer comma errors" {
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        try tokenizer.file.lines.append(try SmallString.init("   ,,"));
+
+        var count: usize = 0;
+        try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 3, .relative = 3 } });
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 3, .end = 5 },
+            .type = Token.InvalidType.too_many_commas,
+        } });
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!^~ too many commas");
+    }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        try tokenizer.file.lines.append(try SmallString.init("      ,,,,,"));
+
+        var count: usize = 0;
+        try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 6, .relative = 6 } });
+        count += 1;
+        try (try tokenizer.at(count)).expectEquals(Token{ .invalid = .{
+            .columns = .{ .start = 6, .end = 11 },
+            .type = Token.InvalidType.too_many_commas,
+        } });
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!   ^~~~~ too many commas");
     }
 }

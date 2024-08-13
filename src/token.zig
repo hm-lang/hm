@@ -374,6 +374,7 @@ const InvalidTokenType = enum {
     expected_close_brace,
     unexpected_close, // there was a close with no open paren/brace/bracket
     number,
+    too_many_commas,
 
     pub fn error_message(self: Self) []const u8 {
         return switch (self) {
@@ -387,6 +388,7 @@ const InvalidTokenType = enum {
             // Had a close that didn't have a corresponding open
             .unexpected_close => "no corresponding open",
             .number => "invalid number",
+            .too_many_commas => "too many commas",
         };
     }
 
