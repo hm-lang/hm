@@ -153,7 +153,21 @@ pub const Tokenizer = struct {
                 'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
                 '0'...'9' => return self.getNextNumber(line),
                 '@' => return Token{ .annotation = try self.getNextIdentifier(line) },
-                // TODO: '"' and '\''
+                // TODO: '"' and '\''.  these should probably be `Token.Open`/`Close` values
+                // in case we have complicated internals
+                //   simple: "my stuff" => Token { .string = "\"my stuff\"" }
+                //  complex: "string stuff ${World hello()} ok"
+                //              (skipping `spacing` tokens)
+                //          =>  Token { .open = "\"" }
+                //              Token { .slice = "string stuff " }
+                //              Token { .open = "{", .lambda = true } // ${ not just {
+                //              Token { .starts_upper = "World" }
+                //              Token { .starts_lower = "hello" }
+                //              Token { .open = "(" }
+                //              Token { .close = ")" }
+                //              Token { .close = "}" }
+                //              Token { .slice = " ok" }
+                //              Token { .close = "\"" }
                 '(' => return try self.getNextOpen(Token.Open.paren),
                 '[' => return try self.getNextOpen(Token.Open.bracket),
                 '{' => return try self.getNextOpen(Token.Open.brace),
