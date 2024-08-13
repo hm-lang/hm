@@ -197,6 +197,7 @@ pub const Token = union(TokenTag) {
         const small = SmallString.init(buffer) catch unreachable;
         const operator = small.little64() catch unreachable;
         return switch (operator) {
+            SmallString.as64("~"),
             SmallString.as64("++"),
             SmallString.as64("--"),
             SmallString.as64("="),
@@ -423,6 +424,7 @@ test "invalid token" {
 test "valid operator tokens" {
     const OwnedSmalls = @import("owned_list.zig").OwnedList(SmallString);
     var operators = try OwnedSmalls.of(&[_]SmallString{
+        SmallString.noAlloc("~"),
         SmallString.noAlloc("++"),
         SmallString.noAlloc("--"),
         SmallString.noAlloc("="),
