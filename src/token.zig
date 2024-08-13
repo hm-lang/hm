@@ -10,6 +10,10 @@ pub const TokenTag = enum {
     spacing,
     starts_upper,
     starts_lower,
+    /// a part of a string (pure string), e.g., "hello, world"
+    /// becomes just the inner part (no quotes).  escape sequences
+    /// will still be present, e.g., \" for escaping the quote.
+    slice,
     number,
     operator,
     open,
@@ -78,7 +82,8 @@ pub const Token = union(TokenTag) {
     spacing: SpacingToken,
     starts_upper: SmallString,
     starts_lower: SmallString,
-    // We don't try to create a `dbl` or `int` here, just represent it faithfully for now.
+    slice: SmallString,
+    /// We don't try to create a `dbl` or `int` here, just represent it faithfully for now.
     number: SmallString,
     operator: u64,
     open: Open,
@@ -113,6 +118,7 @@ pub const Token = union(TokenTag) {
             .spacing => |spacing| spacing.relative,
             .starts_upper => |string| string.count(),
             .starts_lower => |string| string.count(),
+            .slice => |string| string.count(),
             .number => |string| string.count(),
             .operator => |operator| SmallString.init64(operator).count(),
             .open => 1,
@@ -171,6 +177,11 @@ pub const Token = union(TokenTag) {
             },
             .starts_lower => |string| {
                 try writer.print("Token{{ .starts_lower = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\")}}", .{});
+            },
+            .slice => |string| {
+                try writer.print("Token{{ .slice = try SmallString.init(\"", .{});
                 try string.print(writer);
                 try writer.print("\")}}", .{});
             },
