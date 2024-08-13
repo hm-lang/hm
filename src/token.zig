@@ -33,6 +33,7 @@ pub const Token = union(TokenTag) {
         brace,
         single_quote,
         double_quote,
+        multiline_quote,
 
         pub fn slice(self: Open) []const u8 {
             return switch (self) {
@@ -41,6 +42,7 @@ pub const Token = union(TokenTag) {
                 .brace => "brace",
                 .single_quote => "single_quote",
                 .double_quote => "double_quote",
+                .multiline_quote => "multiline_quote",
             };
         }
 
@@ -57,7 +59,7 @@ pub const Token = union(TokenTag) {
         pub fn isQuote(self: Open) bool {
             return switch (self) {
                 .paren, .bracket, .brace => false,
-                .single_quote, .double_quote => true,
+                .single_quote, .double_quote, .multiline_quote => true,
             };
         }
 
@@ -68,6 +70,7 @@ pub const Token = union(TokenTag) {
                 .brace => '{',
                 .single_quote => '\'',
                 .double_quote => '"',
+                .multiline_quote => @panic("multiline quotes are not single chars"),
             };
         }
 
@@ -78,6 +81,7 @@ pub const Token = union(TokenTag) {
                 .brace => '}',
                 .single_quote => '\'',
                 .double_quote => '"',
+                .multiline_quote => @panic("multiline quotes are not single chars"),
             };
         }
     };
@@ -474,6 +478,7 @@ const InvalidTokenType = enum {
     }
 
     pub fn expected_close(for_open: Token.Open) Self {
+        std.debug.assert(for_open != Token.Open.multiline_quote);
         return @enumFromInt(@intFromEnum(Self.expected_close_paren) + @intFromEnum(for_open));
     }
 };

@@ -75,7 +75,20 @@ pub const Tokenizer = struct {
         };
         const initial_count = self.tokens.count();
 
-        if (next.isWhitespace() or common.when(self.tokens.before(initial_count), Token.isSpacing)) {
+        if (next.isNewline()) {
+            // No need to add implicit spacing before a newline, but we do
+            // need to see if we're currently in a multiline quote.
+            // Multiline quotes automatically close out at the end of the line.
+            const maybe_open = self.opens.at(-1);
+            if (maybe_open) |open| {
+                if (open == .multiline_quote) {
+                    _ = self.opens.pop();
+                    self.tokens.append(Token{ .close = .multiline_quote }) catch {
+                        return TokenizerError.out_of_memory;
+                    };
+                }
+            }
+        } else if (next.isWhitespace() or common.when(self.tokens.before(initial_count), Token.isSpacing)) {
             // No need to add implicit spacing between existing whitespace...
         } else {
             // Add implied spacing so we can keep track of where we are.
@@ -176,6 +189,7 @@ pub const Tokenizer = struct {
                 ',' => return self.getNextComma(line),
                 // TODO: '?' should probably act like Comma so we don't have to distinguish
                 //  `?:` from `? :` and double up operators for things like `X?:;` and `X:;`
+                '&' => return try self.getNextAmpersandOperator(line),
                 else => return self.getNextOperator(line),
             }
         }
@@ -338,13 +352,19 @@ pub const Tokenizer = struct {
         } };
     }
 
+    /// &| is a special operator to create multiline strings, so check for that first.
+    fn getNextAmpersandOperator(self: *Tokenizer, line: SmallString) TokenizerError!Token {
+        // line.at(self.farthest_char_index) == '&', check for multiline string operator first.
+        if (line.at(self.farthest_char_index + 1) == '|') {
+            self.farthest_char_index += 2;
+            self.opens.append(.multiline_quote) catch return TokenizerError.out_of_memory;
+            return Token{ .open = .multiline_quote };
+        }
+        return self.getNextOperator(line);
+    }
+
     fn getNextOperator(self: *Tokenizer, line: SmallString) Token {
         const initial_char_index = self.farthest_char_index;
-        errdefer {
-            self.appendInvalidToken(
-                "invalid operator",
-            );
-        }
         self.farthest_char_index += 1;
         while (self.farthest_char_index < line.count()) {
             switch (line.inBounds(self.farthest_char_index)) {
@@ -828,6 +848,29 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.inBounds(3).expectEqualsString("45.6e123   7E10 400.");
     try tokenizer.file.lines.inBounds(4).expectEqualsString("3 ,+7,  ;= -80");
     try tokenizer.file.lines.inBounds(5).expectEqualsString("@[] @{} @() @ @hello_world  @A");
+}
+
+test "tokenizer ampersand operators" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    try tokenizer.file.lines.append(try SmallString.init("&& &= &&= &|"));
+
+    try tokenizer.complete();
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .operator = SmallString.as64("&&") },
+        Token{ .spacing = .{ .absolute = 3, .relative = 1 } },
+        Token{ .operator = SmallString.as64("&=") },
+        Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
+        Token{ .operator = SmallString.as64("&&=") },
+        Token{ .spacing = .{ .absolute = 10, .relative = 1 } },
+        Token{ .open = Token.Open.multiline_quote },
+        // TODO: add some slices in here
+        Token{ .close = Token.Open.multiline_quote },
+        Token{ .newline = 1 },
+        .end,
+    });
 }
 
 test "tokenizer parentheses ok" {
