@@ -270,6 +270,7 @@ pub const Tokenizer = struct {
     }
 
     fn getNextQuote(self: *Tokenizer, quote: Token.Open) TokenizerError!Token {
+        std.debug.assert(quote.isQuote());
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
         const invalid_type = switch (quote) {
@@ -285,12 +286,14 @@ pub const Tokenizer = struct {
     }
 
     fn getNextOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
+        std.debug.assert(!open.isQuote());
         self.farthest_char_index += 1;
         self.opens.append(open) catch return TokenizerError.out_of_memory;
         return Token{ .open = open };
     }
 
     fn getNextClose(self: *Tokenizer, close: Token.Close) Token {
+        std.debug.assert(!close.isQuote());
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
 

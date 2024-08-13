@@ -54,6 +54,13 @@ pub const Token = union(TokenTag) {
             try writer.print("{s}", .{self.slice()});
         }
 
+        pub fn isQuote(self: Open) bool {
+            return switch (self) {
+                .paren, .bracket, .brace => false,
+                .single_quote, .double_quote => true,
+            };
+        }
+
         pub fn openChar(self: Open) u8 {
             return switch (self) {
                 .paren => '(',
