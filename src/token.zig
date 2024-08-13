@@ -466,9 +466,9 @@ const InvalidTokenType = enum {
             // Had a `{` somewhere that was closed by something else...
             .expected_close_brace => "expected `}`",
             // Had a `'` somewhere that was closed by something else...
-            .expected_single_quote => "expected `'`",
+            .expected_single_quote => "expected closing `'`",
             // Had a `"` somewhere that was closed by something else...
-            .expected_double_quote => "expected `\"`",
+            .expected_double_quote => "expected closing `\"`",
             // Had a close that didn't have a corresponding open
             .unexpected_close => "no corresponding open",
             .number => "invalid number",

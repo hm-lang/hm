@@ -109,12 +109,20 @@ pub const Tokenizer = struct {
             },
             .end => {
                 self.last_token_index = self.tokens.count() - 1;
+                const last_open = self.opens.at(-1) orelse return;
+                self.addErrorAt(self.last_token_index, Token.InvalidType.expected_close(last_open).error_message());
             },
             .newline => {
                 if (self.farthest_line_index == 0) {
                     @panic("you have too many lines in this file, we overflowed a u32");
                 }
                 self.removeNextErrorLines();
+                const last_open = self.opens.at(-1) orelse return;
+                if (last_open.isQuote()) {
+                    // Multiline quotes should have already been taken care of in the pre-append logic,
+                    // but single-line quotes (single quotes and double quotes) should not keep going here.
+                    self.addErrorAt(self.tokens.count() - 1, Token.InvalidType.expected_close(last_open).error_message());
+                }
             },
             else => {},
         }
@@ -178,8 +186,8 @@ pub const Tokenizer = struct {
                 //              Token { .close = "}" }
                 //              Token { .slice = " ok" }
                 //              Token { .close = "\"" }
-                '\'' => return try self.getNextQuote(Token.Open.single_quote),
-                '"' => return try self.getNextQuote(Token.Open.double_quote),
+                '\'' => return try self.getNextOpen(Token.Open.single_quote),
+                '"' => return try self.getNextOpen(Token.Open.double_quote),
                 '(' => return try self.getNextOpen(Token.Open.paren),
                 '[' => return try self.getNextOpen(Token.Open.bracket),
                 '{' => return try self.getNextOpen(Token.Open.brace),
@@ -283,24 +291,7 @@ pub const Tokenizer = struct {
         return Token{ .number = try smallString(line.slice()[initial_char_index..self.farthest_char_index]) };
     }
 
-    fn getNextQuote(self: *Tokenizer, quote: Token.Open) TokenizerError!Token {
-        std.debug.assert(quote.isQuote());
-        const initial_char_index = self.farthest_char_index;
-        self.farthest_char_index += 1;
-        const invalid_type = switch (quote) {
-            .single_quote => Token.InvalidType.expected_single_quote,
-            .double_quote => Token.InvalidType.expected_double_quote,
-            else => unreachable,
-        };
-        // TODO
-        return Token{ .invalid = .{
-            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
-            .type = invalid_type,
-        } };
-    }
-
     fn getNextOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
-        std.debug.assert(!open.isQuote());
         self.farthest_char_index += 1;
         self.opens.append(open) catch return TokenizerError.out_of_memory;
         return Token{ .open = open };
@@ -523,7 +514,12 @@ pub const Tokenizer = struct {
         while (token_index >= 0) {
             const token = self.tokens.inBounds(@intCast(token_index));
             switch (token) {
-                .newline => |line_index| {
+                .newline => |line_index| if (at_token_index == token_index) {
+                    // We're looking for the line index of the newline itself,
+                    // which is actually one up.
+                    // TODO: add explicit tests for this, the implicit problem was hard to debug
+                    return line_index - 1;
+                } else {
                     return line_index;
                 },
                 else => token_index -= 1,
@@ -540,7 +536,7 @@ pub const Tokenizer = struct {
             .invalid => |invalid| return invalid.columns,
             .newline => |line_index| {
                 const line_length = self.file.lines.inBounds(line_index - 1).count();
-                return .{ .start = common.before(line_length) orelse 0, .end = line_length };
+                return .{ .start = line_length, .end = line_length + 1 };
             },
             .spacing => |spacing| {
                 return .{ .start = spacing.absolute, .end = spacing.absolute + @max(1, spacing.relative) };
@@ -1007,6 +1003,24 @@ test "tokenizer parentheses failure" {
         } });
 
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! no corresponding open");
+    }
+}
+
+test "tokenizer single quote failure" {
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        try tokenizer.file.lines.append(try SmallString.init("    ' "));
+        try tokenizer.complete();
+
+        try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+            Token{ .spacing = .{ .absolute = 4, .relative = 4 } },
+            Token{ .open = Token.Open.single_quote },
+            Token{ .newline = 1 },
+        });
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!   ^ expected closing `'`");
     }
 }
 
