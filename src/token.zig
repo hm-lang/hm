@@ -27,12 +27,16 @@ pub const Token = union(TokenTag) {
         paren,
         bracket,
         brace,
+        single_quote,
+        double_quote,
 
         pub fn slice(self: Open) []const u8 {
             return switch (self) {
                 .paren => "paren",
                 .bracket => "bracket",
                 .brace => "brace",
+                .single_quote => "single_quote",
+                .double_quote => "double_quote",
             };
         }
 
@@ -51,6 +55,8 @@ pub const Token = union(TokenTag) {
                 .paren => '(',
                 .bracket => '[',
                 .brace => '{',
+                .single_quote => '\'',
+                .double_quote => '"',
             };
         }
 
@@ -59,6 +65,8 @@ pub const Token = union(TokenTag) {
                 .paren => ')',
                 .bracket => ']',
                 .brace => '}',
+                .single_quote => '\'',
+                .double_quote => '"',
             };
         }
     };
@@ -249,6 +257,7 @@ pub const Token = union(TokenTag) {
             SmallString.as64("%%="),
             SmallString.as64("?"),
             SmallString.as64("!"),
+            SmallString.as64("!!"),
             SmallString.as64("!="),
             SmallString.as64(":"),
             SmallString.as64("?:"),
@@ -280,6 +289,21 @@ pub const Token = union(TokenTag) {
             SmallString.as64("$$$$$$"),
             SmallString.as64("$$$$$$$"),
             SmallString.as64("$$$$$$$$"),
+            SmallString.as64("::"),
+            SmallString.as64(";;"),
+            SmallString.as64(".."),
+            SmallString.as64(";:"),
+            SmallString.as64(":;"),
+            SmallString.as64(";."),
+            SmallString.as64(".;"),
+            SmallString.as64(":."),
+            SmallString.as64(".:"),
+            SmallString.as64(":;."),
+            SmallString.as64(";:."),
+            SmallString.as64(":.;"),
+            SmallString.as64(";.:"),
+            SmallString.as64(".:;"),
+            SmallString.as64(".;:"),
             => operator,
             // We also convert some unnecessarily verbose operators.
             SmallString.as64("?:=") => comptime SmallString.as64("?:"),
@@ -403,6 +427,8 @@ const InvalidTokenType = enum {
     expected_close_paren,
     expected_close_bracket,
     expected_close_brace,
+    expected_single_quote,
+    expected_double_quote,
     unexpected_close, // there was a close with no open paren/brace/bracket
     number,
     too_many_commas,
@@ -417,6 +443,10 @@ const InvalidTokenType = enum {
             .expected_close_bracket => "expected `]`",
             // Had a `{` somewhere that was closed by something else...
             .expected_close_brace => "expected `}`",
+            // Had a `'` somewhere that was closed by something else...
+            .expected_single_quote => "expected `'`",
+            // Had a `"` somewhere that was closed by something else...
+            .expected_double_quote => "expected `\"`",
             // Had a close that didn't have a corresponding open
             .unexpected_close => "no corresponding open",
             .number => "invalid number",
@@ -488,6 +518,7 @@ test "valid operator tokens" {
         SmallString.noAlloc("%%="),
         SmallString.noAlloc("?"),
         SmallString.noAlloc("!"),
+        SmallString.noAlloc("!!"),
         SmallString.noAlloc("!="),
         SmallString.noAlloc(":"),
         SmallString.noAlloc("?:"),
@@ -519,6 +550,21 @@ test "valid operator tokens" {
         SmallString.noAlloc("$$$$$$"),
         SmallString.noAlloc("$$$$$$$"),
         SmallString.noAlloc("$$$$$$$$"),
+        SmallString.noAlloc("::"),
+        SmallString.noAlloc(";;"),
+        SmallString.noAlloc(".."),
+        SmallString.noAlloc(";:"),
+        SmallString.noAlloc(":;"),
+        SmallString.noAlloc(";."),
+        SmallString.noAlloc(".;"),
+        SmallString.noAlloc(":."),
+        SmallString.noAlloc(".:"),
+        SmallString.noAlloc(":;."),
+        SmallString.noAlloc(";:."),
+        SmallString.noAlloc(":.;"),
+        SmallString.noAlloc(";.:"),
+        SmallString.noAlloc(".:;"),
+        SmallString.noAlloc(".;:"),
     });
     defer operators.deinit();
 

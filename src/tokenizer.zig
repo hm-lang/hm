@@ -153,10 +153,7 @@ pub const Tokenizer = struct {
                 'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
                 '0'...'9' => return self.getNextNumber(line),
                 '@' => return Token{ .annotation = try self.getNextIdentifier(line) },
-                // TODO: '"' and '\''.  these should probably be `Token.Open`/`Close` values
-                // in case we have complicated internals
-                //   simple: "my stuff" => Token { .string = "\"my stuff\"" }
-                //  complex: "string stuff ${World hello()} ok"
+                // TODO: "string stuff ${World hello()} ok"
                 //              (skipping `spacing` tokens)
                 //          =>  Token { .open = "\"" }
                 //              Token { .slice = "string stuff " }
@@ -168,6 +165,8 @@ pub const Tokenizer = struct {
                 //              Token { .close = "}" }
                 //              Token { .slice = " ok" }
                 //              Token { .close = "\"" }
+                '\'' => return try self.getNextQuote(Token.Open.single_quote),
+                '"' => return try self.getNextQuote(Token.Open.double_quote),
                 '(' => return try self.getNextOpen(Token.Open.paren),
                 '[' => return try self.getNextOpen(Token.Open.bracket),
                 '{' => return try self.getNextOpen(Token.Open.brace),
@@ -175,6 +174,8 @@ pub const Tokenizer = struct {
                 ']' => return self.getNextClose(Token.Close.bracket),
                 '}' => return self.getNextClose(Token.Close.brace),
                 ',' => return self.getNextComma(line),
+                // TODO: '?' should probably act like Comma so we don't have to distinguish
+                //  `?:` from `? :` and double up operators for things like `X?:;` and `X:;`
                 else => return self.getNextOperator(line),
             }
         }
@@ -266,6 +267,21 @@ pub const Tokenizer = struct {
             }
         }
         return Token{ .number = try smallString(line.slice()[initial_char_index..self.farthest_char_index]) };
+    }
+
+    fn getNextQuote(self: *Tokenizer, quote: Token.Open) TokenizerError!Token {
+        const initial_char_index = self.farthest_char_index;
+        self.farthest_char_index += 1;
+        const invalid_type = switch (quote) {
+            .single_quote => Token.InvalidType.expected_single_quote,
+            .double_quote => Token.InvalidType.expected_double_quote,
+            else => unreachable,
+        };
+        // TODO
+        return Token{ .invalid = .{
+            .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
+            .type = invalid_type,
+        } };
     }
 
     fn getNextOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
