@@ -248,7 +248,11 @@ pub const Token = union(TokenTag) {
             SmallString.as64(">>"),
             SmallString.as64(">>="),
             => operator,
-            // TODO: we probably can convert operators like ":=" to ":" here as well.
+            // We also convert some unnecessarily verbose operators.
+            SmallString.as64("?:=") => comptime SmallString.as64("?:"),
+            SmallString.as64(":=") => comptime SmallString.as64(":"),
+            SmallString.as64("?;=") => comptime SmallString.as64("?;"),
+            SmallString.as64(";=") => comptime SmallString.as64(";"),
             else => null,
         };
     }
@@ -480,6 +484,13 @@ test "valid operator tokens" {
         const string_back = SmallString.init64(value64);
         try operator.expectEquals(string_back);
     }
+}
+
+test "rewritten operator tokens" {
+    try std.testing.expectEqual(SmallString.as64("?:"), Token.convertOperator("?:="));
+    try std.testing.expectEqual(SmallString.as64("?;"), Token.convertOperator("?;="));
+    try std.testing.expectEqual(SmallString.as64(";"), Token.convertOperator(";="));
+    try std.testing.expectEqual(SmallString.as64(":"), Token.convertOperator(":="));
 }
 
 test "invalid operator tokens" {
