@@ -54,9 +54,9 @@ pub const Tokenizer = struct {
         return self.tokens.inBounds(token_index);
     }
 
-    fn complete(self: *Tokenizer) TokenizerError!void {
+    pub fn complete(self: *Tokenizer) TokenizerError!void {
         var last = try self.at(0);
-        while (!last.equals(.end)) {
+        while (!last.equals(.end) and self.last_token_index >= self.tokens.count()) {
             last = try self.addNextToken();
         }
     }
@@ -189,7 +189,7 @@ pub const Tokenizer = struct {
             switch (char) {
                 0 => return Token{ .invalid = .{
                     .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
-                    .type = .invalid_midline_comment,
+                    .type = .midline_comment,
                 } },
                 '#' => if (end_on_hashtag) {
                     self.farthest_char_index += 1;
@@ -1016,4 +1016,23 @@ test "tokenizer comments" {
         Token{ .newline = 6 },
         .end,
     });
+}
+
+test "tokenizer comment errors" {
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+        try tokenizer.file.lines.append(try SmallString.init("hi #[unending comment"));
+
+        try tokenizer.complete();
+
+        try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+            Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+            Token{ .starts_lower = SmallString.noAlloc("hi") },
+            Token{ .spacing = .{ .absolute = 3, .relative = 1 } },
+            Token{ .invalid = .{ .columns = .{ .start = 3, .end = 21 }, .type = .midline_comment } },
+        });
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!^~~~~~~~~~~~~~~~~~ midline comment should end this line");
+    }
 }

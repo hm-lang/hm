@@ -399,7 +399,7 @@ const InvalidTokenType = enum {
     unexpected_close, // there was a close with no open paren/brace/bracket
     number,
     too_many_commas,
-    invalid_midline_comment,
+    midline_comment,
 
     pub fn error_message(self: Self) []const u8 {
         return switch (self) {
@@ -414,7 +414,7 @@ const InvalidTokenType = enum {
             .unexpected_close => "no corresponding open",
             .number => "invalid number",
             .too_many_commas => "too many commas",
-            .invalid_midline_comment => "midline comment should end this line",
+            .midline_comment => "midline comment should end this line",
         };
     }
 
