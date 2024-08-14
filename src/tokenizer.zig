@@ -132,9 +132,28 @@ pub const Tokenizer = struct {
         // We need to pass in the `starting_char_index` in case we need to
         // add an implicit tab before appending the next explicit token.
         const starting_char_index = self.farthest_char_index;
-        const next = try self.getNextExplicitToken();
+        const next = if (common.when(self.opens.at(-1), Token.Open.isQuote))
+            // TODO: try self.getNextInQuoteToken()
+            try self.getNextExplicitToken()
+        else
+            try self.getNextExplicitToken();
         try self.appendToken(starting_char_index, next);
         return next;
+    }
+
+    fn getNextInQuoteToken(self: *Tokenizer) TokenizerError!Token {
+        // Check if we're out of range first.  These will generally become errors,
+        // except for the multiline_quote case.
+        if (self.farthest_line_index >= self.file.lines.count()) {
+            return .end;
+        }
+        const line = self.file.lines.inBounds(self.farthest_line_index);
+        if (self.farthest_char_index >= line.count()) {
+            return self.getNextNewline();
+        }
+        //const initial_char_index = self.farthest_char_index;
+        // TODO:
+        return TokenizerError.out_of_tokens;
     }
 
     /// This should only fail for memory issues (e.g., allocating a string
@@ -195,8 +214,7 @@ pub const Tokenizer = struct {
                 ']' => return self.getNextClose(Token.Close.bracket),
                 '}' => return self.getNextClose(Token.Close.brace),
                 ',' => return self.getNextComma(line),
-                // TODO: '?' should probably act like Comma so we don't have to distinguish
-                //  `?:` from `? :` and double up operators for things like `X?:;` and `X:;`
+                '?' => return self.getNextQuestionOperator(line),
                 '&' => return try self.getNextAmpersandOperator(line),
                 else => return self.getNextOperator(line),
             }
@@ -343,9 +361,19 @@ pub const Tokenizer = struct {
         } };
     }
 
+    fn getNextQuestionOperator(self: *Tokenizer, line: SmallString) Token {
+        std.debug.assert(line.at(self.farthest_char_index) == '?');
+        if (line.at(self.farthest_char_index + 1) == '?') {
+            return self.getNextOperator(line);
+        }
+        self.farthest_char_index += 1;
+        return Token{ .operator = '?' };
+    }
+
     /// &| is a special operator to create multiline strings, so check for that first.
     fn getNextAmpersandOperator(self: *Tokenizer, line: SmallString) TokenizerError!Token {
-        // line.at(self.farthest_char_index) == '&', check for multiline string operator first.
+        std.debug.assert(line.at(self.farthest_char_index) == '&');
+        // check for a multiline string operator first...
         if (line.at(self.farthest_char_index + 1) == '|') {
             self.farthest_char_index += 2;
             self.opens.append(.multiline_quote) catch return TokenizerError.out_of_memory;
@@ -864,6 +892,37 @@ test "tokenizer ampersand operators" {
         Token{ .open = Token.Open.multiline_quote },
         // TODO: add some slices in here
         Token{ .close = Token.Open.multiline_quote },
+        Token{ .newline = 1 },
+        .end,
+    });
+}
+
+test "tokenizer question operators" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    try tokenizer.file.lines.append(try SmallString.init("?: ?? ?; ??= ?."));
+
+    try tokenizer.complete();
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        // we want `?;` to parse as `?` then `;`, etc.
+        Token{ .operator = SmallString.as64("?") },
+        Token{ .spacing = .{ .absolute = 1, .relative = 0 } },
+        Token{ .operator = SmallString.as64(":") },
+        Token{ .spacing = .{ .absolute = 3, .relative = 1 } },
+        // we do allow `??` to parse together, and same with `??=`
+        Token{ .operator = SmallString.as64("??") },
+        Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
+        Token{ .operator = SmallString.as64("?") },
+        Token{ .spacing = .{ .absolute = 7, .relative = 0 } },
+        Token{ .operator = SmallString.as64(";") },
+        Token{ .spacing = .{ .absolute = 9, .relative = 1 } },
+        Token{ .operator = SmallString.as64("??=") },
+        Token{ .spacing = .{ .absolute = 13, .relative = 1 } },
+        Token{ .operator = SmallString.as64("?") },
+        Token{ .spacing = .{ .absolute = 14, .relative = 0 } },
+        Token{ .operator = SmallString.as64(".") },
         Token{ .newline = 1 },
         .end,
     });

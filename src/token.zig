@@ -278,15 +278,14 @@ pub const Token = union(TokenTag) {
             SmallString.as64("%%"),
             SmallString.as64("%%="),
             SmallString.as64("?"),
+            SmallString.as64("??"),
+            SmallString.as64("??="),
             SmallString.as64("!"),
             SmallString.as64("!!"),
             SmallString.as64("!="),
             SmallString.as64(":"),
-            SmallString.as64("?:"),
             SmallString.as64(";"),
-            SmallString.as64("?;"),
             SmallString.as64("."),
-            SmallString.as64("?."),
             SmallString.as64(","),
             SmallString.as64("&&"),
             SmallString.as64("&&="),
@@ -328,9 +327,7 @@ pub const Token = union(TokenTag) {
             SmallString.as64(".;:"),
             => operator,
             // We also convert some unnecessarily verbose operators.
-            SmallString.as64("?:=") => comptime SmallString.as64("?:"),
             SmallString.as64(":=") => comptime SmallString.as64(":"),
-            SmallString.as64("?;=") => comptime SmallString.as64("?;"),
             SmallString.as64(";=") => comptime SmallString.as64(";"),
             else => null,
         };
@@ -540,15 +537,14 @@ test "valid operator tokens" {
         SmallString.noAlloc("%%"),
         SmallString.noAlloc("%%="),
         SmallString.noAlloc("?"),
+        SmallString.noAlloc("??"),
+        SmallString.noAlloc("??="),
         SmallString.noAlloc("!"),
         SmallString.noAlloc("!!"),
         SmallString.noAlloc("!="),
         SmallString.noAlloc(":"),
-        SmallString.noAlloc("?:"),
         SmallString.noAlloc(";"),
-        SmallString.noAlloc("?;"),
         SmallString.noAlloc("."),
-        SmallString.noAlloc("?."),
         SmallString.noAlloc(","),
         SmallString.noAlloc("&&"),
         SmallString.noAlloc("&&="),
@@ -602,8 +598,6 @@ test "valid operator tokens" {
 }
 
 test "rewritten operator tokens" {
-    try std.testing.expectEqual(SmallString.as64("?:"), Token.convertOperator("?:="));
-    try std.testing.expectEqual(SmallString.as64("?;"), Token.convertOperator("?;="));
     try std.testing.expectEqual(SmallString.as64(";"), Token.convertOperator(";="));
     try std.testing.expectEqual(SmallString.as64(":"), Token.convertOperator(":="));
 }
