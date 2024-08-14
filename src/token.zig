@@ -225,22 +225,6 @@ pub const Token = union(TokenTag) {
         }
     }
 
-    pub fn openChar(open: Open) u8 {
-        return switch (open) {
-            Open.paren => '(',
-            Open.bracket => '[',
-            Open.brace => '{',
-        };
-    }
-
-    pub fn closeChar(close: Close) u8 {
-        return switch (close) {
-            Close.paren => ')',
-            Close.bracket => ']',
-            Close.brace => '}',
-        };
-    }
-
     /// Returns null if `buffer` is an invalid operator, otherwise
     /// the numerical value of the operator (see `SmallString.as64`).
     pub fn convertOperator(buffer: []const u8) ?u64 {
