@@ -70,7 +70,7 @@ pub const Token = union(TokenTag) {
                 .brace => '{',
                 .single_quote => '\'',
                 .double_quote => '"',
-                .multiline_quote => @panic("multiline quotes are not single chars"),
+                .multiline_quote => 0,
             };
         }
 
@@ -81,7 +81,7 @@ pub const Token = union(TokenTag) {
                 .brace => '}',
                 .single_quote => '\'',
                 .double_quote => '"',
-                .multiline_quote => @panic("multiline quotes are not single chars"),
+                .multiline_quote => 0,
             };
         }
     };
@@ -184,27 +184,27 @@ pub const Token = union(TokenTag) {
             .starts_upper => |string| {
                 try writer.print("Token{{ .starts_upper = try SmallString.init(\"", .{});
                 try string.print(writer);
-                try writer.print("\")}}", .{});
+                try writer.print("\") }}", .{});
             },
             .starts_lower => |string| {
                 try writer.print("Token{{ .starts_lower = try SmallString.init(\"", .{});
                 try string.print(writer);
-                try writer.print("\")}}", .{});
+                try writer.print("\") }}", .{});
             },
             .slice => |string| {
                 try writer.print("Token{{ .slice = try SmallString.init(\"", .{});
                 try string.print(writer);
-                try writer.print("\")}}", .{});
+                try writer.print("\") }}", .{});
             },
             .number => |string| {
                 try writer.print("Token{{ .number = try SmallString.init(\"", .{});
                 try string.print(writer);
-                try writer.print("\")}}", .{});
+                try writer.print("\") }}", .{});
             },
             .operator => |operator| {
                 try writer.print("Token{{ .operator = SmallString.as64(\"", .{});
                 try SmallString.init64(operator).print(writer);
-                try writer.print("\")}}", .{});
+                try writer.print("\") }}", .{});
             },
             .open => |open| {
                 try writer.print("Token{{ .open = Token.Open.{s} }}", .{open.slice()});
@@ -215,12 +215,12 @@ pub const Token = union(TokenTag) {
             .annotation => |string| {
                 try writer.print("Token{{ .annotation = try SmallString.init(\"", .{});
                 try string.print(writer);
-                try writer.print("\")}}", .{});
+                try writer.print("\") }}", .{});
             },
             .comment => |string| {
                 try writer.print("Token{{ .comment = try SmallString.init(\"", .{});
                 try string.print(writer);
-                try writer.print("\")}}", .{});
+                try writer.print("\") }}", .{});
             },
         }
     }

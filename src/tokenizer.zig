@@ -19,7 +19,6 @@ pub const Tokenizer = struct {
     const Self = @This();
 
     tokens: OwnedTokens = OwnedTokens.init(),
-    // TODO: push here whenever we encounter ([{ and pop whenever we see }])
     opens: OwnedOpens = OwnedOpens.init(),
     file: File = .{},
     farthest_line_index: u32 = 0,
@@ -61,7 +60,34 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn appendToken(self: *Tokenizer, starting_char_index: u16, next: Token) TokenizerError!void {
+    fn addNextToken(self: *Tokenizer) TokenizerError!Token {
+        // We need to pass in the `starting_char_index` in case we need to
+        // add an implicit tab before appending the next explicit token.
+        const starting_char_index = self.farthest_char_index;
+        if (self.farthest_line_index >= self.file.lines.count()) {
+            try self.appendTokenAndPerformHooks(starting_char_index, .end);
+            return .end;
+        }
+        const line = self.file.lines.inBounds(self.farthest_line_index);
+        const next = if (self.farthest_char_index >= line.count())
+            self.getNextNewline()
+        else if (common.when(self.opens.at(-1), Token.Open.isQuote)) {
+            // Inside quotes, we don't have hooks.
+            const token = try self.getNextInQuoteToken(line);
+            try self.justAppendToken(token);
+            return token;
+        } else try self.getNextExplicitToken(line);
+        try self.appendTokenAndPerformHooks(starting_char_index, next);
+        return next;
+    }
+
+    inline fn justAppendToken(self: *Tokenizer, token: Token) TokenizerError!void {
+        self.tokens.append(token) catch {
+            return TokenizerError.out_of_memory;
+        };
+    }
+
+    fn appendTokenAndPerformHooks(self: *Tokenizer, starting_char_index: u16, next: Token) TokenizerError!void {
         errdefer switch (next) {
             .invalid => |invalid| {
                 common.stdout.print("ran out of memory adding an invalid token on {d}:{d}-{d}\n", .{
@@ -83,25 +109,19 @@ pub const Tokenizer = struct {
             if (maybe_open) |open| {
                 if (open == .multiline_quote) {
                     _ = self.opens.pop();
-                    self.tokens.append(Token{ .close = .multiline_quote }) catch {
-                        return TokenizerError.out_of_memory;
-                    };
+                    try self.justAppendToken(Token{ .close = .multiline_quote });
                 }
             }
         } else if (next.isWhitespace() or common.when(self.tokens.before(initial_count), Token.isSpacing)) {
             // No need to add implicit spacing between existing whitespace...
         } else {
             // Add implied spacing so we can keep track of where we are.
-            self.tokens.append(Token{ .spacing = .{
+            try self.justAppendToken(Token{ .spacing = .{
                 .absolute = starting_char_index,
                 .relative = 0,
-            } }) catch {
-                return TokenizerError.out_of_memory;
-            };
+            } });
         }
-        self.tokens.append(next) catch {
-            return TokenizerError.out_of_memory;
-        };
+        try self.justAppendToken(next);
         // Some tokens have secondary effects.
         switch (next) {
             .invalid => |invalid| {
@@ -128,44 +148,51 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn addNextToken(self: *Tokenizer) TokenizerError!Token {
-        // We need to pass in the `starting_char_index` in case we need to
-        // add an implicit tab before appending the next explicit token.
-        const starting_char_index = self.farthest_char_index;
-        const next = if (common.when(self.opens.at(-1), Token.Open.isQuote))
-            // TODO: try self.getNextInQuoteToken()
-            try self.getNextExplicitToken()
-        else
-            try self.getNextExplicitToken();
-        try self.appendToken(starting_char_index, next);
-        return next;
-    }
+    fn getNextInQuoteToken(self: *Tokenizer, line: SmallString) TokenizerError!Token {
+        const last_open = common.assert(self.opens.at(-1));
+        const close_char = last_open.closeChar();
+        const initial_char_index = self.farthest_char_index;
 
-    fn getNextInQuoteToken(self: *Tokenizer) TokenizerError!Token {
-        // Check if we're out of range first.  These will generally become errors,
-        // except for the multiline_quote case.
-        if (self.farthest_line_index >= self.file.lines.count()) {
-            return .end;
+        var is_escaped = false;
+        while (true) {
+            const char = line.at(self.farthest_char_index);
+            switch (char) {
+                0 => {
+                    // We reached the end of the line.
+                    // Note that we need to have moved forward at least a little bit
+                    // since we've already checked for EOL before calling this.
+                    return Token{ .slice = try smallString(line.in(.{
+                        .start = initial_char_index,
+                        .end = self.farthest_char_index,
+                    })) };
+                },
+                // TODO: look for ${} and $[] and $()
+                '\\' => {
+                    is_escaped = !is_escaped;
+                },
+                else => if (is_escaped) {
+                    is_escaped = false;
+                } else if (char != close_char) {
+                    // don't do anything here.
+                } else if (initial_char_index == self.farthest_char_index) {
+                    self.farthest_char_index += 1;
+                    return Token{ .close = last_open };
+                } else {
+                    return Token{ .slice = try smallString(line.in(.{
+                        .start = initial_char_index,
+                        .end = self.farthest_char_index,
+                    })) };
+                },
+            }
+            self.farthest_char_index += 1;
         }
-        const line = self.file.lines.inBounds(self.farthest_line_index);
-        if (self.farthest_char_index >= line.count()) {
-            return self.getNextNewline();
-        }
-        //const initial_char_index = self.farthest_char_index;
-        // TODO:
+
         return TokenizerError.out_of_tokens;
     }
 
     /// This should only fail for memory issues (e.g., allocating a string
     /// for an identifier).  Return an `InvalidToken` otherwise.
-    fn getNextExplicitToken(self: *Tokenizer) TokenizerError!Token {
-        if (self.farthest_line_index >= self.file.lines.count()) {
-            return .end;
-        }
-        const line = self.file.lines.inBounds(self.farthest_line_index);
-        if (self.farthest_char_index >= line.count()) {
-            return self.getNextNewline();
-        }
+    fn getNextExplicitToken(self: *Tokenizer, line: SmallString) TokenizerError!Token {
         const initial_char_index = self.farthest_char_index;
         const starting_char = line.inBounds(self.farthest_char_index);
         const starts_with_whitespace = starting_char == ' ';
@@ -576,8 +603,8 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         // We add implicit spacing between everything that's not
-                        // whitespace (see `fn appendToken`).  So we're not sure
-                        // what's happening here, so go ham.
+                        // whitespace (see `fn appendTokenAndPerformHooks`).  So
+                        // we're not sure what's happening here, so go ham.
                         common.stderr.print("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{}) catch {};
                         return self.fullLineColumnsAt(at_token_index);
                     },
@@ -1076,6 +1103,7 @@ test "tokenizer single quote failure" {
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
             Token{ .spacing = .{ .absolute = 4, .relative = 4 } },
             Token{ .open = Token.Open.single_quote },
+            Token{ .slice = SmallString.noAlloc(" ") },
             Token{ .newline = 1 },
         });
 
