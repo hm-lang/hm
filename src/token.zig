@@ -18,6 +18,9 @@ pub const TokenTag = enum {
     operator,
     open,
     close,
+    /// E.g., for "$(MyLogic)" inside a string, the opening paren.
+    /// also ok for "$[MyLogic]" or '${MyLogic}'
+    interpolation_open,
     annotation,
     comment,
 };
@@ -99,6 +102,8 @@ pub const Token = union(TokenTag) {
     operator: u64,
     open: Open,
     close: Close,
+    /// Only paren, bracket, and brace are valid here.
+    interpolation_open: Open,
     annotation: SmallString,
     comment: SmallString,
 
@@ -133,6 +138,7 @@ pub const Token = union(TokenTag) {
             .number => |string| string.count(),
             .operator => |operator| SmallString.init64(operator).count(),
             .open => 1,
+            .interpolation_open => 2,
             .close => 1,
             .annotation => |string| string.count(),
             .comment => |string| string.count(),
@@ -208,6 +214,9 @@ pub const Token = union(TokenTag) {
             },
             .open => |open| {
                 try writer.print("Token{{ .open = Token.Open.{s} }}", .{open.slice()});
+            },
+            .interpolation_open => |open| {
+                try writer.print("Token{{ .interpolation_open = Token.Open.{s} }}", .{open.slice()});
             },
             .close => |close| {
                 try writer.print("Token{{ .close = Token.Close.{s} }}", .{close.slice()});

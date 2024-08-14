@@ -82,6 +82,8 @@ pub const Small = extern struct {
     }
 
     // Another initialization that doesn't require an allocation.
+    // TODO: redo as l64 -> b64 (big endian).  "asdf" "jkl;" should combine as "asdfjkl;"
+    // where `;` gets the small digit and `a` gets the big digit.
     pub fn init64(l64: u64) Small {
         var result: Small = .{ .size = 8 };
         var actual_size: u16 = 0;
@@ -133,6 +135,7 @@ pub const Small = extern struct {
         return &self.short;
     }
 
+    // TODO: redo as big64
     pub fn little64(self: *const Small) StringError!u64 {
         const chars = self.slice();
         if (chars.len > 8) {

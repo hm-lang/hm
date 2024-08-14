@@ -72,7 +72,7 @@ pub const Tokenizer = struct {
         const next = if (self.farthest_char_index >= line.count())
             self.getNextNewline()
         else if (common.when(self.opens.at(-1), Token.Open.isQuote)) {
-            // Inside quotes, we don't have hooks.
+            // Inside quotes, we don't have hooks (besides those for `.end` and `.newline`).
             const token = try self.getNextInQuoteToken(line);
             try self.justAppendToken(token);
             return token;
@@ -166,7 +166,14 @@ pub const Tokenizer = struct {
                         .end = self.farthest_char_index,
                     })) };
                 },
-                // TODO: look for ${} and $[] and $()
+                '$' => if (is_escaped) {
+                    is_escaped = false;
+                } else switch (line.at(self.farthest_char_index + 1)) {
+                    '(' => return try self.getNextInterpolationOpen(Token.Open.paren),
+                    '[' => return try self.getNextInterpolationOpen(Token.Open.bracket),
+                    '{' => return try self.getNextInterpolationOpen(Token.Open.brace),
+                    else => {},
+                },
                 '\\' => {
                     is_escaped = !is_escaped;
                 },
@@ -189,6 +196,13 @@ pub const Tokenizer = struct {
         }
 
         return TokenizerError.out_of_tokens;
+    }
+
+    fn getNextInterpolationOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
+        // There was a `$` and then a `{` (or whatever.  `}` for balance.)
+        self.farthest_char_index += 2;
+        self.opens.append(open) catch return TokenizerError.out_of_memory;
+        return Token{ .interpolation_open = open };
     }
 
     /// This should only fail for memory issues (e.g., allocating a string
@@ -1144,6 +1158,7 @@ test "tokenizer simple quote parsing" {
         Token{ .newline = 4 },
         .end,
     });
+    try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
 }
 
 test "tokenizer quote failures" {
