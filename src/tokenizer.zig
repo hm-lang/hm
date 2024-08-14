@@ -175,6 +175,7 @@ pub const Tokenizer = struct {
                 } else if (char != close_char) {
                     // don't do anything here.
                 } else if (initial_char_index == self.farthest_char_index) {
+                    _ = self.opens.pop();
                     self.farthest_char_index += 1;
                     return Token{ .close = last_open };
                 } else {
@@ -1092,7 +1093,60 @@ test "tokenizer parentheses failure" {
     }
 }
 
-test "tokenizer single quote failure" {
+test "tokenizer simple quote parsing" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    // Empty strings
+    try tokenizer.file.lines.append(try SmallString.init("''   \"\""));
+    // 1-char strings
+    try tokenizer.file.lines.append(try SmallString.init("' ' \" \""));
+    // strings of the other char, with space afterwards (should be ignored)
+    try tokenizer.file.lines.append(try SmallString.init("'\"' \"'\"  "));
+    // longer strings, no space between identifiers
+    try tokenizer.file.lines.append(try SmallString.init("'abc'\"defgh\""));
+    try tokenizer.complete();
+
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .open = Token.Open.single_quote },
+        Token{ .close = Token.Open.single_quote },
+        Token{ .spacing = .{ .absolute = 5, .relative = 3 } },
+        Token{ .open = Token.Open.double_quote },
+        Token{ .close = Token.Open.double_quote },
+        Token{ .newline = 1 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .open = Token.Open.single_quote },
+        Token{ .slice = SmallString.noAlloc(" ") },
+        Token{ .close = Token.Open.single_quote },
+        Token{ .spacing = .{ .absolute = 4, .relative = 1 } },
+        Token{ .open = Token.Open.double_quote },
+        Token{ .slice = SmallString.noAlloc(" ") },
+        Token{ .close = Token.Open.double_quote },
+        Token{ .newline = 2 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .open = Token.Open.single_quote },
+        Token{ .slice = SmallString.noAlloc("\"") },
+        Token{ .close = Token.Open.single_quote },
+        Token{ .spacing = .{ .absolute = 4, .relative = 1 } },
+        Token{ .open = Token.Open.double_quote },
+        Token{ .slice = SmallString.noAlloc("'") },
+        Token{ .close = Token.Open.double_quote },
+        Token{ .newline = 3 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .open = Token.Open.single_quote },
+        Token{ .slice = SmallString.noAlloc("abc") },
+        Token{ .close = Token.Open.single_quote },
+        Token{ .spacing = .{ .absolute = 5, .relative = 0 } },
+        Token{ .open = Token.Open.double_quote },
+        Token{ .slice = SmallString.noAlloc("defgh") },
+        Token{ .close = Token.Open.double_quote },
+        Token{ .newline = 4 },
+        .end,
+    });
+}
+
+test "tokenizer quote failures" {
     {
         var tokenizer: Tokenizer = .{};
         defer tokenizer.deinit();
@@ -1108,6 +1162,22 @@ test "tokenizer single quote failure" {
         });
 
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!   ^ expected closing `'`");
+    }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        try tokenizer.file.lines.append(try SmallString.init("\"abc"));
+        try tokenizer.complete();
+
+        try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+            Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+            Token{ .open = Token.Open.double_quote },
+            Token{ .slice = SmallString.noAlloc("abc") },
+            Token{ .newline = 1 },
+        });
+
+        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! ^ expected closing `\"`");
     }
 }
 
