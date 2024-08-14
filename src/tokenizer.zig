@@ -169,9 +169,9 @@ pub const Tokenizer = struct {
                 '$' => if (is_escaped) {
                     is_escaped = false;
                 } else switch (line.at(self.farthest_char_index + 1)) {
-                    '(' => return try self.getNextInterpolationOpen(Token.Open.paren),
-                    '[' => return try self.getNextInterpolationOpen(Token.Open.bracket),
-                    '{' => return try self.getNextInterpolationOpen(Token.Open.brace),
+                    '(' => return try self.maybeInterpolate(Token.Open.paren, line, initial_char_index),
+                    '[' => return try self.maybeInterpolate(Token.Open.bracket, line, initial_char_index),
+                    '{' => return try self.maybeInterpolate(Token.Open.brace, line, initial_char_index),
                     else => {},
                 },
                 '\\' => {
@@ -198,8 +198,15 @@ pub const Tokenizer = struct {
         return TokenizerError.out_of_tokens;
     }
 
-    fn getNextInterpolationOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
+    fn maybeInterpolate(self: *Tokenizer, open: Token.Open, line: SmallString, initial_char_index: u16) TokenizerError!Token {
         // There was a `$` and then a `{` (or whatever.  `}` for balance.)
+        // First check to see if we had any slices to add.
+        if (self.farthest_char_index > initial_char_index) {
+            try self.justAppendToken(Token{ .slice = try smallString(line.in(.{
+                .start = initial_char_index,
+                .end = self.farthest_char_index,
+            })) });
+        }
         self.farthest_char_index += 2;
         self.opens.append(open) catch return TokenizerError.out_of_memory;
         return Token{ .interpolation_open = open };
@@ -932,8 +939,7 @@ test "tokenizer ampersand operators" {
         Token{ .operator = SmallString.as64("&&=") },
         Token{ .spacing = .{ .absolute = 10, .relative = 1 } },
         Token{ .open = Token.Open.multiline_quote },
-        // TODO: add some slices in here
-        Token{ .close = Token.Open.multiline_quote },
+        Token{ .close = Token.Close.multiline_quote },
         Token{ .newline = 1 },
         .end,
     });
@@ -1107,6 +1113,10 @@ test "tokenizer parentheses failure" {
     }
 }
 
+test "tokenizer multiline quote parsing" {
+    // TODO: add some slices in here
+}
+
 test "tokenizer simple quote parsing" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
@@ -1124,41 +1134,95 @@ test "tokenizer simple quote parsing" {
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .open = Token.Open.single_quote },
-        Token{ .close = Token.Open.single_quote },
+        Token{ .close = Token.Close.single_quote },
         Token{ .spacing = .{ .absolute = 5, .relative = 3 } },
         Token{ .open = Token.Open.double_quote },
-        Token{ .close = Token.Open.double_quote },
+        Token{ .close = Token.Close.double_quote },
         Token{ .newline = 1 },
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .open = Token.Open.single_quote },
         Token{ .slice = SmallString.noAlloc(" ") },
-        Token{ .close = Token.Open.single_quote },
+        Token{ .close = Token.Close.single_quote },
         Token{ .spacing = .{ .absolute = 4, .relative = 1 } },
         Token{ .open = Token.Open.double_quote },
         Token{ .slice = SmallString.noAlloc(" ") },
-        Token{ .close = Token.Open.double_quote },
+        Token{ .close = Token.Close.double_quote },
         Token{ .newline = 2 },
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .open = Token.Open.single_quote },
         Token{ .slice = SmallString.noAlloc("\"") },
-        Token{ .close = Token.Open.single_quote },
+        Token{ .close = Token.Close.single_quote },
         Token{ .spacing = .{ .absolute = 4, .relative = 1 } },
         Token{ .open = Token.Open.double_quote },
         Token{ .slice = SmallString.noAlloc("'") },
-        Token{ .close = Token.Open.double_quote },
+        Token{ .close = Token.Close.double_quote },
         Token{ .newline = 3 },
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .open = Token.Open.single_quote },
         Token{ .slice = SmallString.noAlloc("abc") },
-        Token{ .close = Token.Open.single_quote },
+        Token{ .close = Token.Close.single_quote },
         Token{ .spacing = .{ .absolute = 5, .relative = 0 } },
         Token{ .open = Token.Open.double_quote },
         Token{ .slice = SmallString.noAlloc("defgh") },
-        Token{ .close = Token.Open.double_quote },
+        Token{ .close = Token.Close.double_quote },
         Token{ .newline = 4 },
         .end,
     });
     try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
+}
+
+test "tokenizer interpolation parsing" {
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        // Checking slices around interpolation as well.
+        try tokenizer.file.lines.append(try SmallString.init("'hello, ${Name}!'"));
+        try tokenizer.complete();
+
+        try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+            Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+            Token{ .open = Token.Open.single_quote },
+            Token{ .slice = SmallString.noAlloc("hello, ") },
+            Token{ .interpolation_open = Token.Open.brace },
+            Token{ .spacing = .{ .absolute = 10, .relative = 0 } },
+            Token{ .starts_upper = SmallString.noAlloc("Name") },
+            Token{ .spacing = .{ .absolute = 14, .relative = 0 } },
+            Token{ .close = Token.Close.brace },
+            Token{ .slice = SmallString.noAlloc("!") },
+            Token{ .close = Token.Close.single_quote },
+            Token{ .newline = 1 },
+            .end,
+        });
+        try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
+    }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        // No slices before/after interpolation.
+        try tokenizer.file.lines.append(try SmallString.init("\"$[Wow, hi]\""));
+        try tokenizer.complete();
+
+        try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+            Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+            Token{ .open = Token.Open.double_quote },
+            Token{ .interpolation_open = Token.Open.bracket },
+            Token{ .spacing = .{ .absolute = 3, .relative = 0 } },
+            Token{ .starts_upper = SmallString.noAlloc("Wow") },
+            Token{ .spacing = .{ .absolute = 6, .relative = 0 } },
+            Token{ .operator = SmallString.as64(",") },
+            Token{ .spacing = .{ .absolute = 8, .relative = 1 } },
+            Token{ .starts_lower = SmallString.noAlloc("hi") },
+            Token{ .spacing = .{ .absolute = 10, .relative = 0 } },
+            Token{ .close = Token.Close.bracket },
+            Token{ .close = Token.Close.double_quote },
+            Token{ .newline = 1 },
+            .end,
+        });
+        try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
+    }
+    // TODO: add a ${} test, nested
 }
 
 test "tokenizer quote failures" {
