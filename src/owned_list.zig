@@ -132,9 +132,7 @@ pub fn OwnedList(comptime T: type) type {
                 stderr.print("got:\n", .{}) catch {};
                 self.printLine(stderr) catch {};
             }
-            try std.testing.expectEqual(other.len, self.count());
-
-            for (0..self.count()) |index| {
+            for (0..@min(self.count(), other.len)) |index| {
                 const self_item = self.inBounds(index);
                 const other_item = other[index];
                 if (std.meta.hasMethod(T, "expectEquals")) {
@@ -146,6 +144,7 @@ pub fn OwnedList(comptime T: type) type {
                     try std.testing.expectEqual(other_item, self_item);
                 }
             }
+            try std.testing.expectEqual(other.len, self.count());
         }
 
         pub fn printLine(self: Self, writer: anytype) !void {
