@@ -97,79 +97,6 @@ pub const Token = union(TokenTag) {
         }
     }
 
-    pub fn printLine(self: Self, writer: anytype) !void {
-        try self.print(writer);
-        try writer.print("\n", .{});
-    }
-
-    pub fn print(self: Self, writer: anytype) !void {
-        switch (self) {
-            .invalid => |invalid| {
-                try writer.print("Token{{ .invalid = .{{ .columns = .{{ start = {d}, .end = {d} }}, .type = {d} }} }}", .{
-                    invalid.columns.start,
-                    invalid.columns.end,
-                    @intFromEnum(invalid.type),
-                });
-            },
-            .end => {
-                try writer.print(".end", .{});
-            },
-            .newline => |value| {
-                try writer.print("Token{{ .newline = {d} }}", .{value});
-            },
-            .spacing => |value| {
-                try writer.print("Token{{ .spacing = .{{ .absolute = {d}, .relative = {d} }} }}", .{
-                    value.absolute,
-                    value.relative,
-                });
-            },
-            .starts_upper => |string| {
-                try writer.print("Token{{ .starts_upper = try SmallString.init(\"", .{});
-                try string.print(writer);
-                try writer.print("\") }}", .{});
-            },
-            .starts_lower => |string| {
-                try writer.print("Token{{ .starts_lower = try SmallString.init(\"", .{});
-                try string.print(writer);
-                try writer.print("\") }}", .{});
-            },
-            .slice => |string| {
-                try writer.print("Token{{ .slice = try SmallString.init(\"", .{});
-                try string.print(writer);
-                try writer.print("\") }}", .{});
-            },
-            .number => |string| {
-                try writer.print("Token{{ .number = try SmallString.init(\"", .{});
-                try string.print(writer);
-                try writer.print("\") }}", .{});
-            },
-            .operator => |operator| {
-                try writer.print("Token{{ .operator = SmallString.as64(\"", .{});
-                try SmallString.init64(operator).print(writer);
-                try writer.print("\") }}", .{});
-            },
-            .open => |open| {
-                try writer.print("Token{{ .open = Token.Open.{s} }}", .{open.slice()});
-            },
-            .interpolation_open => |open| {
-                try writer.print("Token{{ .interpolation_open = Token.Open.{s} }}", .{open.slice()});
-            },
-            .close => |close| {
-                try writer.print("Token{{ .close = Token.Close.{s} }}", .{close.slice()});
-            },
-            .annotation => |string| {
-                try writer.print("Token{{ .annotation = try SmallString.init(\"", .{});
-                try string.print(writer);
-                try writer.print("\") }}", .{});
-            },
-            .comment => |string| {
-                try writer.print("Token{{ .comment = try SmallString.init(\"", .{});
-                try string.print(writer);
-                try writer.print("\") }}", .{});
-            },
-        }
-    }
-
     /// Returns null if `buffer` is an invalid operator, otherwise
     /// the numerical value of the operator (see `SmallString.as64`).
     pub fn convertOperator(buffer: []const u8) ?u64 {
@@ -260,6 +187,79 @@ pub const Token = union(TokenTag) {
             SmallString.as64(";=") => comptime SmallString.as64(";"),
             else => null,
         };
+    }
+
+    pub fn printLine(self: Self, writer: anytype) !void {
+        try self.print(writer);
+        try writer.print("\n", .{});
+    }
+
+    pub fn print(self: Self, writer: anytype) !void {
+        switch (self) {
+            .invalid => |invalid| {
+                try writer.print("Token{{ .invalid = .{{ .columns = .{{ start = {d}, .end = {d} }}, .type = {d} }} }}", .{
+                    invalid.columns.start,
+                    invalid.columns.end,
+                    @intFromEnum(invalid.type),
+                });
+            },
+            .end => {
+                try writer.print(".end", .{});
+            },
+            .newline => |value| {
+                try writer.print("Token{{ .newline = {d} }}", .{value});
+            },
+            .spacing => |value| {
+                try writer.print("Token{{ .spacing = .{{ .absolute = {d}, .relative = {d} }} }}", .{
+                    value.absolute,
+                    value.relative,
+                });
+            },
+            .starts_upper => |string| {
+                try writer.print("Token{{ .starts_upper = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\") }}", .{});
+            },
+            .starts_lower => |string| {
+                try writer.print("Token{{ .starts_lower = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\") }}", .{});
+            },
+            .slice => |string| {
+                try writer.print("Token{{ .slice = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\") }}", .{});
+            },
+            .number => |string| {
+                try writer.print("Token{{ .number = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\") }}", .{});
+            },
+            .operator => |operator| {
+                try writer.print("Token{{ .operator = SmallString.as64(\"", .{});
+                try SmallString.init64(operator).print(writer);
+                try writer.print("\") }}", .{});
+            },
+            .open => |open| {
+                try writer.print("Token{{ .open = Token.Open.{s} }}", .{open.slice()});
+            },
+            .interpolation_open => |open| {
+                try writer.print("Token{{ .interpolation_open = Token.Open.{s} }}", .{open.slice()});
+            },
+            .close => |close| {
+                try writer.print("Token{{ .close = Token.Close.{s} }}", .{close.slice()});
+            },
+            .annotation => |string| {
+                try writer.print("Token{{ .annotation = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\") }}", .{});
+            },
+            .comment => |string| {
+                try writer.print("Token{{ .comment = try SmallString.init(\"", .{});
+                try string.print(writer);
+                try writer.print("\") }}", .{});
+            },
+        }
     }
 
     pub fn equals(a: Self, b: Self) bool {
