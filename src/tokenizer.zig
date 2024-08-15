@@ -1222,7 +1222,107 @@ test "tokenizer interpolation parsing" {
         });
         try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
     }
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        // Also test interior spaces
+        try tokenizer.file.lines.append(try SmallString.init("\"${ frankly(),  'Idgad' }\""));
+        try tokenizer.complete();
+
+        try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+            Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+            Token{ .open = Token.Open.double_quote },
+            Token{ .interpolation_open = Token.Open.brace },
+            Token{ .spacing = .{ .absolute = 4, .relative = 1 } },
+            Token{ .starts_lower = SmallString.noAlloc("frankly") },
+            Token{ .spacing = .{ .absolute = 11, .relative = 0 } },
+            Token{ .open = Token.Open.paren },
+            Token{ .spacing = .{ .absolute = 12, .relative = 0 } },
+            Token{ .close = Token.Close.paren },
+            Token{ .spacing = .{ .absolute = 13, .relative = 0 } },
+            Token{ .operator = SmallString.as64(",") },
+            Token{ .spacing = .{ .absolute = 16, .relative = 2 } },
+            Token{ .open = Token.Open.single_quote },
+            Token{ .slice = SmallString.noAlloc("Idgad") },
+            Token{ .close = Token.Open.single_quote },
+            Token{ .spacing = .{ .absolute = 24, .relative = 1 } },
+            Token{ .close = Token.Close.brace },
+            Token{ .close = Token.Close.double_quote },
+            Token{ .newline = 1 },
+            .end,
+        });
+        try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
+    }
+}
+
+test "tokenizer nested interpolations" {
     // TODO: add a ${} test, nested
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    // We don't recommend doing this, but it is a "stress" test.
+    try tokenizer.file.lines.append(try SmallString.init("\"a${'very$(nice* ) q' \"wow$[ Hi,"));
+    try tokenizer.file.lines.append(try SmallString.init(" Hey, hello , 'Super$( -Nested)Bros' ]\"}z\""));
+    try tokenizer.complete();
+
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .open = Token.Open.double_quote },
+        Token{ .slice = SmallString.noAlloc("a") },
+        Token{ .interpolation_open = Token.Open.brace },
+        Token{ .spacing = .{ .absolute = 4, .relative = 0 } },
+        Token{ .open = Token.Open.single_quote },
+        Token{ .slice = SmallString.noAlloc("very") },
+        Token{ .interpolation_open = Token.Open.paren },
+        Token{ .spacing = .{ .absolute = 11, .relative = 0 } },
+        Token{ .starts_lower = SmallString.noAlloc("nice") },
+        Token{ .spacing = .{ .absolute = 15, .relative = 0 } },
+        Token{ .operator = SmallString.as64("*") },
+        Token{ .spacing = .{ .absolute = 17, .relative = 1 } },
+        Token{ .close = Token.Close.paren },
+        Token{ .slice = SmallString.noAlloc(" q") },
+        Token{ .close = Token.Close.single_quote },
+        Token{ .spacing = .{ .absolute = 22, .relative = 1 } },
+        Token{ .open = Token.Open.double_quote },
+        Token{ .slice = SmallString.noAlloc("wow") },
+        Token{ .interpolation_open = Token.Open.bracket },
+        Token{ .spacing = .{ .absolute = 29, .relative = 1 } },
+        Token{ .starts_upper = SmallString.noAlloc("Hi") },
+        Token{ .spacing = .{ .absolute = 31, .relative = 0 } },
+        Token{ .operator = SmallString.as64(",") },
+        Token{ .newline = 1 },
+        Token{ .spacing = .{ .absolute = 1, .relative = 1 } },
+        Token{ .starts_upper = SmallString.noAlloc("Hey") },
+        Token{ .spacing = .{ .absolute = 4, .relative = 0 } },
+        Token{ .operator = SmallString.as64(",") },
+        Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
+        Token{ .starts_lower = SmallString.noAlloc("hello") },
+        Token{ .spacing = .{ .absolute = 12, .relative = 1 } },
+        Token{ .operator = SmallString.as64(",") },
+        Token{ .spacing = .{ .absolute = 14, .relative = 1 } },
+        Token{ .open = Token.Open.single_quote },
+        Token{ .slice = SmallString.noAlloc("Super") },
+        Token{ .interpolation_open = Token.Open.paren },
+        Token{ .spacing = .{ .absolute = 23, .relative = 1 } },
+        Token{ .operator = SmallString.as64("-") },
+        Token{ .spacing = .{ .absolute = 24, .relative = 0 } },
+        Token{ .starts_upper = SmallString.noAlloc("Nested") },
+        Token{ .spacing = .{ .absolute = 30, .relative = 0 } },
+        Token{ .close = Token.Close.paren },
+        Token{ .slice = SmallString.noAlloc("Bros") },
+        Token{ .close = Token.Close.single_quote },
+        Token{ .spacing = .{ .absolute = 37, .relative = 1 } },
+        Token{ .close = Token.Close.bracket },
+        Token{ .close = Token.Close.double_quote },
+        Token{ .spacing = .{ .absolute = 39, .relative = 0 } },
+        Token{ .close = Token.Close.brace },
+        Token{ .slice = SmallString.noAlloc("z") },
+        Token{ .close = Token.Close.double_quote },
+        Token{ .newline = 2 },
+        .end,
+    });
+    try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
 }
 
 test "tokenizer quote failures" {
