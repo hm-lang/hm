@@ -241,7 +241,7 @@ pub const Token = union(TokenTag) {
             return null;
         }
         const small = SmallString.init(buffer) catch unreachable;
-        const operator = small.little64() catch unreachable;
+        const operator = small.big64() catch unreachable;
         return switch (operator) {
             SmallString.as64("~"),
             SmallString.as64("++"),

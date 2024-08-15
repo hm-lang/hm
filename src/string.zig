@@ -82,19 +82,26 @@ pub const Small = extern struct {
     }
 
     // Another initialization that doesn't require an allocation.
-    // TODO: redo as l64 -> b64 (big endian).  "asdf" "jkl;" should combine as "asdfjkl;"
-    // where `;` gets the small digit and `a` gets the big digit.
-    pub fn init64(l64: u64) Small {
+    // We use big endian such that "asdf" "jkl;" would combine as "asdfjkl;",
+    // i.e., `;` gets the small digit and `a` gets the big digit.
+    pub fn init64(b64: u64) Small {
         var result: Small = .{ .size = 8 };
-        var actual_size: u16 = 0;
-        var remaining64 = l64;
+        var buffer_count: u16 = 0;
+        var remaining64 = b64;
+        // Get the size of the buffer needed, first.
+        while (remaining64 > 0) {
+            remaining64 >>= 8;
+            buffer_count += 1;
+        }
+        // Reset and do the actual writing now.
+        remaining64 = b64;
+        result.size = buffer_count;
         const write_buffer = result.buffer();
         while (remaining64 > 0) {
-            write_buffer[actual_size] = @intCast(remaining64 & 255);
+            buffer_count -= 1;
+            write_buffer[buffer_count] = @intCast(remaining64 & 255);
             remaining64 >>= 8;
-            actual_size += 1;
         }
-        result.size = actual_size;
         return result;
     }
 
@@ -135,8 +142,7 @@ pub const Small = extern struct {
         return &self.short;
     }
 
-    // TODO: redo as big64
-    pub fn little64(self: *const Small) StringError!u64 {
+    pub fn big64(self: *const Small) StringError!u64 {
         const chars = self.slice();
         if (chars.len > 8) {
             return StringError.string_too_long;
@@ -249,11 +255,9 @@ pub const Small = extern struct {
 fn internalAs64(chars: []const u8) u64 {
     std.debug.assert(chars.len <= 8);
     var result: u64 = 0;
-    var index: u6 = 0;
-    while (index < chars.len) {
-        const char64: u64 = chars[index];
-        result |= char64 << (index * 8);
-        index += 1;
+    for (chars) |char| {
+        result <<= 8;
+        result |= char;
     }
     return result;
 }
@@ -274,40 +278,40 @@ test "noAlloc works" {
 }
 
 test "init64 works" {
-    var little = Small.init64('*');
-    try std.testing.expectEqualStrings("*", little.slice());
+    var big = Small.init64('*');
+    try std.testing.expectEqualStrings("*", big.slice());
 
-    little = Small.init64('_');
-    try std.testing.expectEqualStrings("_", little.slice());
+    big = Small.init64('_');
+    try std.testing.expectEqualStrings("_", big.slice());
 
-    little = Small.init64(30033);
-    try std.testing.expectEqualStrings("Qu", little.slice());
+    big = Small.init64(20853);
+    try std.testing.expectEqualStrings("Qu", big.slice());
 
-    little = Small.init64(2764688058392519008);
-    try std.testing.expectEqualStrings("`!@#$%^&", little.slice());
+    big = Small.init64(6926888221546995238);
+    try std.testing.expectEqualStrings("`!@#$%^&", big.slice());
 }
 
-test "little64 works for small strings" {
-    var little = Small.noAlloc("*");
-    try std.testing.expectEqual('*', try little.little64());
-    try little.expectEquals(Small.init64('*'));
+test "big64 works for small strings" {
+    var small = Small.noAlloc("*");
+    try std.testing.expectEqual('*', try small.big64());
+    try small.expectEquals(Small.init64('*'));
 
-    little = Small.noAlloc("_");
-    try std.testing.expectEqual('_', try little.little64());
-    try little.expectEquals(Small.init64('_'));
+    small = Small.noAlloc("_");
+    try std.testing.expectEqual('_', try small.big64());
+    try small.expectEquals(Small.init64('_'));
 
-    little = Small.noAlloc("Qu");
-    try std.testing.expectEqual(30033, try little.little64());
-    try little.expectEquals(Small.init64(30033));
+    small = Small.noAlloc("Qu");
+    try std.testing.expectEqual(20853, try small.big64());
+    try small.expectEquals(Small.init64(20853));
 
-    little = Small.noAlloc("`!@#$%^&");
-    try std.testing.expectEqual(2764688058392519008, try little.little64());
-    try little.expectEquals(Small.init64(2764688058392519008));
+    small = Small.noAlloc("`!@#$%^&");
+    try std.testing.expectEqual(6926888221546995238, try small.big64());
+    try small.expectEquals(Small.init64(6926888221546995238));
 }
 
-test "little64 throws for >8 character strings" {
-    const not_little = Small.noAlloc("123456789");
-    try std.testing.expectError(StringError.string_too_long, not_little.little64());
+test "big64 throws for >8 character strings" {
+    const not_small = Small.noAlloc("123456789");
+    try std.testing.expectError(StringError.string_too_long, not_small.big64());
 }
 
 test "equals works for noAlloc strings" {

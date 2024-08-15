@@ -685,7 +685,7 @@ test "valid tokenizer operators" {
         count += 1;
 
         token = try tokenizer.at(count);
-        try token.expectEquals(Token{ .operator = try line.little64() });
+        try token.expectEquals(Token{ .operator = try line.big64() });
         count += 1;
 
         token = try tokenizer.at(count);
