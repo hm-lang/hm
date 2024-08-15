@@ -242,18 +242,6 @@ pub const Tokenizer = struct {
                 'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
                 '0'...'9' => return self.getNextNumber(line),
                 '@' => return Token{ .annotation = try self.getNextIdentifier(line) },
-                // TODO: "string stuff ${World hello()} ok"
-                //              (skipping `spacing` tokens)
-                //          =>  Token { .open = "\"" }
-                //              Token { .slice = "string stuff " }
-                //              Token { .open = "{", .lambda = true } // ${ not just {
-                //              Token { .starts_upper = "World" }
-                //              Token { .starts_lower = "hello" }
-                //              Token { .open = "(" }
-                //              Token { .close = ")" }
-                //              Token { .close = "}" }
-                //              Token { .slice = " ok" }
-                //              Token { .close = "\"" }
                 '\'' => return try self.getNextOpen(Token.Open.single_quote),
                 '"' => return try self.getNextOpen(Token.Open.double_quote),
                 '(' => return try self.getNextOpen(Token.Open.paren),
@@ -1114,7 +1102,35 @@ test "tokenizer parentheses failure" {
 }
 
 test "tokenizer multiline quote parsing" {
-    // TODO: add some slices in here
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    // Empty strings
+    try tokenizer.file.lines.append(try SmallString.init("  &|"));
+    // 1-char strings
+    try tokenizer.file.lines.append(try SmallString.init("&| "));
+    // No need to escape things like other quotes or parentheses
+    try tokenizer.file.lines.append(try SmallString.init("    &|$&|*'\"()[]{}`"));
+    try tokenizer.complete();
+
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .spacing = .{ .absolute = 2, .relative = 2 } },
+        Token{ .open = Token.Open.multiline_quote },
+        Token{ .close = Token.Close.multiline_quote },
+        Token{ .newline = 1 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .open = Token.Open.multiline_quote },
+        Token{ .slice = SmallString.noAlloc(" ") },
+        Token{ .close = Token.Close.multiline_quote },
+        Token{ .newline = 2 },
+        Token{ .spacing = .{ .absolute = 4, .relative = 4 } },
+        Token{ .open = Token.Open.multiline_quote },
+        Token{ .slice = SmallString.noAlloc("$&|*'\"()[]{}`") },
+        Token{ .close = Token.Close.multiline_quote },
+        Token{ .newline = 3 },
+        .end,
+    });
+    try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
 }
 
 test "tokenizer simple quote parsing" {
@@ -1173,22 +1189,23 @@ test "tokenizer simple quote parsing" {
 
 test "tokenizer interpolation parsing" {
     {
+        // Testing $() inside ''
         var tokenizer: Tokenizer = .{};
         defer tokenizer.deinit();
 
         // Checking slices around interpolation as well.
-        try tokenizer.file.lines.append(try SmallString.init("'hello, ${Name}!'"));
+        try tokenizer.file.lines.append(try SmallString.init("'hello, $(Name)!'"));
         try tokenizer.complete();
 
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
             Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
             Token{ .open = Token.Open.single_quote },
             Token{ .slice = SmallString.noAlloc("hello, ") },
-            Token{ .interpolation_open = Token.Open.brace },
+            Token{ .interpolation_open = Token.Open.paren },
             Token{ .spacing = .{ .absolute = 10, .relative = 0 } },
             Token{ .starts_upper = SmallString.noAlloc("Name") },
             Token{ .spacing = .{ .absolute = 14, .relative = 0 } },
-            Token{ .close = Token.Close.brace },
+            Token{ .close = Token.Close.paren },
             Token{ .slice = SmallString.noAlloc("!") },
             Token{ .close = Token.Close.single_quote },
             Token{ .newline = 1 },
@@ -1197,6 +1214,7 @@ test "tokenizer interpolation parsing" {
         try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
     }
     {
+        // Testing $[] inside ""
         var tokenizer: Tokenizer = .{};
         defer tokenizer.deinit();
 
@@ -1223,6 +1241,7 @@ test "tokenizer interpolation parsing" {
         try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
     }
     {
+        // Testing ${} inside ""
         var tokenizer: Tokenizer = .{};
         defer tokenizer.deinit();
 
@@ -1254,10 +1273,44 @@ test "tokenizer interpolation parsing" {
         });
         try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
     }
+    {
+        // Testing $() $[] and ${} inside &|
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        try tokenizer.file.lines.append(try SmallString.init("&|wow $(Name)-$[hi]=${*}"));
+        try tokenizer.complete();
+
+        try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+            Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+            Token{ .open = Token.Open.multiline_quote },
+            Token{ .slice = SmallString.noAlloc("wow ") },
+            Token{ .interpolation_open = Token.Open.paren },
+            Token{ .spacing = .{ .absolute = 8, .relative = 0 } },
+            Token{ .starts_upper = SmallString.noAlloc("Name") },
+            Token{ .spacing = .{ .absolute = 12, .relative = 0 } },
+            Token{ .close = Token.Close.paren },
+            Token{ .slice = SmallString.noAlloc("-") },
+            Token{ .interpolation_open = Token.Open.bracket },
+            Token{ .spacing = .{ .absolute = 16, .relative = 0 } },
+            Token{ .starts_lower = SmallString.noAlloc("hi") },
+            Token{ .spacing = .{ .absolute = 18, .relative = 0 } },
+            Token{ .close = Token.Close.bracket },
+            Token{ .slice = SmallString.noAlloc("=") },
+            Token{ .interpolation_open = Token.Open.brace },
+            Token{ .spacing = .{ .absolute = 22, .relative = 0 } },
+            Token{ .operator = SmallString.as64("*") },
+            Token{ .spacing = .{ .absolute = 23, .relative = 0 } },
+            Token{ .close = Token.Close.brace },
+            Token{ .close = Token.Close.multiline_quote },
+            Token{ .newline = 1 },
+            .end,
+        });
+        try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
+    }
 }
 
 test "tokenizer nested interpolations" {
-    // TODO: add a ${} test, nested
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
 
