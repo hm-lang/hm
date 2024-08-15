@@ -3,7 +3,7 @@ const common = @import("common.zig");
 
 const std = @import("std");
 
-pub const TokenTag = enum {
+const TokenTag = enum {
     invalid,
     end,
     newline,
@@ -26,70 +26,6 @@ pub const TokenTag = enum {
 };
 
 pub const Token = union(TokenTag) {
-    const Self = @This();
-    pub const comma = Self{ .operator = ',' };
-
-    pub const InvalidType = InvalidTokenType;
-    pub const Open = enum {
-        paren,
-        bracket,
-        brace,
-        single_quote,
-        double_quote,
-        multiline_quote,
-
-        pub fn slice(self: Open) []const u8 {
-            return switch (self) {
-                .paren => "paren",
-                .bracket => "bracket",
-                .brace => "brace",
-                .single_quote => "single_quote",
-                .double_quote => "double_quote",
-                .multiline_quote => "multiline_quote",
-            };
-        }
-
-        pub fn printLine(self: Open, writer: anytype) !void {
-            try self.print(writer);
-            try writer.print("\n", .{});
-        }
-
-        pub fn print(self: Open, writer: anytype) !void {
-            // TODO: consider doing separate `Open.paren` and `Close.brace` logic.
-            try writer.print("{s}", .{self.slice()});
-        }
-
-        pub fn isQuote(self: Open) bool {
-            return switch (self) {
-                .paren, .bracket, .brace => false,
-                .single_quote, .double_quote, .multiline_quote => true,
-            };
-        }
-
-        pub fn openChar(self: Open) u8 {
-            return switch (self) {
-                .paren => '(',
-                .bracket => '[',
-                .brace => '{',
-                .single_quote => '\'',
-                .double_quote => '"',
-                .multiline_quote => 0,
-            };
-        }
-
-        pub fn closeChar(self: Open) u8 {
-            return switch (self) {
-                .paren => ')',
-                .bracket => ']',
-                .brace => '}',
-                .single_quote => '\'',
-                .double_quote => '"',
-                .multiline_quote => 0,
-            };
-        }
-    };
-    pub const Close = Open;
-
     invalid: InvalidToken,
     end: void,
     newline: u32,
@@ -326,19 +262,19 @@ pub const Token = union(TokenTag) {
         };
     }
 
-    pub fn equals(a: Token, b: Token) bool {
+    pub fn equals(a: Self, b: Self) bool {
         const tag_a = std.meta.activeTag(a);
         const tag_b = std.meta.activeTag(b);
         if (tag_a != tag_b) return false;
 
-        const info = switch (@typeInfo(Token)) {
+        const info = switch (@typeInfo(Self)) {
             .Union => |info| info,
             else => unreachable,
         };
         inline for (info.fields) |field_info| {
-            if (@field(TokenTag, field_info.name) == tag_a) {
-                const SubToken = @TypeOf(@field(a, field_info.name));
-                if (std.meta.hasMethod(SubToken, "equals")) {
+            if (@field(Tag, field_info.name) == tag_a) {
+                const SubField = @TypeOf(@field(a, field_info.name));
+                if (std.meta.hasMethod(SubField, "equals")) {
                     return @field(a, field_info.name).equals(@field(b, field_info.name));
                 } else {
                     return @field(a, field_info.name) == @field(b, field_info.name);
@@ -348,7 +284,7 @@ pub const Token = union(TokenTag) {
         return false;
     }
 
-    pub fn expectEquals(a: Token, b: Token) !void {
+    pub fn expectEquals(a: Self, b: Self) !void {
         const stderr = std.io.getStdErr().writer();
         errdefer {
             stderr.print("expected:\n", .{}) catch {};
@@ -361,14 +297,14 @@ pub const Token = union(TokenTag) {
         const tag_b = std.meta.activeTag(b);
         try std.testing.expectEqual(tag_b, tag_a);
 
-        const info = switch (@typeInfo(Token)) {
+        const info = switch (@typeInfo(Self)) {
             .Union => |info| info,
             else => unreachable,
         };
         inline for (info.fields) |field_info| {
-            if (@field(TokenTag, field_info.name) == tag_a) {
-                const SubToken = @TypeOf(@field(a, field_info.name));
-                if (std.meta.hasMethod(SubToken, "expectEquals")) {
+            if (@field(Tag, field_info.name) == tag_a) {
+                const SubField = @TypeOf(@field(a, field_info.name));
+                if (std.meta.hasMethod(SubField, "expectEquals")) {
                     try @field(a, field_info.name).expectEquals(@field(b, field_info.name));
                     return;
                 } else {
@@ -380,36 +316,80 @@ pub const Token = union(TokenTag) {
         try std.testing.expect(false);
     }
 
-    pub fn expectNotEquals(a: Token, b: Token) !void {
+    pub fn expectNotEquals(a: Self, b: Self) !void {
         const stderr = std.io.getStdErr().writer();
         errdefer {
             stderr.print("expected NOT this, but got it:\n", .{}) catch {};
             a.printLine(stderr) catch {};
         }
-        const tag_a = std.meta.activeTag(a);
-        const tag_b = std.meta.activeTag(b);
-        if (tag_a != tag_b) {
-            return;
+        try std.testing.expect(!a.equals(b));
+    }
+
+    pub const comma = Self{ .operator = ',' };
+
+    pub const Open = enum {
+        paren,
+        bracket,
+        brace,
+        single_quote,
+        double_quote,
+        multiline_quote,
+
+        pub fn slice(self: Open) []const u8 {
+            return switch (self) {
+                .paren => "paren",
+                .bracket => "bracket",
+                .brace => "brace",
+                .single_quote => "single_quote",
+                .double_quote => "double_quote",
+                .multiline_quote => "multiline_quote",
+            };
         }
 
-        const info = switch (@typeInfo(Token)) {
-            .Union => |info| info,
-            else => unreachable,
-        };
-        inline for (info.fields) |field_info| {
-            if (@field(TokenTag, field_info.name) == tag_a) {
-                const SubToken = @TypeOf(@field(a, field_info.name));
-                if (std.meta.hasMethod(SubToken, "expectNotEquals")) {
-                    try @field(a, field_info.name).expectNotEquals(@field(b, field_info.name));
-                    return;
-                } else {
-                    try std.testing.expect(@field(a, field_info.name) != @field(b, field_info.name));
-                    return;
-                }
-            }
+        pub fn printLine(self: Open, writer: anytype) !void {
+            try self.print(writer);
+            try writer.print("\n", .{});
         }
-        try std.testing.expect(false);
-    }
+
+        pub fn print(self: Open, writer: anytype) !void {
+            // TODO: consider doing separate `Open.paren` and `Close.brace` logic.
+            try writer.print("{s}", .{self.slice()});
+        }
+
+        pub fn isQuote(self: Open) bool {
+            return switch (self) {
+                .paren, .bracket, .brace => false,
+                .single_quote, .double_quote, .multiline_quote => true,
+            };
+        }
+
+        pub fn openChar(self: Open) u8 {
+            return switch (self) {
+                .paren => '(',
+                .bracket => '[',
+                .brace => '{',
+                .single_quote => '\'',
+                .double_quote => '"',
+                .multiline_quote => 0,
+            };
+        }
+
+        pub fn closeChar(self: Open) u8 {
+            return switch (self) {
+                .paren => ')',
+                .bracket => ']',
+                .brace => '}',
+                .single_quote => '\'',
+                .double_quote => '"',
+                .multiline_quote => 0,
+            };
+        }
+    };
+    pub const Close = Open;
+    pub const InvalidType = InvalidTokenType;
+
+    pub const Tag = TokenTag;
+    const Self = @This();
 };
 
 pub const InvalidToken = struct {
