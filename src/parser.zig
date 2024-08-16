@@ -69,13 +69,16 @@ pub const Parser = struct {
         errdefer {
             self.valid_statement_count = self.statement_indices.count();
         }
-        // Notice that we should get more Nodes that comprise our `Statement`
-        // before we even load the statement, but that's ok because we will
-        // just grab the `statement_node_index` and update `statement_indices`
-        // only after a successful result.
-        const statement_node_index = try self.justAppendNode(Node{
+        // So that `node == 0` appears to be invalid, append the
+        // statement first, then its child nodes.  Only update
+        // `statement_indices` after success.  Notice that this
+        // will make the first statement appear to be invalid,
+        // but only if it would be cross referenced in another
+        // node, which it shouldn't be since it's the first.
+        const statement_node_index = try self.justAppendNode(.end);
+        self.nodes.array.items[statement_node_index] = Node{
             .statement = try self.getNextStatement(),
-        });
+        };
         self.statement_indices.append(statement_node_index) catch {
             return ParserError.out_of_memory;
         };
@@ -148,15 +151,15 @@ test "parser simple expressions" {
     try parser.complete();
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
+        Node{ .statement = .{ .node = 1, .tab = 0 } },
         Node{ .atomic_token = 1 },
-        // TODO: i'm not a big fan of node == 0 being a valid value.
-        // we probably want to append the statement first, then update node.
-        Node{ .statement = .{ .node = 0, .tab = 0 } },
+        Node{ .statement = .{ .node = 3, .tab = 4 } },
         Node{ .atomic_token = 4 },
-        Node{ .statement = .{ .node = 2, .tab = 4 } },
+        .end,
     });
 
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        1,
+        0,
+        2,
     });
 }
