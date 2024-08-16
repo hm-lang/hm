@@ -1,12 +1,12 @@
 const common = @import("common.zig");
-const owned_list = @import("owned_list.zig");
+const OwnedList = @import("owned_list.zig").OwnedList;
 const SmallString = @import("string.zig").Small;
 const File = @import("file.zig").File;
 const Token = @import("token.zig").Token;
 
-const OwnedSmalls = owned_list.OwnedList(SmallString);
-const OwnedTokens = owned_list.OwnedList(Token);
-const OwnedOpens = owned_list.OwnedList(Token.Open);
+const OwnedSmalls = OwnedList(SmallString);
+const OwnedTokens = OwnedList(Token);
+const OwnedOpens = OwnedList(Token.Open);
 
 const std = @import("std");
 
@@ -16,8 +16,6 @@ const TokenizerError = error{
 };
 
 pub const Tokenizer = struct {
-    const Self = @This();
-
     tokens: OwnedTokens = OwnedTokens.init(),
     opens: OwnedOpens = OwnedOpens.init(),
     file: File = .{},
@@ -29,7 +27,7 @@ pub const Tokenizer = struct {
     /// via `at()`.  (Not recommended, but you could still do so via `tokens.at`.)
     last_token_index: usize = std.math.maxInt(usize),
 
-    pub fn deinit(self: *Tokenizer) void {
+    pub fn deinit(self: *Self) void {
         self.tokens.deinit();
         self.opens.deinit();
         self.file.deinit();
@@ -40,7 +38,7 @@ pub const Tokenizer = struct {
     /// care about the next token (or a slice of them) and not the last token.
     /// Plus it's not obvious if that should be the current last token or
     /// the last token after we've completed adding all tokens.
-    pub fn at(self: *Tokenizer, token_index: usize) TokenizerError!Token {
+    pub fn at(self: *Self, token_index: usize) TokenizerError!Token {
         if (token_index > self.last_token_index) {
             return TokenizerError.out_of_tokens;
         }
@@ -53,14 +51,14 @@ pub const Tokenizer = struct {
         return self.tokens.inBounds(token_index);
     }
 
-    pub fn complete(self: *Tokenizer) TokenizerError!void {
+    pub fn complete(self: *Self) TokenizerError!void {
         var last = try self.at(0);
         while (!last.equals(.end) and self.last_token_index >= self.tokens.count()) {
             last = try self.addNextToken();
         }
     }
 
-    fn addNextToken(self: *Tokenizer) TokenizerError!Token {
+    fn addNextToken(self: *Self) TokenizerError!Token {
         // We need to pass in the `starting_char_index` in case we need to
         // add an implicit tab before appending the next explicit token.
         const starting_char_index = self.farthest_char_index;
@@ -81,13 +79,13 @@ pub const Tokenizer = struct {
         return next;
     }
 
-    inline fn justAppendToken(self: *Tokenizer, token: Token) TokenizerError!void {
+    inline fn justAppendToken(self: *Self, token: Token) TokenizerError!void {
         self.tokens.append(token) catch {
             return TokenizerError.out_of_memory;
         };
     }
 
-    fn appendTokenAndPerformHooks(self: *Tokenizer, starting_char_index: u16, next: Token) TokenizerError!void {
+    fn appendTokenAndPerformHooks(self: *Self, starting_char_index: u16, next: Token) TokenizerError!void {
         errdefer switch (next) {
             .invalid => |invalid| {
                 common.stdout.print("ran out of memory adding an invalid token on {d}:{d}-{d}\n", .{
@@ -148,7 +146,7 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn getNextInQuoteToken(self: *Tokenizer, line: SmallString) TokenizerError!Token {
+    fn getNextInQuoteToken(self: *Self, line: SmallString) TokenizerError!Token {
         const last_open = common.assert(self.opens.at(-1));
         const close_char = last_open.closeChar();
         const initial_char_index = self.farthest_char_index;
@@ -198,7 +196,7 @@ pub const Tokenizer = struct {
         return TokenizerError.out_of_tokens;
     }
 
-    fn maybeInterpolate(self: *Tokenizer, open: Token.Open, line: SmallString, initial_char_index: u16) TokenizerError!Token {
+    fn maybeInterpolate(self: *Self, open: Token.Open, line: SmallString, initial_char_index: u16) TokenizerError!Token {
         // There was a `$` and then a `{` (or whatever.  `}` for balance.)
         // First check to see if we had any slices to add.
         if (self.farthest_char_index > initial_char_index) {
@@ -214,7 +212,7 @@ pub const Tokenizer = struct {
 
     /// This should only fail for memory issues (e.g., allocating a string
     /// for an identifier).  Return an `InvalidToken` otherwise.
-    fn getNextExplicitToken(self: *Tokenizer, line: SmallString) TokenizerError!Token {
+    fn getNextExplicitToken(self: *Self, line: SmallString) TokenizerError!Token {
         const initial_char_index = self.farthest_char_index;
         const starting_char = line.inBounds(self.farthest_char_index);
         const starts_with_whitespace = starting_char == ' ';
@@ -258,7 +256,7 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn getNextComment(self: *Tokenizer, line: SmallString) TokenizerError!Token {
+    fn getNextComment(self: *Self, line: SmallString) TokenizerError!Token {
         std.debug.assert(line.at(self.farthest_char_index) == '#');
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
@@ -294,7 +292,7 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn getNextIdentifier(self: *Tokenizer, line: SmallString) TokenizerError!SmallString {
+    fn getNextIdentifier(self: *Self, line: SmallString) TokenizerError!SmallString {
         // We've already checked and there's an alphabetical character at the self.farthest_char_index.
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
@@ -309,7 +307,7 @@ pub const Tokenizer = struct {
         return smallString(line.slice()[initial_char_index..self.farthest_char_index]);
     }
 
-    fn getNextNumber(self: *Tokenizer, line: SmallString) TokenizerError!Token {
+    fn getNextNumber(self: *Self, line: SmallString) TokenizerError!Token {
         // We've already checked and there's a numerical character at the self.farthest_char_index.
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
@@ -346,13 +344,13 @@ pub const Tokenizer = struct {
         return Token{ .number = try smallString(line.slice()[initial_char_index..self.farthest_char_index]) };
     }
 
-    fn getNextOpen(self: *Tokenizer, open: Token.Open) TokenizerError!Token {
+    fn getNextOpen(self: *Self, open: Token.Open) TokenizerError!Token {
         self.farthest_char_index += 1;
         self.opens.append(open) catch return TokenizerError.out_of_memory;
         return Token{ .open = open };
     }
 
-    fn getNextClose(self: *Tokenizer, close: Token.Close) Token {
+    fn getNextClose(self: *Self, close: Token.Close) Token {
         std.debug.assert(!close.isQuote());
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
@@ -372,13 +370,13 @@ pub const Tokenizer = struct {
         return Token{ .close = close };
     }
 
-    fn getNextNewline(self: *Tokenizer) Token {
+    fn getNextNewline(self: *Self) Token {
         self.farthest_char_index = 0;
         self.farthest_line_index += 1;
         return Token{ .newline = self.farthest_line_index };
     }
 
-    fn getNextComma(self: *Tokenizer, line: SmallString) Token {
+    fn getNextComma(self: *Self, line: SmallString) Token {
         const initial_char_index = self.farthest_char_index;
         // Commas are special in that they should never be combined
         // with other operators, e.g., ",+" should parse as ',' then '+'.
@@ -398,7 +396,7 @@ pub const Tokenizer = struct {
         } };
     }
 
-    fn getNextQuestionOperator(self: *Tokenizer, line: SmallString) Token {
+    fn getNextQuestionOperator(self: *Self, line: SmallString) Token {
         std.debug.assert(line.at(self.farthest_char_index) == '?');
         if (line.at(self.farthest_char_index + 1) == '?') {
             return self.getNextOperator(line);
@@ -408,7 +406,7 @@ pub const Tokenizer = struct {
     }
 
     /// &| is a special operator to create multiline strings, so check for that first.
-    fn getNextAmpersandOperator(self: *Tokenizer, line: SmallString) TokenizerError!Token {
+    fn getNextAmpersandOperator(self: *Self, line: SmallString) TokenizerError!Token {
         std.debug.assert(line.at(self.farthest_char_index) == '&');
         // check for a multiline string operator first...
         if (line.at(self.farthest_char_index + 1) == '|') {
@@ -419,7 +417,7 @@ pub const Tokenizer = struct {
         return self.getNextOperator(line);
     }
 
-    fn getNextOperator(self: *Tokenizer, line: SmallString) Token {
+    fn getNextOperator(self: *Self, line: SmallString) Token {
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
         while (self.farthest_char_index < line.count()) {
@@ -456,7 +454,7 @@ pub const Tokenizer = struct {
     }
 
     /// The final column will be assumed to be self.farthest_char_index.
-    fn getInvalidToken(self: *const Tokenizer, start_column: u16, invalid_type: Token.InvalidType) Token {
+    fn getInvalidToken(self: *const Self, start_column: u16, invalid_type: Token.InvalidType) Token {
         return Token{ .invalid = .{
             .columns = .{ .start = start_column, .end = self.farthest_char_index },
             .type = invalid_type,
@@ -467,7 +465,7 @@ pub const Tokenizer = struct {
     // TODO: add some optional "extra lines" to add as well as the error message
     //      for extra debugging help.
     /// Adds an error around the given token index (i.e., on the line after that token).
-    pub fn addErrorAt(self: *Tokenizer, at_token_index: usize, error_message: []const u8) void {
+    pub fn addErrorAt(self: *Self, at_token_index: usize, error_message: []const u8) void {
         std.debug.assert(at_token_index < self.tokens.count());
         std.debug.assert(at_token_index < self.last_token_index);
         self.last_token_index = at_token_index;
@@ -487,7 +485,7 @@ pub const Tokenizer = struct {
         //      get fancy with the colors around error_columns.
     }
 
-    fn removeNextErrorLines(self: *Tokenizer) void {
+    fn removeNextErrorLines(self: *Self) void {
         while (self.farthest_line_index < self.file.lines.count()) {
             var line = self.file.lines.inBounds(self.farthest_line_index);
             if (!line.contains("#@!", common.At.start)) {
@@ -554,7 +552,7 @@ pub const Tokenizer = struct {
         return string;
     }
 
-    fn printErrorMessage(self: *Tokenizer, error_line_index: usize, error_columns: SmallString.Range, error_message: []const u8) void {
+    fn printErrorMessage(self: *Self, error_line_index: usize, error_columns: SmallString.Range, error_message: []const u8) void {
         // TODO: also print line[error_line_index]
         _ = self;
         common.stderr.print(
@@ -573,7 +571,7 @@ pub const Tokenizer = struct {
     /// You should already have looked up to the token index via `at()` before calling this,
     /// so this has undefined behavior if it can't allocate the necessary tokens up to
     /// the passed-in `for_token_index`.
-    fn lineIndexAt(self: *const Tokenizer, at_token_index: usize) usize {
+    fn lineIndexAt(self: *const Self, at_token_index: usize) usize {
         std.debug.assert(at_token_index < self.tokens.count());
         var token_index: i64 = @intCast(at_token_index);
         while (token_index >= 0) {
@@ -594,7 +592,7 @@ pub const Tokenizer = struct {
     }
 
     /// Gets the line columns for the given token.
-    fn columnsAt(self: *const Tokenizer, at_token_index: usize) SmallString.Range {
+    fn columnsAt(self: *const Self, at_token_index: usize) SmallString.Range {
         std.debug.assert(at_token_index < self.tokens.count());
         const token = self.tokens.inBounds(at_token_index);
         switch (token) {
@@ -626,7 +624,7 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn fullLineColumnsAt(self: *const Tokenizer, at_token_index: usize) SmallString.Range {
+    fn fullLineColumnsAt(self: *const Self, at_token_index: usize) SmallString.Range {
         const line_index = self.lineIndexAt(at_token_index);
         if (self.file.lines.at(line_index)) |line| {
             return line.fullRange();
@@ -635,7 +633,7 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn lastTokenIndex(self: *Tokenizer) TokenizerError!usize {
+    fn lastTokenIndex(self: *Self) TokenizerError!usize {
         const count = self.tokens.count();
         return if (count > 0) count - 1 else TokenizerError.out_of_tokens;
     }
@@ -643,6 +641,8 @@ pub const Tokenizer = struct {
     fn smallString(buffer: []const u8) TokenizerError!SmallString {
         return SmallString.init(buffer) catch TokenizerError.out_of_memory;
     }
+
+    const Self = @This();
 };
 
 test "basic tokenizer functionality" {

@@ -2,20 +2,25 @@ const SmallString = @import("string.zig").Small;
 
 const std = @import("std");
 
+pub const TokenIndex = usize;
+pub const NodeIndex = usize;
+
 const NodeTag = enum {
-    invalid,
+    statement,
     atomic_token,
     prefix,
     postfix,
     binary,
+    end,
 };
 
 pub const Node = union(NodeTag) {
-    invalid: void,
+    statement: Statement,
     atomic_token: TokenIndex,
     prefix: PrefixNode,
     postfix: PostfixNode,
     binary: BinaryNode,
+    end: void,
     // TODO: function_call: {function_name: NodeIndex, first_argument: Argument}
     // TODO: Argument: {name: NodeIndex, value: NodeIndex, next_argument: NodeIndex}
 
@@ -26,7 +31,9 @@ pub const Node = union(NodeTag) {
 
     pub fn print(self: Self, writer: anytype) !void {
         switch (self) {
-            .invalid => try writer.print(".invalid", .{}),
+            .statement => |statement| {
+                try writer.print("Node{{ .statement = .{{ .node = {d}, .tab = {d} }} }}", .{ statement.node, statement.tab });
+            },
             .atomic_token => |token_index| {
                 try writer.print("Node{{ .atomic_token = {d} }}", .{token_index});
             },
@@ -43,8 +50,9 @@ pub const Node = union(NodeTag) {
             .binary => |binary| {
                 try writer.print("Node{{ .binary = .{{ .operator = SmallString.as64(\"", .{});
                 try SmallString.init64(binary.operator).print(writer);
-                try writer.print("\"), .left = {d}, .right = {d} }} }}", .{binary.left, binary.right});
+                try writer.print("\"), .left = {d}, .right = {d} }} }}", .{ binary.left, binary.right });
             },
+            .end => try writer.print(".end", .{}),
         }
     }
 
@@ -112,9 +120,25 @@ pub const Node = union(NodeTag) {
     }
 
     pub const Tag = NodeTag;
+    pub const Statement = StatementNode;
     pub const Binary = BinaryNode;
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
+    const Self = @This();
+};
+
+const StatementNode = struct {
+    node: NodeIndex = 0,
+    tab: u16 = 0,
+
+    pub fn equals(a: Self, b: Self) bool {
+        return a.node == b.node and a.tab == b.tab;
+    }
+
+    pub fn expectEquals(a: Self, b: Self) !void {
+        try std.testing.expect(a.equals(b));
+    }
+
     const Self = @This();
 };
 
@@ -164,29 +188,26 @@ const PostfixNode = struct {
     const Self = @This();
 };
 
-pub const TokenIndex = usize;
-pub const NodeIndex = usize;
-
 test "node equality" {
-    const invalid: Node = .invalid;
-    try invalid.expectEquals(invalid);
+    const end: Node = .end;
+    try end.expectEquals(end);
 
     const postfix = Node{ .postfix = .{ .operator = SmallString.as64("++"), .node = 123 } };
-    try invalid.expectNotEquals(postfix);
+    try end.expectNotEquals(postfix);
     try postfix.expectEquals(postfix);
-    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = SmallString.as64("++"), .node = 124 } } );
-    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = SmallString.as64("+-"), .node = 123 } } );
+    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = SmallString.as64("++"), .node = 124 } });
+    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = SmallString.as64("+-"), .node = 123 } });
 
     const prefix = Node{ .prefix = .{ .operator = SmallString.as64("++"), .node = 123 } };
     try prefix.expectNotEquals(postfix);
     try prefix.expectEquals(prefix);
-    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = SmallString.as64("++"), .node = 124 } } );
-    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = SmallString.as64("+-"), .node = 123 } } );
+    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = SmallString.as64("++"), .node = 124 } });
+    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = SmallString.as64("+-"), .node = 123 } });
 
     const binary = Node{ .binary = .{ .operator = SmallString.as64("++"), .left = 5, .right = 7 } };
     try binary.expectNotEquals(postfix);
     try binary.expectEquals(binary);
-    try binary.expectNotEquals(Node{ .binary = .{ .operator = SmallString.as64("++"), .left = 6, .right = 7 } } );
-    try binary.expectNotEquals(Node{ .binary = .{ .operator = SmallString.as64("++"), .left = 5, .right = 8 } } );
-    try binary.expectNotEquals(Node{ .binary = .{ .operator = SmallString.as64("-+"), .left = 5, .right = 7 } } );
+    try binary.expectNotEquals(Node{ .binary = .{ .operator = SmallString.as64("++"), .left = 6, .right = 7 } });
+    try binary.expectNotEquals(Node{ .binary = .{ .operator = SmallString.as64("++"), .left = 5, .right = 8 } });
+    try binary.expectNotEquals(Node{ .binary = .{ .operator = SmallString.as64("-+"), .left = 5, .right = 7 } });
 }
