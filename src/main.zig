@@ -2,6 +2,7 @@ pub const File = @import("file.zig").File;
 pub const Node = @import("node.zig").Node;
 pub const Token = @import("token.zig").Token;
 pub const Tokenizer = @import("tokenizer.zig").Tokenizer;
+pub const Parser = @import("parser.zig").Parser;
 pub const SmallString = @import("string.zig").Small;
 pub const testing = @import("testing.zig");
 

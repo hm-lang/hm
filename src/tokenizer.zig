@@ -39,6 +39,7 @@ pub const Tokenizer = struct {
     /// Plus it's not obvious if that should be the current last token or
     /// the last token after we've completed adding all tokens.
     pub fn at(self: *Self, token_index: usize) TokenizerError!Token {
+        // TODO: switch to `valid_token_count` and check `>=` instead of `>`
         if (token_index > self.last_token_index) {
             return TokenizerError.out_of_tokens;
         }
@@ -59,6 +60,9 @@ pub const Tokenizer = struct {
     }
 
     fn addNextToken(self: *Self) TokenizerError!Token {
+        // TODO: if we get an error here in errdefer, we should move up
+        //      last_token_index to self.tokens.count() - 1
+
         // We need to pass in the `starting_char_index` in case we need to
         // add an implicit tab before appending the next explicit token.
         const starting_char_index = self.farthest_char_index;
