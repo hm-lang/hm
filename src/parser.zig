@@ -76,9 +76,9 @@ pub const Parser = struct {
         // but only if it would be cross referenced in another
         // node, which it shouldn't be since it's the first.
         const statement_node_index = try self.justAppendNode(.end);
-        self.nodes.array.items[statement_node_index] = Node{
+        self.nodes.set(statement_node_index, Node{
             .statement = try self.getNextStatement(),
-        };
+        }) catch unreachable;
         self.statement_indices.append(statement_node_index) catch {
             return ParserError.out_of_memory;
         };
@@ -92,29 +92,30 @@ pub const Parser = struct {
         };
         self.farthest_token_index += 1;
 
-        const token_index = self.farthest_token_index;
-        switch (try self.peekToken()) {
-            .starts_upper, .number => {},
+        const node_index = switch (try self.peekToken()) {
+            .starts_upper, .number => blk: {
+                const index = try self.justAppendNode(Node{
+                    .atomic_token = self.farthest_token_index,
+                });
+                self.farthest_token_index += 1;
+                break :blk index;
+            },
             else => {
-                self.tokenizer.addErrorAt(token_index, "expected variable or number");
+                self.tokenizer.addErrorAt(self.farthest_token_index, "expected variable or number");
                 return ParserError.syntax;
             },
-        }
-        self.farthest_token_index += 1;
-
-        // TODO: `var node` and update based on operators.
-        const node = try self.justAppendNode(Node{ .atomic_token = token_index });
+        };
 
         switch (try self.peekToken()) {
             .newline => {},
             else => {
-                self.tokenizer.addErrorAt(token_index, "expected end of line");
+                self.tokenizer.addErrorAt(self.farthest_token_index, "expected end of line");
                 return ParserError.syntax;
             },
         }
         self.farthest_token_index += 1;
 
-        return .{ .tab = tab, .node = node };
+        return .{ .tab = tab, .node = node_index };
     }
 
     fn justAppendNode(self: *Self, node: Node) ParserError!NodeIndex {
@@ -157,9 +158,10 @@ test "parser simple expressions" {
         Node{ .atomic_token = 4 },
         .end,
     });
-
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
         0,
         2,
     });
+    try std.testing.expectEqual(Node.Statement{ .node = 1, .tab = 0 }, try parser.at(0));
+    try std.testing.expectEqual(Node.Statement{ .node = 3, .tab = 4 }, try parser.at(1));
 }

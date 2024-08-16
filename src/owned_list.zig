@@ -41,6 +41,27 @@ pub fn OwnedList(comptime T: type) type {
             return self.array.items.len;
         }
 
+        pub inline fn set(self: *Self, at_index: anytype, new_value: T) OwnedListError!void {
+            const count_i64: i64 = @intCast(self.count());
+            std.debug.assert(count_i64 >= 0);
+            var index: i64 = @intCast(at_index);
+            if (index < 0) {
+                index += count_i64;
+                if (index < 0) {
+                    return OwnedListError.out_of_bounds;
+                }
+            } else if (index < count_i64) {
+                // pass
+            } else if (index == count_i64) {
+                try self.append(new_value);
+                return;
+            } else {
+                // TODO: try to resize and fill with defaults
+                return OwnedListError.out_of_bounds;
+            }
+            self.array.items[@intCast(index)] = new_value;
+        }
+
         /// If in bounds, returns non-null; if `at_index < 0` then will
         /// try to return from the end of the list.
         /// Returns a "reference" -- don't free it.
