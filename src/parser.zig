@@ -92,19 +92,7 @@ pub const Parser = struct {
         };
         self.farthest_token_index += 1;
 
-        const node_index = switch (try self.peekToken()) {
-            .starts_upper, .number => blk: {
-                const index = try self.justAppendNode(Node{
-                    .atomic_token = self.farthest_token_index,
-                });
-                self.farthest_token_index += 1;
-                break :blk index;
-            },
-            else => {
-                self.tokenizer.addErrorAt(self.farthest_token_index, "expected variable or number");
-                return ParserError.syntax;
-            },
-        };
+        const node_index = try self.appendNextExpression();
 
         switch (try self.peekToken()) {
             .newline => {},
@@ -116,6 +104,35 @@ pub const Parser = struct {
         self.farthest_token_index += 1;
 
         return .{ .tab = tab, .node = node_index };
+    }
+
+    fn appendNextExpression(self: *Self) ParserError!NodeIndex {
+        switch (try self.peekToken()) {
+            .starts_upper, .number => {
+                const index = try self.justAppendNode(Node{
+                    .atomic_token = self.farthest_token_index,
+                });
+                self.farthest_token_index += 1;
+                // TODO: check for a postfix operator or an infix (then continue appendNextExpression)
+                return index;
+            },
+            .operator => |operator| {
+                if (!Token.isPrefixable(operator)) {
+                    self.tokenizer.addErrorAt(self.farthest_token_index, "not a prefix operator");
+                    return ParserError.syntax;
+                }
+                self.farthest_token_index += 1;
+                // TODO: we need order of operations
+                const prefix_index = try self.justAppendNode(Node{
+                    .prefix = .{ .operator = operator, .node = try self.appendNextExpression() },
+                });
+                return prefix_index;
+            },
+            else => {
+                self.tokenizer.addErrorAt(self.farthest_token_index, "expected an expression");
+                return ParserError.syntax;
+            },
+        }
     }
 
     fn justAppendNode(self: *Self, node: Node) ParserError!NodeIndex {

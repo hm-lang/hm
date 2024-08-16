@@ -97,6 +97,53 @@ pub const Token = union(TokenTag) {
         }
     }
 
+    pub fn isPrefixable(operator: u64) bool {
+        return switch (operator) {
+            SmallString.as64("!"),
+            SmallString.as64("?"),
+            SmallString.as64("+"),
+            SmallString.as64("++"),
+            SmallString.as64("-"),
+            SmallString.as64("--"),
+            SmallString.as64("$"),
+            SmallString.as64("$$"),
+            SmallString.as64("$$$"),
+            SmallString.as64("$$$$"),
+            SmallString.as64("$$$$$"),
+            SmallString.as64("$$$$$$"),
+            SmallString.as64("$$$$$$$"),
+            SmallString.as64("$$$$$$$$"),
+            SmallString.as64("::"),
+            SmallString.as64(";;"),
+            SmallString.as64(".."),
+            SmallString.as64(";:"),
+            SmallString.as64(":;"),
+            SmallString.as64(";."),
+            SmallString.as64(".;"),
+            SmallString.as64(":."),
+            SmallString.as64(".:"),
+            SmallString.as64(":;."),
+            SmallString.as64(";:."),
+            SmallString.as64(":.;"),
+            SmallString.as64(";.:"),
+            SmallString.as64(".:;"),
+            SmallString.as64(".;:"),
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn isPostfixable(operator: u64) bool {
+        return switch (operator) {
+            SmallString.as64("!"),
+            SmallString.as64("?"),
+            SmallString.as64("++"),
+            SmallString.as64("--"),
+            => true,
+            else => false,
+        };
+    }
+
     /// Returns null if `buffer` is an invalid operator, otherwise
     /// the numerical value of the operator (see `SmallString.as64`).
     pub fn convertOperator(buffer: []const u8) ?u64 {
