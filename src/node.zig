@@ -1,4 +1,6 @@
 const SmallString = @import("string.zig").Small;
+const operator_zig = @import("operator.zig");
+const Operator = operator_zig.Operator;
 
 const std = @import("std");
 
@@ -24,7 +26,7 @@ pub const Node = union(NodeTag) {
     // TODO: function_call: {function_name: NodeIndex, first_argument: Argument}
     // TODO: Argument: {name: NodeIndex, value: NodeIndex, next_argument: NodeIndex}
 
-    pub fn operation(self: Self) NodeOperation {
+    pub fn operation(self: Self) Operation {
         return switch (self) {
             .prefix => |prefix| prefix.operation(),
             .postfix => |postfix| postfix.operation(),
@@ -48,17 +50,17 @@ pub const Node = union(NodeTag) {
             },
             .prefix => |prefix| {
                 try writer.print("Node{{ .prefix = .{{ .operator = SmallString.as64(\"", .{});
-                try SmallString.init64(prefix.operator).print(writer);
+                try prefix.operator.string().print(writer);
                 try writer.print("\"), .node = {d} }} }}", .{prefix.node});
             },
             .postfix => |postfix| {
                 try writer.print("Node{{ .postfix = .{{ .operator = SmallString.as64(\"", .{});
-                try SmallString.init64(postfix.operator).print(writer);
+                try postfix.operator.string().print(writer);
                 try writer.print("\"), .node = {d} }} }}", .{postfix.node});
             },
             .binary => |binary| {
                 try writer.print("Node{{ .binary = .{{ .operator = SmallString.as64(\"", .{});
-                try SmallString.init64(binary.operator).print(writer);
+                try binary.operator.string().print(writer);
                 try writer.print("\"), .left = {d}, .right = {d} }} }}", .{ binary.left, binary.right });
             },
             .end => try writer.print(".end", .{}),
@@ -133,7 +135,7 @@ pub const Node = union(NodeTag) {
     pub const Binary = BinaryNode;
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
-    pub const Operation = NodeOperation;
+    pub const Operation = operator_zig.Operation;
     const Self = @This();
 };
 
@@ -153,11 +155,11 @@ const StatementNode = struct {
 };
 
 const BinaryNode = struct {
-    operator: u64 = 0,
+    operator: Operator = .none,
     left: NodeIndex = 0,
     right: NodeIndex = 0,
 
-    pub fn operation(self: Self) NodeOperation {
+    pub fn operation(self: Self) operator_zig.Operation {
         return .{ .type = .infix, .operator = self.operator };
     }
 
@@ -173,10 +175,10 @@ const BinaryNode = struct {
 };
 
 const PrefixNode = struct {
-    operator: u64 = 0,
+    operator: Operator = .none,
     node: NodeIndex = 0,
 
-    pub fn operation(self: Self) NodeOperation {
+    pub fn operation(self: Self) operator_zig.Operation {
         return .{ .type = .prefix, .operator = self.operator };
     }
 
@@ -192,10 +194,10 @@ const PrefixNode = struct {
 };
 
 const PostfixNode = struct {
-    operator: u64 = 0,
+    operator: Operator = .none,
     node: NodeIndex = 0,
 
-    pub fn operation(self: Self) NodeOperation {
+    pub fn operation(self: Self) operator_zig.Operation {
         return .{ .type = .postfix, .operator = self.operator };
     }
 
@@ -210,134 +212,26 @@ const PostfixNode = struct {
     const Self = @This();
 };
 
-const NodeOperationType = enum { none, prefix, infix, postfix };
-
-const NodeOperation = struct {
-    operator: u64 = 0,
-    type: Type = Type.none,
-
-    pub fn isPrefix(self: Self) bool {
-        return self.type == Type.prefix;
-    }
-    pub fn isInfix(self: Self) bool {
-        return self.type == Type.infix;
-    }
-    pub fn isPostfix(self: Self) bool {
-        return self.type == Type.postfix;
-    }
-
-    pub fn precedence(self: Self, compare: Compare) u8 {
-        const rtl: u8 = @intFromEnum(compare);
-        return switch (self.operator) {
-            // TODO: we should make all these u64s a special enum so we ensure we're using exhausting these switch cases.
-            SmallString.as64("~") => 10,
-            SmallString.as64("++") => 30,
-            SmallString.as64("--") => 30,
-            SmallString.as64("=") => 110,
-            SmallString.as64("==") => 90,
-            SmallString.as64("<") => 90,
-            SmallString.as64("<=") => 90,
-            SmallString.as64(">") => 90,
-            SmallString.as64(">=") => 90,
-            SmallString.as64("+") => if (self.isInfix()) 70 else 40 - rtl,
-            SmallString.as64("+=") => 110,
-            SmallString.as64("-") => if (self.isInfix()) 70 else 40 - rtl,
-            SmallString.as64("-=") => 110,
-            SmallString.as64("*") => 60,
-            SmallString.as64("*=") => 110,
-            SmallString.as64("**") => 30,
-            SmallString.as64("**=") => 110,
-            SmallString.as64("^") => 30,
-            SmallString.as64("^=") => 110,
-            SmallString.as64("/") => 60,
-            SmallString.as64("/=") => 110,
-            SmallString.as64("//") => 60,
-            SmallString.as64("//=") => 110,
-            SmallString.as64("%") => 60,
-            SmallString.as64("%=") => 110,
-            SmallString.as64("%%") => 60,
-            SmallString.as64("%%=") => 110,
-            SmallString.as64("?") => 20,
-            SmallString.as64("??") => 20,
-            SmallString.as64("??=") => 110,
-            SmallString.as64("!") => if (self.isPostfix()) 20 else 40 - rtl,
-            SmallString.as64("!!") => 40 - rtl,
-            SmallString.as64("!=") => 110,
-            SmallString.as64(":") => 110,
-            SmallString.as64(";") => 110,
-            SmallString.as64(".") => 110,
-            SmallString.as64(",") => 120,
-            SmallString.as64("&&") => 80,
-            SmallString.as64("&&=") => 110,
-            SmallString.as64("||") => 80,
-            SmallString.as64("||=") => 110,
-            SmallString.as64("&") => 70,
-            SmallString.as64("&=") => 110,
-            SmallString.as64("|") => 70,
-            SmallString.as64("|=") => 110,
-            SmallString.as64("><") => 80,
-            SmallString.as64("><=") => 110,
-            SmallString.as64("<>") => 40 - rtl,
-            SmallString.as64("<<") => 50,
-            SmallString.as64("<<=") => 110,
-            SmallString.as64(">>") => 50,
-            SmallString.as64(">>=") => 110,
-            SmallString.as64("$") => 20,
-            SmallString.as64("$$") => 20,
-            SmallString.as64("$$$") => 20,
-            SmallString.as64("$$$$") => 20,
-            SmallString.as64("$$$$$") => 20,
-            SmallString.as64("$$$$$$") => 20,
-            SmallString.as64("$$$$$$$") => 20,
-            SmallString.as64("$$$$$$$$") => 20,
-            SmallString.as64(" ") => 20,
-            SmallString.as64("::") => 20,
-            SmallString.as64(";;") => 20,
-            SmallString.as64("..") => 20,
-            SmallString.as64(";:") => 20,
-            SmallString.as64(":;") => 20,
-            SmallString.as64(";.") => 20,
-            SmallString.as64(".;") => 20,
-            SmallString.as64(":.") => 20,
-            SmallString.as64(".:") => 20,
-            SmallString.as64(":;.") => 20,
-            SmallString.as64(";:.") => 20,
-            SmallString.as64(":.;") => 20,
-            SmallString.as64(";.:") => 20,
-            SmallString.as64(".:;") => 20,
-            SmallString.as64(".;:") => 20,
-            else => 250,
-        };
-    }
-
-    pub const Compare = enum {
-        on_left,
-        on_right,
-    };
-    pub const Type = NodeOperationType;
-    const Self = @This();
-};
-
 test "node equality" {
     const end: Node = .end;
     try end.expectEquals(end);
 
-    const postfix = Node{ .postfix = .{ .operator = SmallString.as64("++"), .node = 123 } };
+    const postfix = Node{ .postfix = .{ .operator = .increment, .node = 123 } };
     try end.expectNotEquals(postfix);
     try postfix.expectEquals(postfix);
-    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = SmallString.as64("++"), .node = 124 } });
-    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = SmallString.as64("+-"), .node = 123 } });
+    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = .increment, .node = 124 } });
+    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = .plus, .node = 123 } });
 
-    const prefix = Node{ .prefix = .{ .operator = SmallString.as64("++"), .node = 123 } };
+    const prefix = Node{ .prefix = .{ .operator = .decrement, .node = 123 } };
     try prefix.expectNotEquals(postfix);
     try prefix.expectEquals(prefix);
-    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = SmallString.as64("++"), .node = 124 } });
-    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = SmallString.as64("+-"), .node = 123 } });
+    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = .decrement, .node = 124 } });
+    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = .minus, .node = 123 } });
 
-    const binary = Node{ .binary = .{ .operator = SmallString.as64("++"), .left = 5, .right = 7 } };
+    const binary = Node{ .binary = .{ .operator = .plus, .left = 5, .right = 7 } };
     try binary.expectNotEquals(postfix);
     try binary.expectEquals(binary);
-    try binary.expectNotEquals(Node{ .binary = .{ .operator = SmallString.as64("++"), .left = 6, .right = 7 } });
-    try binary.expectNotEquals(Node{ .binary = .{ .operator = SmallString.as64("++"), .left = 5, .right = 8 } });
-    try binary.expectNotEquals(Node{ .binary = .{ .operator = SmallString.as64("-+"), .left = 5, .right = 7 } });
+    try binary.expectNotEquals(Node{ .binary = .{ .operator = .plus, .left = 6, .right = 7 } });
+    try binary.expectNotEquals(Node{ .binary = .{ .operator = .plus, .left = 5, .right = 8 } });
+    try binary.expectNotEquals(Node{ .binary = .{ .operator = .minus, .left = 5, .right = 7 } });
 }

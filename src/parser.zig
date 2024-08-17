@@ -4,10 +4,12 @@ const SmallString = @import("string.zig").Small;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Token = @import("token.zig").Token;
 const node_zig = @import("node.zig");
-
 const Node = node_zig.Node;
 const TokenIndex = node_zig.TokenIndex;
 const NodeIndex = node_zig.NodeIndex;
+const operator_zig = @import("operator.zig");
+const Operator = operator_zig.Operator;
+const Operation = operator_zig.Operation;
 
 const std = @import("std");
 
@@ -145,7 +147,7 @@ pub const Parser = struct {
                 // Check if there was a postfix operator.
                 switch (try self.peekToken(1)) {
                     .operator => |operator| {
-                        if (Token.isPostfixable(operator)) {
+                        if (operator.isPostfixable()) {
                             // TODO: precedence.  next node might take this prefix.
                             self.farthest_token_index += 2;
                             return try self.justAppendNode(Node{ .prefix = .{
@@ -160,7 +162,7 @@ pub const Parser = struct {
                 return atomic_index;
             },
             .operator => |operator| {
-                if (!Token.isPrefixable(operator)) {
+                if (!operator.isPrefixable()) {
                     self.tokenizer.addErrorAt(self.farthest_token_index, "not a prefix operator");
                     return ParserError.syntax;
                 }
@@ -178,9 +180,9 @@ pub const Parser = struct {
         }
     }
 
-    fn shouldInvertNodes(left: Node.Operation, right: Node.Operation) bool {
+    fn shouldInvertNodes(left: Operation, right: Operation) bool {
         // lower precedence means higher priority.
-        return right.precedence(Node.Operation.Compare.on_right) < left.precedence(Node.Operation.Compare.on_left);
+        return right.precedence(Operation.Compare.on_right) < left.precedence(Operation.Compare.on_left);
     }
 
     // TODO: maybe return operator
@@ -232,16 +234,16 @@ test "parser simple expressions" {
         Node{ .atomic_token = 4 }, // Hello_you
         Node{ .statement = .{ .node = 6, .tab = 0 } },
         Node{ .atomic_token = 9 }, // 1.234
-        Node{ .prefix = .{ .operator = SmallString.as64("+"), .node = 5 } },
+        Node{ .prefix = .{ .operator = Operator.plus, .node = 5 } },
         Node{ .statement = .{ .node = 9, .tab = 2 } },
         Node{ .atomic_token = 14 }, // 5.678
-        Node{ .prefix = .{ .operator = SmallString.as64("-"), .node = 8 } },
+        Node{ .prefix = .{ .operator = Operator.negative, .node = 8 } },
         Node{ .statement = .{ .node = 12, .tab = 4 } },
         Node{ .atomic_token = 19 }, // Foe
-        Node{ .prefix = .{ .operator = SmallString.as64("++"), .node = 11 } },
+        Node{ .prefix = .{ .operator = Operator.increment, .node = 11 } },
         Node{ .statement = .{ .node = 15, .tab = 4 } },
         Node{ .atomic_token = 22 }, // Fum
-        Node{ .prefix = .{ .operator = SmallString.as64("--"), .node = 14 } },
+        Node{ .prefix = .{ .operator = Operator.decrement, .node = 14 } },
         .end,
     });
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{

@@ -2,6 +2,7 @@ const common = @import("common.zig");
 const OwnedList = @import("owned_list.zig").OwnedList;
 const SmallString = @import("string.zig").Small;
 const File = @import("file.zig").File;
+const Operator = @import("operator.zig").Operator;
 const Token = @import("token.zig").Token;
 
 const OwnedSmalls = OwnedList(SmallString);
@@ -406,7 +407,7 @@ pub const Tokenizer = struct {
             return self.getNextOperator(line);
         }
         self.farthest_char_index += 1;
-        return Token{ .operator = '?' };
+        return Token{ .operator = Operator.nullify };
     }
 
     /// &| is a special operator to create multiline strings, so check for that first.
@@ -451,10 +452,11 @@ pub const Tokenizer = struct {
             }
         }
         const buffer = line.slice()[initial_char_index..self.farthest_char_index];
-        const operator = Token.convertOperator(buffer) orelse {
-            return self.getInvalidToken(initial_char_index, Token.InvalidType.operator);
-        };
-        return Token{ .operator = operator };
+        const operator = Operator.init(buffer);
+        return if (operator == .none)
+            self.getInvalidToken(initial_char_index, Token.InvalidType.operator)
+        else
+            Token{ .operator = operator };
     }
 
     /// The final column will be assumed to be self.farthest_char_index.
@@ -698,7 +700,7 @@ test "valid tokenizer operators" {
         count += 1;
 
         token = try tokenizer.at(count);
-        try token.expectEquals(Token{ .operator = try line.big64() });
+        try token.expectEquals(Token{ .operator = Operator.init64(try line.big64()) });
         count += 1;
 
         token = try tokenizer.at(count);
@@ -841,13 +843,13 @@ test "tokenizer tokenizing" {
         Token{ .spacing = .{ .absolute = 8, .relative = 1 } },
         Token{ .starts_lower = SmallString.noAlloc("w_o_rld2") },
         Token{ .spacing = .{ .absolute = 18, .relative = 2 } },
-        Token{ .operator = '/' },
+        Token{ .operator = .divide },
         // Ignores spacing at the end
         Token{ .newline = 1 },
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .number = SmallString.noAlloc("2.73456") },
         Token{ .spacing = .{ .absolute = 11, .relative = 4 } },
-        Token{ .operator = '-' },
+        Token{ .operator = .minus },
         Token{ .spacing = .{ .absolute = 12, .relative = 0 } },
         Token{ .starts_lower = SmallString.noAlloc("l1ne") },
         // Ignores spacing at the end
@@ -855,11 +857,11 @@ test "tokenizer tokenizing" {
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .starts_lower = SmallString.noAlloc("sp3cial") },
         Token{ .spacing = .{ .absolute = 7, .relative = 0 } },
-        Token{ .operator = '*' },
+        Token{ .operator = .multiply },
         Token{ .spacing = .{ .absolute = 9, .relative = 1 } },
         Token{ .starts_upper = SmallString.noAlloc("Fin_ancial") },
         Token{ .spacing = .{ .absolute = 21, .relative = 2 } },
-        Token{ .operator = '+' },
+        Token{ .operator = .plus },
         Token{ .spacing = .{ .absolute = 24, .relative = 2 } },
         Token{ .starts_upper = SmallString.noAlloc("_problems") },
         Token{ .newline = 3 },
@@ -873,17 +875,17 @@ test "tokenizer tokenizing" {
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         Token{ .number = SmallString.noAlloc("3") },
         Token{ .spacing = .{ .absolute = 2, .relative = 1 } },
-        Token{ .operator = SmallString.as64(",") },
+        Token{ .operator = .comma },
         Token{ .spacing = .{ .absolute = 3, .relative = 0 } },
-        Token{ .operator = SmallString.as64("+") },
+        Token{ .operator = .plus },
         Token{ .spacing = .{ .absolute = 4, .relative = 0 } },
         Token{ .number = SmallString.noAlloc("7") },
         Token{ .spacing = .{ .absolute = 5, .relative = 0 } },
-        Token{ .operator = SmallString.as64(",") },
+        Token{ .operator = .comma },
         Token{ .spacing = .{ .absolute = 8, .relative = 2 } },
-        Token{ .operator = SmallString.as64(";") }, // note conversion from `;=` to `;`
+        Token{ .operator = .declare_writable },
         Token{ .spacing = .{ .absolute = 11, .relative = 1 } },
-        Token{ .operator = SmallString.as64("-") },
+        Token{ .operator = .minus },
         Token{ .spacing = .{ .absolute = 12, .relative = 0 } },
         Token{ .number = SmallString.noAlloc("80") },
         Token{ .newline = 5 },
@@ -933,11 +935,11 @@ test "tokenizer ampersand operators" {
     try tokenizer.complete();
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
-        Token{ .operator = SmallString.as64("&&") },
+        Token{ .operator = .logical_and },
         Token{ .spacing = .{ .absolute = 3, .relative = 1 } },
-        Token{ .operator = SmallString.as64("&=") },
+        Token{ .operator = .bitwise_and_assign },
         Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
-        Token{ .operator = SmallString.as64("&&=") },
+        Token{ .operator = .logical_and_assign },
         Token{ .spacing = .{ .absolute = 10, .relative = 1 } },
         Token{ .open = Token.Open.multiline_quote },
         Token{ .close = Token.Close.multiline_quote },
@@ -956,22 +958,22 @@ test "tokenizer question operators" {
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
         // we want `?;` to parse as `?` then `;`, etc.
-        Token{ .operator = SmallString.as64("?") },
+        Token{ .operator = .nullify },
         Token{ .spacing = .{ .absolute = 1, .relative = 0 } },
-        Token{ .operator = SmallString.as64(":") },
+        Token{ .operator = .declare_readonly },
         Token{ .spacing = .{ .absolute = 3, .relative = 1 } },
         // we do allow `??` to parse together, and same with `??=`
-        Token{ .operator = SmallString.as64("??") },
+        Token{ .operator = .nullish_or },
         Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
-        Token{ .operator = SmallString.as64("?") },
+        Token{ .operator = .nullify },
         Token{ .spacing = .{ .absolute = 7, .relative = 0 } },
-        Token{ .operator = SmallString.as64(";") },
+        Token{ .operator = .declare_writable },
         Token{ .spacing = .{ .absolute = 9, .relative = 1 } },
-        Token{ .operator = SmallString.as64("??=") },
+        Token{ .operator = .nullish_or_assign },
         Token{ .spacing = .{ .absolute = 13, .relative = 1 } },
-        Token{ .operator = SmallString.as64("?") },
+        Token{ .operator = .nullify },
         Token{ .spacing = .{ .absolute = 14, .relative = 0 } },
-        Token{ .operator = SmallString.as64(".") },
+        Token{ .operator = .declare_temporary },
         Token{ .newline = 1 },
         .end,
     });
@@ -1242,7 +1244,7 @@ test "tokenizer interpolation parsing" {
             Token{ .spacing = .{ .absolute = 3, .relative = 0 } },
             Token{ .starts_upper = SmallString.noAlloc("Wow") },
             Token{ .spacing = .{ .absolute = 6, .relative = 0 } },
-            Token{ .operator = SmallString.as64(",") },
+            Token{ .operator = .comma },
             Token{ .spacing = .{ .absolute = 8, .relative = 1 } },
             Token{ .starts_lower = SmallString.noAlloc("hi") },
             Token{ .spacing = .{ .absolute = 10, .relative = 0 } },
@@ -1273,7 +1275,7 @@ test "tokenizer interpolation parsing" {
             Token{ .spacing = .{ .absolute = 12, .relative = 0 } },
             Token{ .close = Token.Close.paren },
             Token{ .spacing = .{ .absolute = 13, .relative = 0 } },
-            Token{ .operator = SmallString.as64(",") },
+            Token{ .operator = .comma },
             Token{ .spacing = .{ .absolute = 16, .relative = 2 } },
             Token{ .open = Token.Open.single_quote },
             Token{ .slice = SmallString.noAlloc("Idgad") },
@@ -1312,7 +1314,7 @@ test "tokenizer interpolation parsing" {
             Token{ .slice = SmallString.noAlloc("=") },
             Token{ .interpolation_open = Token.Open.brace },
             Token{ .spacing = .{ .absolute = 22, .relative = 0 } },
-            Token{ .operator = SmallString.as64("*") },
+            Token{ .operator = .multiply },
             Token{ .spacing = .{ .absolute = 23, .relative = 0 } },
             Token{ .close = Token.Close.brace },
             Token{ .close = Token.Close.multiline_quote },
@@ -1344,7 +1346,7 @@ test "tokenizer nested interpolations" {
         Token{ .spacing = .{ .absolute = 11, .relative = 0 } },
         Token{ .starts_lower = SmallString.noAlloc("nice") },
         Token{ .spacing = .{ .absolute = 15, .relative = 0 } },
-        Token{ .operator = SmallString.as64("*") },
+        Token{ .operator = .multiply },
         Token{ .spacing = .{ .absolute = 17, .relative = 1 } },
         Token{ .close = Token.Close.paren },
         Token{ .slice = SmallString.noAlloc(" q") },
@@ -1356,22 +1358,22 @@ test "tokenizer nested interpolations" {
         Token{ .spacing = .{ .absolute = 29, .relative = 1 } },
         Token{ .starts_upper = SmallString.noAlloc("Hi") },
         Token{ .spacing = .{ .absolute = 31, .relative = 0 } },
-        Token{ .operator = SmallString.as64(",") },
+        Token{ .operator = .comma },
         Token{ .newline = 1 },
         Token{ .spacing = .{ .absolute = 1, .relative = 1 } },
         Token{ .starts_upper = SmallString.noAlloc("Hey") },
         Token{ .spacing = .{ .absolute = 4, .relative = 0 } },
-        Token{ .operator = SmallString.as64(",") },
+        Token{ .operator = .comma },
         Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
         Token{ .starts_lower = SmallString.noAlloc("hello") },
         Token{ .spacing = .{ .absolute = 12, .relative = 1 } },
-        Token{ .operator = SmallString.as64(",") },
+        Token{ .operator = .comma },
         Token{ .spacing = .{ .absolute = 14, .relative = 1 } },
         Token{ .open = Token.Open.single_quote },
         Token{ .slice = SmallString.noAlloc("Super") },
         Token{ .interpolation_open = Token.Open.paren },
         Token{ .spacing = .{ .absolute = 23, .relative = 1 } },
-        Token{ .operator = SmallString.as64("-") },
+        Token{ .operator = .minus },
         Token{ .spacing = .{ .absolute = 24, .relative = 0 } },
         Token{ .starts_upper = SmallString.noAlloc("Nested") },
         Token{ .spacing = .{ .absolute = 30, .relative = 0 } },

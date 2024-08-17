@@ -1,4 +1,5 @@
-pub const SmallString = @import("string.zig").Small;
+const SmallString = @import("string.zig").Small;
+const Operator = @import("operator.zig").Operator;
 const common = @import("common.zig");
 
 const std = @import("std");
@@ -35,7 +36,7 @@ pub const Token = union(TokenTag) {
     slice: SmallString,
     /// We don't try to create a `dbl` or `int` here, just represent it faithfully for now.
     number: SmallString,
-    operator: u64,
+    operator: Operator,
     open: Open,
     close: Close,
     /// Only paren, bracket, and brace are valid here.
@@ -72,7 +73,7 @@ pub const Token = union(TokenTag) {
             .starts_lower => |string| string.count(),
             .slice => |string| string.count(),
             .number => |string| string.count(),
-            .operator => |operator| SmallString.init64(operator).count(),
+            .operator => |operator| operator.string().count(),
             .open => 1,
             .interpolation_open => 2,
             .close => 1,
@@ -95,216 +96,6 @@ pub const Token = union(TokenTag) {
             TokenTag.newline, TokenTag.spacing, TokenTag.end => return true,
             else => return false,
         }
-    }
-
-    pub fn isPrefixable(operator: u64) bool {
-        return switch (operator) {
-            SmallString.as64("~"),
-            SmallString.as64("!"),
-            SmallString.as64("!!"),
-            SmallString.as64("?"),
-            SmallString.as64("+"),
-            SmallString.as64("++"),
-            SmallString.as64("-"),
-            SmallString.as64("--"),
-            SmallString.as64("$"),
-            SmallString.as64("$$"),
-            SmallString.as64("$$$"),
-            SmallString.as64("$$$$"),
-            SmallString.as64("$$$$$"),
-            SmallString.as64("$$$$$$"),
-            SmallString.as64("$$$$$$$"),
-            SmallString.as64("$$$$$$$$"),
-            SmallString.as64("::"),
-            SmallString.as64(";;"),
-            SmallString.as64(".."),
-            SmallString.as64(";:"),
-            SmallString.as64(":;"),
-            SmallString.as64(";."),
-            SmallString.as64(".;"),
-            SmallString.as64(":."),
-            SmallString.as64(".:"),
-            SmallString.as64(":;."),
-            SmallString.as64(";:."),
-            SmallString.as64(":.;"),
-            SmallString.as64(";.:"),
-            SmallString.as64(".:;"),
-            SmallString.as64(".;:"),
-            => true,
-            else => false,
-        };
-    }
-
-    pub fn isPostfixable(operator: u64) bool {
-        return switch (operator) {
-            SmallString.as64("!"),
-            SmallString.as64("?"),
-            SmallString.as64("++"),
-            SmallString.as64("--"),
-            => true,
-            else => false,
-        };
-    }
-
-    pub fn isInfixable(operator: u64) bool {
-        return switch (operator) {
-            SmallString.as64("="),
-            SmallString.as64("=="),
-            SmallString.as64("<"),
-            SmallString.as64("<="),
-            SmallString.as64(">"),
-            SmallString.as64(">="),
-            SmallString.as64("+"),
-            SmallString.as64("+="),
-            SmallString.as64("-"),
-            SmallString.as64("-="),
-            SmallString.as64("*"),
-            SmallString.as64("*="),
-            SmallString.as64("**"),
-            SmallString.as64("**="),
-            SmallString.as64("^"),
-            SmallString.as64("^="),
-            SmallString.as64("/"),
-            SmallString.as64("/="),
-            SmallString.as64("//"),
-            SmallString.as64("//="),
-            SmallString.as64("%"),
-            SmallString.as64("%="),
-            SmallString.as64("%%"),
-            SmallString.as64("%%="),
-            SmallString.as64("??"),
-            SmallString.as64("??="),
-            SmallString.as64("!="),
-            SmallString.as64(":"),
-            SmallString.as64(";"),
-            SmallString.as64("."),
-            SmallString.as64(","),
-            SmallString.as64("&&"),
-            SmallString.as64("&&="),
-            SmallString.as64("||"),
-            SmallString.as64("||="),
-            SmallString.as64("&"),
-            SmallString.as64("&="),
-            SmallString.as64("|"),
-            SmallString.as64("|="),
-            SmallString.as64("><"),
-            SmallString.as64("><="),
-            SmallString.as64("<<"),
-            SmallString.as64("<<="),
-            SmallString.as64(">>"),
-            SmallString.as64(">>="),
-            SmallString.as64(" "),
-            SmallString.as64("::"),
-            SmallString.as64(";;"),
-            SmallString.as64(".."),
-            SmallString.as64(";:"),
-            SmallString.as64(":;"),
-            SmallString.as64(";."),
-            SmallString.as64(".;"),
-            SmallString.as64(":."),
-            SmallString.as64(".:"),
-            SmallString.as64(":;."),
-            SmallString.as64(";:."),
-            SmallString.as64(":.;"),
-            SmallString.as64(";.:"),
-            SmallString.as64(".:;"),
-            SmallString.as64(".;:"),
-            => true,
-            else => false,
-        };
-    }
-
-    /// Returns null if `buffer` is an invalid operator, otherwise
-    /// the numerical value of the operator (see `SmallString.as64`).
-    pub fn convertOperator(buffer: []const u8) ?u64 {
-        if (buffer.len > 8) {
-            return null;
-        }
-        const small = SmallString.init(buffer) catch unreachable;
-        const operator = small.big64() catch unreachable;
-        return switch (operator) {
-            SmallString.as64("~"),
-            SmallString.as64("++"),
-            SmallString.as64("--"),
-            SmallString.as64("="),
-            SmallString.as64("=="),
-            SmallString.as64("<"),
-            SmallString.as64("<="),
-            SmallString.as64(">"),
-            SmallString.as64(">="),
-            SmallString.as64("+"),
-            SmallString.as64("+="),
-            SmallString.as64("-"),
-            SmallString.as64("-="),
-            SmallString.as64("*"),
-            SmallString.as64("*="),
-            SmallString.as64("**"),
-            SmallString.as64("**="),
-            SmallString.as64("^"),
-            SmallString.as64("^="),
-            SmallString.as64("/"),
-            SmallString.as64("/="),
-            SmallString.as64("//"),
-            SmallString.as64("//="),
-            SmallString.as64("%"),
-            SmallString.as64("%="),
-            SmallString.as64("%%"),
-            SmallString.as64("%%="),
-            SmallString.as64("?"),
-            SmallString.as64("??"),
-            SmallString.as64("??="),
-            SmallString.as64("!"),
-            SmallString.as64("!!"),
-            SmallString.as64("!="),
-            SmallString.as64(":"),
-            SmallString.as64(";"),
-            SmallString.as64("."),
-            SmallString.as64(","),
-            SmallString.as64("&&"),
-            SmallString.as64("&&="),
-            SmallString.as64("||"),
-            SmallString.as64("||="),
-            SmallString.as64("&"),
-            SmallString.as64("&="),
-            SmallString.as64("|"),
-            SmallString.as64("|="),
-            SmallString.as64("><"),
-            SmallString.as64("><="),
-            SmallString.as64("<>"),
-            SmallString.as64("<<"),
-            SmallString.as64("<<="),
-            SmallString.as64(">>"),
-            SmallString.as64(">>="),
-            SmallString.as64("$"),
-            SmallString.as64("$$"),
-            SmallString.as64("$$$"),
-            SmallString.as64("$$$$"),
-            SmallString.as64("$$$$$"),
-            SmallString.as64("$$$$$$"),
-            SmallString.as64("$$$$$$$"),
-            SmallString.as64("$$$$$$$$"),
-            SmallString.as64(" "),
-            SmallString.as64("::"),
-            SmallString.as64(";;"),
-            SmallString.as64(".."),
-            SmallString.as64(";:"),
-            SmallString.as64(":;"),
-            SmallString.as64(";."),
-            SmallString.as64(".;"),
-            SmallString.as64(":."),
-            SmallString.as64(".:"),
-            SmallString.as64(":;."),
-            SmallString.as64(";:."),
-            SmallString.as64(":.;"),
-            SmallString.as64(";.:"),
-            SmallString.as64(".:;"),
-            SmallString.as64(".;:"),
-            => operator,
-            // We also convert some unnecessarily verbose operators.
-            SmallString.as64(":=") => comptime SmallString.as64(":"),
-            SmallString.as64(";=") => comptime SmallString.as64(";"),
-            else => null,
-        };
     }
 
     pub fn printLine(self: Self, writer: anytype) !void {
@@ -355,7 +146,7 @@ pub const Token = union(TokenTag) {
             },
             .operator => |operator| {
                 try writer.print("Token{{ .operator = SmallString.as64(\"", .{});
-                try SmallString.init64(operator).print(writer);
+                try operator.string().print(writer);
                 try writer.print("\") }}", .{});
             },
             .open => |open| {
@@ -443,7 +234,7 @@ pub const Token = union(TokenTag) {
         try std.testing.expect(!a.equals(b));
     }
 
-    pub const comma = Self{ .operator = ',' };
+    pub const comma = Self{ .operator = Operator.comma };
 
     pub const Open = enum {
         paren,
@@ -682,19 +473,14 @@ test "valid operator tokens" {
     });
     defer operators.deinit();
 
-    for (operators.items()) |operator| {
-        const value64 = Token.convertOperator(operator.slice()) orelse {
-            std.debug.print("expected {s} to be a valid operator\n", .{operator.slice()});
+    for (operators.items()) |string_operator| {
+        const operator = Operator.init(string_operator.slice());
+        if (operator == .none) {
+            std.debug.print("expected {s} to be a valid operator\n", .{string_operator.slice()});
             return common.Error.unknown;
-        };
-        const string_back = SmallString.init64(value64);
-        try operator.expectEquals(string_back);
+        }
+        try operator.string().expectEquals(string_operator);
     }
-}
-
-test "rewritten operator tokens" {
-    try std.testing.expectEqual(SmallString.as64(";"), Token.convertOperator(";="));
-    try std.testing.expectEqual(SmallString.as64(":"), Token.convertOperator(":="));
 }
 
 test "invalid operator tokens" {
@@ -707,10 +493,11 @@ test "invalid operator tokens" {
     });
     defer operators.deinit();
 
-    for (operators.items()) |operator| {
-        const value64 = Token.convertOperator(operator.slice()) orelse continue;
+    for (operators.items()) |string_operator| {
+        const operator = Operator.init(string_operator.slice());
+        if (operator == .none) continue;
 
-        std.debug.print("expected {s} to be an invalid operator, got {d}\n", .{ operator.slice(), value64 });
+        std.debug.print("expected {s} to be an invalid operator, got {d}\n", .{ string_operator.slice(), operator.to64() });
     }
 }
 
@@ -785,7 +572,7 @@ test "token equality" {
     try spacing.expectNotEquals(Token{ .spacing = .{ .absolute = 456, .relative = 4 } });
     try std.testing.expect(!spacing.equals(Token{ .spacing = .{ .absolute = 123, .relative = 5 } }));
 
-    const operator = Token{ .operator = 123 };
+    const operator = Token{ .operator = .bitwise_xor };
     try operator.expectNotEquals(end);
     try std.testing.expect(!operator.equals(end));
     try operator.expectNotEquals(starts_upper);
@@ -798,6 +585,6 @@ test "token equality" {
     try std.testing.expect(!operator.equals(spacing));
     try operator.expectEquals(operator);
     try std.testing.expect(operator.equals(operator));
-    try operator.expectNotEquals(Token{ .operator = 456 });
-    try std.testing.expect(!operator.equals(Token{ .operator = 456 }));
+    try operator.expectNotEquals(Token{ .operator = .bitwise_flip });
+    try std.testing.expect(!operator.equals(Token{ .operator = .bitwise_and }));
 }
