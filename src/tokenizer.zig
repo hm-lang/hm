@@ -471,10 +471,19 @@ pub const Tokenizer = struct {
     /// Adds an error around the given token index (i.e., on the line after that token).
     pub fn addErrorAt(self: *Self, at_token_index: usize, error_message: []const u8) void {
         std.debug.assert(at_token_index < self.tokens.count());
-        std.debug.assert(at_token_index < self.last_token_index);
-        self.last_token_index = at_token_index;
         const error_columns = self.columnsAt(at_token_index);
         const error_line_index = self.lineIndexAt(at_token_index);
+        if (at_token_index >= self.last_token_index) {
+            const stderr = std.io.getStdErr().writer();
+            stderr.print("{s} at token that was on line {d}:{d}-{d}\n", .{
+                error_message,
+                error_line_index + 1,
+                error_columns.start,
+                error_columns.end,
+            }) catch {};
+            return;
+        }
+        self.last_token_index = at_token_index;
         var string = getErrorLine(error_columns, error_message) catch {
             self.printErrorMessage(error_line_index, error_columns, error_message);
             return;
@@ -563,7 +572,7 @@ pub const Tokenizer = struct {
             "error {s} on line {d}:{d}-{d}\n",
             .{
                 error_message,
-                error_line_index,
+                error_line_index + 1,
                 error_columns.start,
                 error_columns.end,
             },
