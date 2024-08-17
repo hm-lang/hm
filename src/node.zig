@@ -24,6 +24,15 @@ pub const Node = union(NodeTag) {
     // TODO: function_call: {function_name: NodeIndex, first_argument: Argument}
     // TODO: Argument: {name: NodeIndex, value: NodeIndex, next_argument: NodeIndex}
 
+    pub fn operation(self: Self) NodeOperation {
+        return switch (self) {
+            .prefix => |prefix| prefix.operation(),
+            .postfix => |postfix| postfix.operation(),
+            .binary => |binary| binary.operation(),
+            else => .{},
+        };
+    }
+
     pub fn printLine(self: Self, writer: anytype) !void {
         try self.print(writer);
         try writer.print("\n", .{});
@@ -124,6 +133,7 @@ pub const Node = union(NodeTag) {
     pub const Binary = BinaryNode;
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
+    pub const Operation = NodeOperation;
     const Self = @This();
 };
 
@@ -147,6 +157,10 @@ const BinaryNode = struct {
     left: NodeIndex = 0,
     right: NodeIndex = 0,
 
+    pub fn operation(self: Self) NodeOperation {
+        return .{ .type = .infix, .operator = self.operator };
+    }
+
     pub fn equals(a: Self, b: Self) bool {
         return a.operator == b.operator and a.left == b.left and a.right == b.right;
     }
@@ -161,6 +175,10 @@ const BinaryNode = struct {
 const PrefixNode = struct {
     operator: u64 = 0,
     node: NodeIndex = 0,
+
+    pub fn operation(self: Self) NodeOperation {
+        return .{ .type = .prefix, .operator = self.operator };
+    }
 
     pub fn equals(a: Self, b: Self) bool {
         return a.operator == b.operator and a.node == b.node;
@@ -177,6 +195,10 @@ const PostfixNode = struct {
     operator: u64 = 0,
     node: NodeIndex = 0,
 
+    pub fn operation(self: Self) NodeOperation {
+        return .{ .type = .postfix, .operator = self.operator };
+    }
+
     pub fn equals(a: Self, b: Self) bool {
         return a.operator == b.operator and a.node == b.node;
     }
@@ -185,6 +207,114 @@ const PostfixNode = struct {
         try std.testing.expect(a.equals(b));
     }
 
+    const Self = @This();
+};
+
+const NodeOperationType = enum { none, prefix, infix, postfix };
+
+const NodeOperation = struct {
+    operator: u64 = 0,
+    type: Type = Type.none,
+
+    pub fn isPrefix(self: Self) bool {
+        return self.type == Type.prefix;
+    }
+    pub fn isInfix(self: Self) bool {
+        return self.type == Type.infix;
+    }
+    pub fn isPostfix(self: Self) bool {
+        return self.type == Type.postfix;
+    }
+
+    pub fn precedence(self: Self, compare: Compare) u8 {
+        const rtl: u8 = @intFromEnum(compare);
+        return switch (self.operator) {
+            // TODO: we should make all these u64s a special enum so we ensure we're using exhausting these switch cases.
+            SmallString.as64("~") => 10,
+            SmallString.as64("++") => 30,
+            SmallString.as64("--") => 30,
+            SmallString.as64("=") => 110,
+            SmallString.as64("==") => 90,
+            SmallString.as64("<") => 90,
+            SmallString.as64("<=") => 90,
+            SmallString.as64(">") => 90,
+            SmallString.as64(">=") => 90,
+            SmallString.as64("+") => if (self.isInfix()) 70 else 40 - rtl,
+            SmallString.as64("+=") => 110,
+            SmallString.as64("-") => if (self.isInfix()) 70 else 40 - rtl,
+            SmallString.as64("-=") => 110,
+            SmallString.as64("*") => 60,
+            SmallString.as64("*=") => 110,
+            SmallString.as64("**") => 30,
+            SmallString.as64("**=") => 110,
+            SmallString.as64("^") => 30,
+            SmallString.as64("^=") => 110,
+            SmallString.as64("/") => 60,
+            SmallString.as64("/=") => 110,
+            SmallString.as64("//") => 60,
+            SmallString.as64("//=") => 110,
+            SmallString.as64("%") => 60,
+            SmallString.as64("%=") => 110,
+            SmallString.as64("%%") => 60,
+            SmallString.as64("%%=") => 110,
+            SmallString.as64("?") => 20,
+            SmallString.as64("??") => 20,
+            SmallString.as64("??=") => 110,
+            SmallString.as64("!") => if (self.isPostfix()) 20 else 40 - rtl,
+            SmallString.as64("!!") => 40 - rtl,
+            SmallString.as64("!=") => 110,
+            SmallString.as64(":") => 110,
+            SmallString.as64(";") => 110,
+            SmallString.as64(".") => 110,
+            SmallString.as64(",") => 120,
+            SmallString.as64("&&") => 80,
+            SmallString.as64("&&=") => 110,
+            SmallString.as64("||") => 80,
+            SmallString.as64("||=") => 110,
+            SmallString.as64("&") => 70,
+            SmallString.as64("&=") => 110,
+            SmallString.as64("|") => 70,
+            SmallString.as64("|=") => 110,
+            SmallString.as64("><") => 80,
+            SmallString.as64("><=") => 110,
+            SmallString.as64("<>") => 40 - rtl,
+            SmallString.as64("<<") => 50,
+            SmallString.as64("<<=") => 110,
+            SmallString.as64(">>") => 50,
+            SmallString.as64(">>=") => 110,
+            SmallString.as64("$") => 20,
+            SmallString.as64("$$") => 20,
+            SmallString.as64("$$$") => 20,
+            SmallString.as64("$$$$") => 20,
+            SmallString.as64("$$$$$") => 20,
+            SmallString.as64("$$$$$$") => 20,
+            SmallString.as64("$$$$$$$") => 20,
+            SmallString.as64("$$$$$$$$") => 20,
+            SmallString.as64(" ") => 20,
+            SmallString.as64("::") => 20,
+            SmallString.as64(";;") => 20,
+            SmallString.as64("..") => 20,
+            SmallString.as64(";:") => 20,
+            SmallString.as64(":;") => 20,
+            SmallString.as64(";.") => 20,
+            SmallString.as64(".;") => 20,
+            SmallString.as64(":.") => 20,
+            SmallString.as64(".:") => 20,
+            SmallString.as64(":;.") => 20,
+            SmallString.as64(";:.") => 20,
+            SmallString.as64(":.;") => 20,
+            SmallString.as64(";.:") => 20,
+            SmallString.as64(".:;") => 20,
+            SmallString.as64(".;:") => 20,
+            else => 250,
+        };
+    }
+
+    pub const Compare = enum {
+        on_left,
+        on_right,
+    };
+    pub const Type = NodeOperationType;
     const Self = @This();
 };
 

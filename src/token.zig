@@ -591,6 +591,10 @@ pub const SpacingToken = struct {
     }
 };
 
+test "Token size is correct" {
+    try std.testing.expectEqual(8 * 3, @sizeOf(Token));
+}
+
 test "invalid token" {
     try std.testing.expectEqual(InvalidTokenType.expected_close_paren, InvalidTokenType.expected_close(Token.Open.paren));
     try std.testing.expectEqual(InvalidTokenType.expected_close_bracket, InvalidTokenType.expected_close(Token.Open.bracket));

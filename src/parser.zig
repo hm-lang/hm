@@ -98,7 +98,7 @@ pub const Parser = struct {
     }
 
     fn appendNextExpression(self: *Self, tab: u16) ParserError!NodeIndex {
-        const index = self.appendNextStandaloneExpression();
+        const index = self.appendNextStandaloneExpression(0);
         switch (try self.peekToken(0)) {
             // This was the last atom in the row.
             .newline => {
@@ -120,7 +120,8 @@ pub const Parser = struct {
     /// `++Index` or `Countdown--` as well.  For member access like
     /// `First_identifier Second_identifier`, just grab the first one.
     // TODO: also include operations like `my_function(...)`
-    fn appendNextStandaloneExpression(self: *Self) ParserError!NodeIndex {
+    fn appendNextStandaloneExpression(self: *Self, left_node: NodeIndex) ParserError!NodeIndex {
+        _ = left_node;
         // We expect spacing before each identifier.
         switch (try self.peekToken(0)) {
             .spacing => {},
@@ -167,7 +168,7 @@ pub const Parser = struct {
                 // TODO: we need order of operations
                 return try self.justAppendNode(Node{ .prefix = .{
                     .operator = operator,
-                    .node = try self.appendNextStandaloneExpression(),
+                    .node = try self.appendNextStandaloneExpression(0),
                 } });
             },
             else => {
@@ -175,6 +176,11 @@ pub const Parser = struct {
                 return ParserError.syntax;
             },
         }
+    }
+
+    fn shouldInvertNodes(left: Node.Operation, right: Node.Operation) bool {
+        // lower precedence means higher priority.
+        return right.precedence(Node.Operation.Compare.on_right) < left.precedence(Node.Operation.Compare.on_left);
     }
 
     // TODO: maybe return operator
