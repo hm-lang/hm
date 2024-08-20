@@ -33,6 +33,12 @@ pub const File = struct {
         self.lines = lines;
     }
 
+    pub fn print(self: *const File, writer: anytype) !void {
+        for (self.lines.items()) |line| {
+            writer.print("{s}\n", .{line.slice()}) catch {};
+        }
+    }
+
     pub fn write(self: *const File) FileError!void {
         const file = try self.openForWrite();
         defer file.close();

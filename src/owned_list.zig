@@ -168,9 +168,14 @@ pub fn OwnedList(comptime T: type) type {
             try std.testing.expectEqual(other.len, self.count());
         }
 
-        pub fn printLine(self: Self, writer: anytype) !void {
-            try self.print(writer);
+        pub inline fn printLine(self: Self, writer: anytype) !void {
+            try self.printTabbed(writer, 0);
             try writer.print("\n", .{});
+        }
+
+        // Don't include a final `\n` here.
+        pub fn printTabbed(self: Self, writer: anytype, tab: u16) !void {
+            try common.printSliceTabbed(self.items(), writer, tab);
         }
 
         pub fn print(self: Self, writer: anytype) !void {

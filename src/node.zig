@@ -1,6 +1,7 @@
 const SmallString = @import("string.zig").Small;
 const operator_zig = @import("operator.zig");
 const Operator = operator_zig.Operator;
+const common = @import("common.zig");
 
 const std = @import("std");
 
@@ -90,7 +91,7 @@ pub const Node = union(NodeTag) {
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
-        const stderr = std.io.getStdErr().writer();
+        const stderr = common.debugStderr;
         errdefer {
             stderr.print("expected:\n", .{}) catch {};
             b.printLine(stderr) catch {};
@@ -122,7 +123,7 @@ pub const Node = union(NodeTag) {
     }
 
     pub fn expectNotEquals(a: Self, b: Self) !void {
-        const stderr = std.io.getStdErr().writer();
+        const stderr = common.debugStderr;
         errdefer {
             stderr.print("expected NOT this, but got it:\n", .{}) catch {};
             a.printLine(stderr) catch {};

@@ -101,18 +101,50 @@ pub const Parser = struct {
 
     fn appendNextExpression(self: *Self, tab: u16) ParserError!NodeIndex {
         const index = self.appendNextStandaloneExpression(0);
+        const next_operator = try self.seekNextInfixOperator(tab);
+        if (next_operator == .none) {
+            self.assertAndConsumeNextTokenIf(.newline, "expected newline") catch {
+                try self.assertAndConsumeNextTokenIf(.end, "expected EOF");
+            };
+            return index;
+        }
+        return ParserError.unimplemented;
+    }
+
+    fn seekNextInfixOperator(self: *Self, tab: u16) ParserError!Operator {
         switch (try self.peekToken(0)) {
             // This was the last atom in the row.
             .newline => {
                 // TODO: check if we had a double-indent on the next line and continue parsing if so.
                 _ = tab;
-                self.farthest_token_index += 1;
-                return index;
+                return .none;
             },
-            else => {},
+            .end => return .none,
+            else => try self.assertAndConsumeNextTokenIf(.spacing, "expected spacing"),
         }
-        const stderr = std.io.getStdErr().writer();
-        (try self.peekToken(0)).printLine(stderr) catch {};
+
+        switch (try self.peekToken(0)) {
+            .operator => |operator| {
+                if (operator.isInfixable()) {
+                    self.farthest_token_index += 1;
+                    return operator;
+                } else if (operator.isPrefixable()) {
+                    // Back up so that the next standalone expression starts at the
+                    // spacing before this prefix:
+                    self.farthest_token_index -= 1;
+                    return Operator.implicit_member_access;
+                } else {
+                    // If this operator was on the same line, we would have grabbed it with
+                    // `appendNextStandaloneExpression`.  If we're here, that means it came
+                    // on a second line.
+                    self.tokenizer.addErrorAt(self.farthest_token_index, "use postfix operator on same line");
+                    return ParserError.syntax;
+                }
+            },
+            else => return ParserError.unimplemented,
+        }
+
+        (try self.peekToken(0)).printLine(common.debugStderr) catch {};
         self.tokenizer.addErrorAt(self.farthest_token_index, "expected end of line");
         return ParserError.unimplemented;
     }
@@ -123,13 +155,10 @@ pub const Parser = struct {
     /// `First_identifier Second_identifier`, just grab the first one.
     // TODO: also include operations like `my_function(...)`
     fn appendNextStandaloneExpression(self: *Self, left_node: NodeIndex) ParserError!NodeIndex {
+        const expecting_spacing = "expected spacing between each identifier";
         _ = left_node;
-        // We expect spacing before each identifier.
-        switch (try self.peekToken(0)) {
-            .spacing => {},
-            else => return ParserError.broken_invariant,
-        }
-        self.farthest_token_index += 1;
+
+        try self.assertAndConsumeNextTokenIf(.spacing, expecting_spacing);
 
         switch (try self.peekToken(0)) {
             .starts_upper, .number => {
@@ -140,12 +169,11 @@ pub const Parser = struct {
 
                 switch (try self.peekToken(0)) {
                     .newline => return atomic_index,
-                    .spacing => {}, // ignore spaces
-                    else => return ParserError.broken_invariant,
+                    else => try self.assertAndConsumeNextTokenIf(.spacing, expecting_spacing),
                 }
 
                 // Check if there was a postfix operator.
-                switch (try self.peekToken(1)) {
+                switch (try self.peekToken(0)) {
                     .operator => |operator| {
                         if (operator.isPostfixable()) {
                             // TODO: precedence.  next node might take this prefix.
@@ -212,12 +240,26 @@ pub const Parser = struct {
         };
     }
 
+    fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, error_message: []const u8) ParserError!void {
+        const next_token = try self.peekToken(0);
+        if (next_token.tag() == expected_tag) {
+            self.farthest_token_index += 1;
+            return;
+        }
+        self.tokenizer.addErrorAt(self.farthest_token_index, error_message);
+        return ParserError.syntax;
+    }
+
     const Self = @This();
 };
 
 test "parser simple expressions" {
+    common.debugStderr.print("\n\n PARSER SIMPLE\n", .{}) catch {};
     var parser: Parser = .{};
     defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
     try parser.tokenizer.file.lines.append(try SmallString.init("3.456"));
     try parser.tokenizer.file.lines.append(try SmallString.init("    Hello_you"));
     try parser.tokenizer.file.lines.append(try SmallString.init("+1.234"));

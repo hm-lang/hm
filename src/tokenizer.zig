@@ -472,17 +472,24 @@ pub const Tokenizer = struct {
     //      for extra debugging help.
     /// Adds an error around the given token index (i.e., on the line after that token).
     pub fn addErrorAt(self: *Self, at_token_index: usize, error_message: []const u8) void {
+        if (false) {
+            common.debugStderr.print("\n\n", .{}) catch {};
+            self.tokens.printLine(common.debugStderr) catch {};
+        }
         std.debug.assert(at_token_index < self.tokens.count());
         const error_columns = self.columnsAt(at_token_index);
         const error_line_index = self.lineIndexAt(at_token_index);
-        if (at_token_index >= self.last_token_index) {
-            const stderr = std.io.getStdErr().writer();
-            stderr.print("{s} at token that was on line {d}:{d}-{d}\n", .{
+        if (false) {
+            common.debugStderr.print("{s} at token {d} that was on line {d}:{d}-{d}\n", .{
                 error_message,
+                at_token_index,
                 error_line_index + 1,
                 error_columns.start,
                 error_columns.end,
             }) catch {};
+        }
+        if (at_token_index >= self.last_token_index) {
+            common.debugStderr.print("token was past the last valid token index {d}\n", .{self.last_token_index}) catch {};
             return;
         }
         self.last_token_index = at_token_index;
@@ -491,8 +498,8 @@ pub const Tokenizer = struct {
             return;
         };
         self.file.lines.insert(error_line_index + 1, string) catch {
-            self.file.lines.inBounds(error_line_index).printLine(common.stderr) catch {};
-            string.printLine(common.stderr) catch {};
+            self.file.lines.inBounds(error_line_index).printLine(common.debugStderr) catch {};
+            string.printLine(common.debugStderr) catch {};
             string.deinit();
             return;
         };
@@ -570,7 +577,7 @@ pub const Tokenizer = struct {
     fn printErrorMessage(self: *Self, error_line_index: usize, error_columns: SmallString.Range, error_message: []const u8) void {
         // TODO: also print line[error_line_index]
         _ = self;
-        common.stderr.print(
+        common.debugStderr.print(
             "error {s} on line {d}:{d}-{d}\n",
             .{
                 error_message,
@@ -616,8 +623,12 @@ pub const Tokenizer = struct {
                 const line_length = self.file.lines.inBounds(line_index - 1).count();
                 return .{ .start = line_length, .end = line_length + 1 };
             },
+            .end => {
+                const line_length = (self.file.lines.at(-1) orelse SmallString{}).count();
+                return .{ .start = line_length, .end = line_length + 1 };
+            },
             .spacing => |spacing| {
-                return .{ .start = spacing.absolute, .end = spacing.absolute + @max(1, spacing.relative) };
+                return .{ .start = spacing.absolute, .end = spacing.absolute + 1 };
             },
             else => if (self.tokens.before(at_token_index)) |before_token| {
                 switch (before_token) {
@@ -628,12 +639,12 @@ pub const Tokenizer = struct {
                         // We add implicit spacing between everything that's not
                         // whitespace (see `fn appendTokenAndPerformHooks`).  So
                         // we're not sure what's happening here, so go ham.
-                        common.stderr.print("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{}) catch {};
+                        common.debugStderr.print("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{}) catch {};
                         return self.fullLineColumnsAt(at_token_index);
                     },
                 }
             } else {
-                common.stderr.print("expected to see spacing at tokens[0]\n", .{}) catch {};
+                common.debugStderr.print("expected to see spacing at tokens[0]\n", .{}) catch {};
                 return self.fullLineColumnsAt(at_token_index);
             },
         }

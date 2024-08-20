@@ -44,14 +44,18 @@ pub const Token = union(TokenTag) {
     annotation: SmallString,
     comment: SmallString,
 
+    pub inline fn tag(self: Token) TokenTag {
+        return std.meta.activeTag(self);
+    }
+
     pub fn deinit(self: Token) void {
-        const tag = std.meta.activeTag(self);
+        const my_tag = std.meta.activeTag(self);
         const info = switch (@typeInfo(Token)) {
             .Union => |info| info,
             else => unreachable,
         };
         inline for (info.fields) |field_info| {
-            if (@field(TokenTag, field_info.name) == tag) {
+            if (@field(TokenTag, field_info.name) == my_tag) {
                 const SubToken = @TypeOf(@field(self, field_info.name));
                 if (std.meta.hasMethod(SubToken, "deinit")) {
                     // For some reason, we can't do `@field(self, field_info.name).deinit()`
@@ -68,7 +72,7 @@ pub const Token = union(TokenTag) {
             .invalid => |invalid| invalid.columns.count(),
             .end => 0,
             .newline => 0,
-            .spacing => |spacing| spacing.relative,
+            .spacing => 0,
             .starts_upper => |string| string.count(),
             .starts_lower => |string| string.count(),
             .slice => |string| string.count(),
@@ -194,7 +198,7 @@ pub const Token = union(TokenTag) {
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
-        const stderr = std.io.getStdErr().writer();
+        const stderr = common.debugStderr;
         errdefer {
             stderr.print("expected:\n", .{}) catch {};
             b.printLine(stderr) catch {};
@@ -226,7 +230,7 @@ pub const Token = union(TokenTag) {
     }
 
     pub fn expectNotEquals(a: Self, b: Self) !void {
-        const stderr = std.io.getStdErr().writer();
+        const stderr = common.debugStderr;
         errdefer {
             stderr.print("expected NOT this, but got it:\n", .{}) catch {};
             a.printLine(stderr) catch {};

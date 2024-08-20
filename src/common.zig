@@ -37,6 +37,9 @@ pub var stderr = if (in_test)
 else
     std.io.getStdErr().writer();
 
+/// Use `stderr` for real code errors, `debugStderr` for when debugging.
+pub const debugStderr = std.io.getStdErr().writer();
+
 pub fn swap(a: anytype, b: anytype) void {
     const c = a.*;
     a.* = b.*;
@@ -78,6 +81,40 @@ pub fn printSlice(slice: anytype, writer: anytype) !void {
             try writer.print(", ", .{});
         } else {
             try writer.print("{}, ", .{item});
+        }
+    }
+    try writer.print("]", .{});
+}
+
+// Doesn't include a final `\n` here.
+pub fn printSliceTabbed(slice: anytype, writer: anytype, tab: u16) !void {
+    for (0..tab) |_| {
+        try writer.print(" ", .{});
+    }
+    try writer.print("[\n", .{});
+    for (0..slice.len) |i| {
+        const item = slice[i];
+        if (i != 0 and i % 5 == 0) {
+            for (0..tab) |_| {
+                try writer.print(" ", .{});
+            }
+            try writer.print("[{d}]:\n", .{i});
+            for (0..tab + 4) |_| {
+                try writer.print(" ", .{});
+            }
+        } else {
+            for (0..tab + 4) |_| {
+                try writer.print(" ", .{});
+            }
+        }
+        if (std.meta.hasMethod(@TypeOf(item), "printTabbed")) {
+            try item.printTabbed(writer, tab + 4);
+            try writer.print(",\n", .{});
+        } else if (std.meta.hasMethod(@TypeOf(item), "print")) {
+            try item.print(writer);
+            try writer.print(",\n", .{});
+        } else {
+            try writer.print("{},\n", .{item});
         }
     }
     try writer.print("]", .{});
