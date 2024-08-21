@@ -121,7 +121,7 @@ pub fn printSliceTabbed(slice: anytype, writer: anytype, tab: u16) !void {
 }
 
 pub fn printSliceLine(slice: anytype, writer: anytype) !void {
-    try printSlice(slice, writer);
+    try printSliceTabbed(slice, writer, 0);
     try writer.print("\n", .{});
 }
 

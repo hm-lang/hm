@@ -100,15 +100,28 @@ pub const Parser = struct {
     }
 
     fn appendNextExpression(self: *Self, tab: u16) ParserError!NodeIndex {
-        const index = self.appendNextStandaloneExpression(0);
-        const next_operator = try self.seekNextInfixOperator(tab);
-        if (next_operator == .none) {
+        const left_index = try self.appendNextStandaloneExpression(0);
+        const operator = try self.seekNextInfixOperator(tab);
+        if (operator == .none) {
             self.assertAndConsumeNextTokenIf(.newline, "expected newline") catch {
                 try self.assertAndConsumeNextTokenIf(.end, "expected EOF");
             };
-            return index;
+            return left_index;
         }
-        return ParserError.unimplemented;
+        // Greedily parse everything else...
+        const right_index = try self.appendNextExpression(tab);
+        // But we may need to open up `right_node` and update its left-most connection
+        // in case `operator` is stronger than any internal operations in `right_node`.
+        const right_node = &self.nodes.array.items[right_index];
+        return switch (right_node.*) {
+            // e.g., `A * B`, simple case.
+            .atomic_token => try self.justAppendNode(Node{ .binary = .{
+                .operator = operator,
+                .left = left_index,
+                .right = right_index,
+            } }),
+            else => ParserError.unimplemented,
+        };
     }
 
     fn seekNextInfixOperator(self: *Self, tab: u16) ParserError!Operator {
@@ -120,10 +133,6 @@ pub const Parser = struct {
                 return .none;
             },
             .end => return .none,
-            else => try self.assertAndConsumeNextTokenIf(.spacing, "expected spacing"),
-        }
-
-        switch (try self.peekToken(0)) {
             .operator => |operator| {
                 if (operator.isInfixable()) {
                     self.farthest_token_index += 1;
@@ -154,9 +163,8 @@ pub const Parser = struct {
     /// `++Index` or `Countdown--` as well.  For member access like
     /// `First_identifier Second_identifier`, just grab the first one.
     // TODO: also include operations like `my_function(...)`
-    fn appendNextStandaloneExpression(self: *Self, left_node: NodeIndex) ParserError!NodeIndex {
+    fn appendNextStandaloneExpression(self: *Self, tab: u16) ParserError!NodeIndex {
         const expecting_spacing = "expected spacing between each identifier";
-        _ = left_node;
 
         try self.assertAndConsumeNextTokenIf(.spacing, expecting_spacing);
 
@@ -176,7 +184,6 @@ pub const Parser = struct {
                 switch (try self.peekToken(0)) {
                     .operator => |operator| {
                         if (operator.isPostfixable()) {
-                            // TODO: precedence.  next node might take this prefix.
                             self.farthest_token_index += 2;
                             return try self.justAppendNode(Node{ .prefix = .{
                                 .operator = operator,
@@ -184,7 +191,9 @@ pub const Parser = struct {
                             } });
                         }
                     },
-                    else => {},
+                    else => {
+                        // we actually want to back up so that we
+                    },
                 }
 
                 return atomic_index;
@@ -195,10 +204,9 @@ pub const Parser = struct {
                     return ParserError.syntax;
                 }
                 self.farthest_token_index += 1;
-                // TODO: we need order of operations
                 return try self.justAppendNode(Node{ .prefix = .{
                     .operator = operator,
-                    .node = try self.appendNextStandaloneExpression(0),
+                    .node = try self.appendNextStandaloneExpression(tab),
                 } });
             },
             else => {
@@ -208,9 +216,9 @@ pub const Parser = struct {
         }
     }
 
-    fn shouldInvertNodes(left: Operation, right: Operation) bool {
+    fn shouldOperateLeftToRight(left: Operation, right: Operation) bool {
         // lower precedence means higher priority.
-        return right.precedence(Operation.Compare.on_right) < left.precedence(Operation.Compare.on_left);
+        return left.precedence(Operation.Compare.on_left) <= right.precedence(Operation.Compare.on_right);
     }
 
     // TODO: maybe return operator
@@ -246,6 +254,7 @@ pub const Parser = struct {
             self.farthest_token_index += 1;
             return;
         }
+        common.debugStderr.print("actual tag is {d}\n", .{@intFromEnum(next_token.tag())}) catch {};
         self.tokenizer.addErrorAt(self.farthest_token_index, error_message);
         return ParserError.syntax;
     }
@@ -254,7 +263,6 @@ pub const Parser = struct {
 };
 
 test "parser simple expressions" {
-    common.debugStderr.print("\n\n PARSER SIMPLE\n", .{}) catch {};
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
@@ -301,4 +309,26 @@ test "parser simple expressions" {
     try std.testing.expectEqual(Node.Statement{ .node = 6, .tab = 0 }, try parser.at(2));
     try std.testing.expectEqual(Node.Statement{ .node = 9, .tab = 2 }, try parser.at(3));
     try std.testing.expectEqual(Node.Statement{ .node = 12, .tab = 4 }, try parser.at(4));
+}
+
+test "parser multiplication" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    try parser.tokenizer.file.lines.append(try SmallString.init("Theta * 3.14"));
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        Node{ .statement = .{ .node = 3, .tab = 0 } },
+        Node{ .atomic_token = 1 }, // "Theta"
+        Node{ .atomic_token = 5 }, // "3.14"
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+    });
 }
