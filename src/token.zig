@@ -5,11 +5,13 @@ const common = @import("common.zig");
 const std = @import("std");
 
 const TokenTag = enum {
+    // [0]:
     invalid,
     end,
     newline,
     spacing,
     starts_upper,
+    // [5]:
     starts_lower,
     /// a part of a string (pure string), e.g., "hello, world"
     /// becomes just the inner part (no quotes).  escape sequences
@@ -18,6 +20,7 @@ const TokenTag = enum {
     number,
     operator,
     open,
+    // [10]:
     close,
     /// E.g., for "$(MyLogic)" inside a string, the opening paren.
     /// also ok for "$[MyLogic]" or '${MyLogic}'

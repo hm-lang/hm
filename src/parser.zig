@@ -133,6 +133,10 @@ pub const Parser = struct {
                 return .none;
             },
             .end => return .none,
+            else => try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing),
+        }
+
+        switch (try self.peekToken(0)) {
             .operator => |operator| {
                 if (operator.isInfixable()) {
                     self.farthest_token_index += 1;
@@ -150,7 +154,12 @@ pub const Parser = struct {
                     return ParserError.syntax;
                 }
             },
-            else => return ParserError.unimplemented,
+            else => {
+                // We encountered another realizable token, back up so that
+                // we maintain the invariant that there's a space before the next real element.
+                self.farthest_token_index -= 1;
+                return Operator.implicit_member_access;
+            },
         }
 
         (try self.peekToken(0)).printLine(common.debugStderr) catch {};
@@ -164,9 +173,7 @@ pub const Parser = struct {
     /// `First_identifier Second_identifier`, just grab the first one.
     // TODO: also include operations like `my_function(...)`
     fn appendNextStandaloneExpression(self: *Self, tab: u16) ParserError!NodeIndex {
-        const expecting_spacing = "expected spacing between each identifier";
-
-        try self.assertAndConsumeNextTokenIf(.spacing, expecting_spacing);
+        try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing);
 
         switch (try self.peekToken(0)) {
             .starts_upper, .number => {
@@ -176,26 +183,27 @@ pub const Parser = struct {
                 self.farthest_token_index += 1;
 
                 switch (try self.peekToken(0)) {
-                    .newline => return atomic_index,
-                    else => try self.assertAndConsumeNextTokenIf(.spacing, expecting_spacing),
+                    // TODO: in case of newline, try parsing the next row if at tab + 8
+                    .newline, .end => return atomic_index,
+                    else => try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing),
                 }
 
                 // Check if there was a postfix operator.
                 switch (try self.peekToken(0)) {
                     .operator => |operator| {
                         if (operator.isPostfixable()) {
-                            self.farthest_token_index += 2;
+                            self.farthest_token_index += 1;
                             return try self.justAppendNode(Node{ .prefix = .{
                                 .operator = operator,
                                 .node = atomic_index,
                             } });
                         }
                     },
-                    else => {
-                        // we actually want to back up so that we
-                    },
+                    else => {},
                 }
-
+                // We actually want to back up so that we maintain the invariant
+                // that there is spacing before each next real element.
+                self.farthest_token_index -= 1;
                 return atomic_index;
             },
             .operator => |operator| {
@@ -262,6 +270,8 @@ pub const Parser = struct {
     const Self = @This();
 };
 
+const expected_spacing = "expected spacing between each identifier";
+
 test "parser simple expressions" {
     var parser: Parser = .{};
     defer parser.deinit();
@@ -326,6 +336,28 @@ test "parser multiplication" {
         Node{ .atomic_token = 1 }, // "Theta"
         Node{ .atomic_token = 5 }, // "3.14"
         Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+    });
+}
+
+test "parser implicit member access" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    try parser.tokenizer.file.lines.append(try SmallString.init("Theta Beta"));
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        Node{ .statement = .{ .node = 3, .tab = 0 } },
+        Node{ .atomic_token = 1 }, // "Theta"
+        Node{ .atomic_token = 3 }, // "Beta"
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
         .end,
     });
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
