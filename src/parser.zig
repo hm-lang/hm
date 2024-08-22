@@ -374,6 +374,7 @@ test "prefix/postfix operators with multiplication" {
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("++Theta * Beta"));
     try parser.tokenizer.file.lines.append(try SmallString.init("Zeta * ++Woga"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("Yodus-- * Spatula"));
     // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Wobdash * Flobsmash--"));
 
     try parser.complete();
@@ -389,10 +390,16 @@ test "prefix/postfix operators with multiplication" {
         Node{ .atomic_token = 16 },
         Node{ .prefix = .{ .operator = Operator.increment, .node = 7 } },
         Node{ .binary = .{ .operator = Operator.multiply, .left = 6, .right = 8 } },
+        Node{ .statement = .{ .node = 14, .tab = 0 } },
+        Node{ .atomic_token = 19 },
+        Node{ .prefix = .{ .operator = Operator.decrement, .node = 11 } },
+        Node{ .atomic_token = 25 },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 12, .right = 13 } },
         .end,
     });
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
         0,
         5,
+        10,
     });
 }
