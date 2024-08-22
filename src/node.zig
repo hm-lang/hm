@@ -50,19 +50,19 @@ pub const Node = union(NodeTag) {
                 try writer.print("Node{{ .atomic_token = {d} }}", .{token_index});
             },
             .prefix => |prefix| {
-                try writer.print("Node{{ .prefix = .{{ .operator = SmallString.as64(\"", .{});
-                try prefix.operator.string().print(writer);
-                try writer.print("\"), .node = {d} }} }}", .{prefix.node});
+                try writer.print("Node{{ .prefix = .{{ .operator = ", .{});
+                try prefix.operator.print(writer);
+                try writer.print(", .node = {d} }} }}", .{prefix.node});
             },
             .postfix => |postfix| {
-                try writer.print("Node{{ .postfix = .{{ .operator = SmallString.as64(\"", .{});
-                try postfix.operator.string().print(writer);
-                try writer.print("\"), .node = {d} }} }}", .{postfix.node});
+                try writer.print("Node{{ .postfix = .{{ .operator = ", .{});
+                try postfix.operator.print(writer);
+                try writer.print(", .node = {d} }} }}", .{postfix.node});
             },
             .binary => |binary| {
-                try writer.print("Node{{ .binary = .{{ .operator = SmallString.as64(\"", .{});
-                try binary.operator.string().print(writer);
-                try writer.print("\"), .left = {d}, .right = {d} }} }}", .{ binary.left, binary.right });
+                try writer.print("Node{{ .binary = .{{ .operator = ", .{});
+                try binary.operator.print(writer);
+                try writer.print(", .left = {d}, .right = {d} }} }}", .{ binary.left, binary.right });
             },
             .end => try writer.print(".end", .{}),
         }

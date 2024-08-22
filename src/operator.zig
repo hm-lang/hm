@@ -81,14 +81,6 @@ pub const Operator = enum(u64) {
     trw_member_access = SmallString.as64(".:;"),
     twr_member_access = SmallString.as64(".;:"),
 
-    pub fn string(self: Self) SmallString {
-        return SmallString.init64(@intFromEnum(self));
-    }
-
-    pub inline fn to64(self: Self) u64 {
-        return @intFromEnum(self);
-    }
-
     /// Returns 0 if `buffer` is an invalid operator, otherwise
     /// the numerical value of the operator (see `SmallString.as64`).
     pub fn init(buffer: []const u8) Self {
@@ -186,6 +178,100 @@ pub const Operator = enum(u64) {
         });
     }
 
+    pub fn printLine(self: Self, writer: anytype) !void {
+        try self.print(writer);
+        try writer.print("\n", .{});
+    }
+
+    pub fn print(self: Self, writer: anytype) !void {
+        return try switch (self) {
+            .none => writer.print("Operator.none", .{}),
+            .new_generic => writer.print("Operator.new_generic", .{}),
+            .increment => writer.print("Operator.increment", .{}),
+            .decrement => writer.print("Operator.decrement", .{}),
+            .assign => writer.print("Operator.assign", .{}),
+            .equals => writer.print("Operator.equals", .{}),
+            .less_than => writer.print("Operator.less_than", .{}),
+            .less_equal => writer.print("Operator.less_equal", .{}),
+            .greater_than => writer.print("Operator.greater_than", .{}),
+            .greater_equal => writer.print("Operator.greater_equal", .{}),
+            .plus => writer.print("Operator.plus", .{}),
+            .plus_assign => writer.print("Operator.plus_assign", .{}),
+            .minus => writer.print("Operator.minus", .{}),
+            .minus_assign => writer.print("Operator.minus_assign", .{}),
+            .multiply => writer.print("Operator.multiply", .{}),
+            .multiply_assign => writer.print("Operator.multiply_assign", .{}),
+            .exponentiate1 => writer.print("Operator.exponentiate1", .{}),
+            .exponentiate1_assign => writer.print("Operator.exponentiate1_assign", .{}),
+            .exponentiate => writer.print("Operator.exponentiate", .{}),
+            .exponentiate_assign => writer.print("Operator.exponentiate_assign", .{}),
+            .divide => writer.print("Operator.divide", .{}),
+            .divide_assign => writer.print("Operator.divide_assign", .{}),
+            .integer_divide => writer.print("Operator.integer_divide", .{}),
+            .integer_divide_assign => writer.print("Operator.integer_divide_assign", .{}),
+            .modulus => writer.print("Operator.modulus", .{}),
+            .modulus_assign => writer.print("Operator.modulus_assign", .{}),
+            .remainder => writer.print("Operator.remainder", .{}),
+            .remainder_assign => writer.print("Operator.remainder_assign", .{}),
+            .nullify => writer.print("Operator.nullify", .{}),
+            .nullish_or => writer.print("Operator.nullish_or", .{}),
+            .nullish_or_assign => writer.print("Operator.nullish_or_assign", .{}),
+            .not => writer.print("Operator.not", .{}),
+            .not_not => writer.print("Operator.not_not", .{}),
+            .not_equal => writer.print("Operator.not_equal", .{}),
+            .declare_readonly => writer.print("Operator.declare_readonly", .{}),
+            .declare_writable => writer.print("Operator.declare_writable", .{}),
+            .declare_temporary => writer.print("Operator.declare_temporary", .{}),
+            .comma => writer.print("Operator.comma", .{}),
+            .logical_and => writer.print("Operator.logical_and", .{}),
+            .logical_and_assign => writer.print("Operator.logical_and_assign", .{}),
+            .logical_or => writer.print("Operator.logical_or", .{}),
+            .logical_or_assign => writer.print("Operator.logical_or_assign", .{}),
+            .bitwise_and => writer.print("Operator.bitwise_and", .{}),
+            .bitwise_and_assign => writer.print("Operator.bitwise_and_assign", .{}),
+            .bitwise_or => writer.print("Operator.bitwise_or", .{}),
+            .bitwise_or_assign => writer.print("Operator.bitwise_or_assign", .{}),
+            .bitwise_xor => writer.print("Operator.bitwise_xor", .{}),
+            .bitwise_xor_assign => writer.print("Operator.bitwise_xor_assign", .{}),
+            .bitwise_flip => writer.print("Operator.bitwise_flip", .{}),
+            .bitshift_left => writer.print("Operator.bitshift_left", .{}),
+            .bitshift_left_assign => writer.print("Operator.bitshift_left_assign", .{}),
+            .bitshift_right => writer.print("Operator.bitshift_right", .{}),
+            .bitshift_right_assign => writer.print("Operator.bitshift_right_assign", .{}),
+            .lambda1 => writer.print("Operator.lambda1", .{}),
+            .lambda2 => writer.print("Operator.lambda2", .{}),
+            .lambda3 => writer.print("Operator.lambda3", .{}),
+            .lambda4 => writer.print("Operator.lambda4", .{}),
+            .lambda5 => writer.print("Operator.lambda5", .{}),
+            .lambda6 => writer.print("Operator.lambda6", .{}),
+            .lambda7 => writer.print("Operator.lambda7", .{}),
+            .lambda8 => writer.print("Operator.lambda8", .{}),
+            .implicit_member_access => writer.print("Operator.implicit_member_access", .{}),
+            .readonly_member_access => writer.print("Operator.readonly_member_access", .{}),
+            .writable_member_access => writer.print("Operator.writable_member_access", .{}),
+            .temporary_member_access => writer.print("Operator.temporary_member_access", .{}),
+            .wr_member_access => writer.print("Operator.wr_member_access", .{}),
+            .rw_member_access => writer.print("Operator.rw_member_access", .{}),
+            .wt_member_access => writer.print("Operator.wt_member_access", .{}),
+            .tw_member_access => writer.print("Operator.tw_member_access", .{}),
+            .rt_member_access => writer.print("Operator.rt_member_access", .{}),
+            .tr_member_access => writer.print("Operator.tr_member_access", .{}),
+            .rwt_member_access => writer.print("Operator.rwt_member_access", .{}),
+            .wrt_member_access => writer.print("Operator.wrt_member_access", .{}),
+            .rtw_member_access => writer.print("Operator.rtw_member_access", .{}),
+            .wtr_member_access => writer.print("Operator.wtr_member_access", .{}),
+            .trw_member_access => writer.print("Operator.trw_member_access", .{}),
+            .twr_member_access => writer.print("Operator.twr_member_access", .{}),
+        };
+    }
+
+    pub fn string(self: Self) SmallString {
+        return SmallString.init64(@intFromEnum(self));
+    }
+
+    pub inline fn to64(self: Self) u64 {
+        return @intFromEnum(self);
+    }
     pub fn isPrefixable(self: Self) bool {
         return switch (self) {
             .new_generic,

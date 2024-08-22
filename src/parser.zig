@@ -364,3 +364,27 @@ test "parser implicit member access" {
         0,
     });
 }
+
+test "prefix/postfix operators with multiplication" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    try parser.tokenizer.file.lines.append(try SmallString.init("++Theta * Beta"));
+    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Wobdash * Flobsmash--"));
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        Node{ .statement = .{ .node = 4, .tab = 0 } },
+        Node{ .atomic_token = 3 },
+        Node{ .prefix = .{ .operator = Operator.increment, .node = 1 } },
+        Node{ .atomic_token = 7 },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 2, .right = 3 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+    });
+}
