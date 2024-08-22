@@ -112,17 +112,28 @@ pub const Parser = struct {
         const right_index = try self.appendNextExpression(tab);
         // But we may need to open up `right_node` and update its left-most connection
         // in case `operator` is stronger than any internal operations in `right_node`.
-        const right_node = &self.nodes.array.items[right_index];
-        return switch (right_node.*) {
-            // e.g., `A * B` or `A - ++B`, simple cases where we don't have to worry about
-            // operator precedence.
-            .atomic_token, .prefix => try self.justAppendNode(Node{ .binary = .{
-                .operator = operator,
-                .left = left_index,
-                .right = right_index,
-            } }),
-            else => ParserError.unimplemented,
-        };
+        return self.fixOperatorPrecedence(try self.justAppendNode(Node{ .binary = .{
+            .operator = operator,
+            .left = left_index,
+            .right = right_index,
+        } }));
+    }
+
+    fn fixOperatorPrecedence(self: *Self, index: NodeIndex) ParserError!NodeIndex {
+        switch (self.nodes.inBounds(index)) {
+            .binary => |binary| {
+                // `binary.left` is a standalone node and `binary.right`
+                // is the rest of an expression, but we may need to swap
+                // the order of operations.
+                switch (self.nodes.inBounds(binary.right)) {
+                    // e.g., `A * B` or `A - ++B`, simple cases where we don't have to worry about
+                    // operator precedence.
+                    .atomic_token, .prefix => return index,
+                    else => return ParserError.unimplemented,
+                }
+            },
+            else => return ParserError.unimplemented,
+        }
     }
 
     fn seekNextInfixOperator(self: *Self, tab: u16) ParserError!Operator {
@@ -228,6 +239,7 @@ pub const Parser = struct {
         }
     }
 
+    // TODO: this should belong in operator.zig
     fn shouldOperateLeftToRight(left: Operation, right: Operation) bool {
         // lower precedence means higher priority.
         return left.precedence(Operation.Compare.on_left) <= right.precedence(Operation.Compare.on_right);
@@ -369,7 +381,7 @@ test "parser implicit member access" {
     });
 }
 
-test "prefix/postfix operators with multiplication" {
+test "simple prefix/postfix operators with multiplication" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
@@ -379,8 +391,6 @@ test "prefix/postfix operators with multiplication" {
     try parser.tokenizer.file.lines.append(try SmallString.init("Zeta * ++Woga"));
     try parser.tokenizer.file.lines.append(try SmallString.init("Yodus-- * Spatula"));
     // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Wobdash * Flobsmash--"));
-    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Apple * Berry Cantaloupe--"));
-    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Apple * ++Berry Cantaloupe"));
 
     try parser.complete();
 
@@ -407,4 +417,34 @@ test "prefix/postfix operators with multiplication" {
         5,
         10,
     });
+}
+
+test "complicated prefix/postfix operators with multiplication" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Apple * Berry Cantaloupe--"));
+    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Apple * ++Berry Cantaloupe"));
+    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("--Xeno Yak * Zelda"));
+    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Xeno Yak++ * Zelda"));
+}
+
+test "order of operations with addition and multiplication" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    // TODO
+    //try parser.tokenizer.file.lines.append(try SmallString.init("Theta * Beta + Zeta"));
+    //try parser.tokenizer.file.lines.append(try SmallString.init("Panda + K_panda * 1000"));
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{});
 }
