@@ -114,8 +114,9 @@ pub const Parser = struct {
         // in case `operator` is stronger than any internal operations in `right_node`.
         const right_node = &self.nodes.array.items[right_index];
         return switch (right_node.*) {
-            // e.g., `A * B`, simple case.
-            .atomic_token => try self.justAppendNode(Node{ .binary = .{
+            // e.g., `A * B` or `A - ++B`, simple cases where we don't have to worry about
+            // operator precedence.
+            .atomic_token, .prefix => try self.justAppendNode(Node{ .binary = .{
                 .operator = operator,
                 .left = left_index,
                 .right = right_index,
@@ -372,6 +373,7 @@ test "prefix/postfix operators with multiplication" {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("++Theta * Beta"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("Zeta * ++Woga"));
     // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Wobdash * Flobsmash--"));
 
     try parser.complete();
@@ -382,9 +384,15 @@ test "prefix/postfix operators with multiplication" {
         Node{ .prefix = .{ .operator = Operator.increment, .node = 1 } },
         Node{ .atomic_token = 7 },
         Node{ .binary = .{ .operator = Operator.multiply, .left = 2, .right = 3 } },
+        Node{ .statement = .{ .node = 9, .tab = 0 } },
+        Node{ .atomic_token = 10 },
+        Node{ .atomic_token = 16 },
+        Node{ .prefix = .{ .operator = Operator.increment, .node = 7 } },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 6, .right = 8 } },
         .end,
     });
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
         0,
+        5,
     });
 }
