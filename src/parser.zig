@@ -194,6 +194,7 @@ pub const Parser = struct {
                     .operator => |operator| {
                         if (operator.isPostfixable()) {
                             self.farthest_token_index += 1;
+                            // TODO: operator precedence
                             return try self.justAppendNode(Node{ .prefix = .{
                                 .operator = operator,
                                 .node = atomic_index,
@@ -213,6 +214,8 @@ pub const Parser = struct {
                     return ParserError.syntax;
                 }
                 self.farthest_token_index += 1;
+                // TODO: operator precedence.  we should probably `appendNextExpression(tab)`
+                // and then dive in to see where the operator should attach.
                 return try self.justAppendNode(Node{ .prefix = .{
                     .operator = operator,
                     .node = try self.appendNextStandaloneExpression(tab),
@@ -376,6 +379,8 @@ test "prefix/postfix operators with multiplication" {
     try parser.tokenizer.file.lines.append(try SmallString.init("Zeta * ++Woga"));
     try parser.tokenizer.file.lines.append(try SmallString.init("Yodus-- * Spatula"));
     // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Wobdash * Flobsmash--"));
+    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Apple * Berry Cantaloupe--"));
+    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Apple * ++Berry Cantaloupe"));
 
     try parser.complete();
 
