@@ -53,6 +53,26 @@ pub const Tokenizer = struct {
         return self.tokens.inBounds(token_index);
     }
 
+    pub fn printDebugInfoAt(self: *Self, token_index: usize) void {
+        _ = self.at(token_index) catch {};
+        if (token_index >= self.tokens.count()) {
+            common.debugStderr.print("token {d} was out of bounds (count: {d})\n", .{
+                token_index,
+                self.tokens.count(),
+            }) catch {};
+            return;
+        }
+        const line_index = self.lineIndexAt(token_index);
+        const columns = self.columnsAt(token_index);
+        common.debugStderr.print("token {d} was on line {d}:{d}-{d}\n", .{
+            token_index,
+            line_index + 1,
+            columns.start,
+            columns.end,
+        }) catch {};
+        self.tokens.inBounds(token_index).printLine(common.debugStderr) catch {};
+    }
+
     pub fn complete(self: *Self) TokenizerError!void {
         var last = try self.at(0);
         while (!last.equals(.end) and self.last_token_index >= self.tokens.count()) {

@@ -91,14 +91,14 @@ pub fn printSliceTabbed(slice: anytype, writer: anytype, tab: u16) !void {
     for (0..tab) |_| {
         try writer.print(" ", .{});
     }
-    try writer.print("[\n", .{});
+    try writer.print("{{\n", .{});
     for (0..slice.len) |i| {
         const item = slice[i];
-        if (i != 0 and i % 5 == 0) {
+        if (i % 5 == 0) {
             for (0..tab) |_| {
                 try writer.print(" ", .{});
             }
-            try writer.print("[{d}]:\n", .{i});
+            try writer.print("// [{d}]:\n", .{i});
             for (0..tab + 4) |_| {
                 try writer.print(" ", .{});
             }
@@ -117,7 +117,7 @@ pub fn printSliceTabbed(slice: anytype, writer: anytype, tab: u16) !void {
             try writer.print("{},\n", .{item});
         }
     }
-    try writer.print("]", .{});
+    try writer.print("}}", .{});
 }
 
 pub fn printSliceLine(slice: anytype, writer: anytype) !void {

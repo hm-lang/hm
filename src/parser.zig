@@ -104,7 +104,7 @@ pub const Parser = struct {
         // is the last element of `hierarchy`, with nesting all the way up
         // to the "root node" (`hierarchy.inBounds(0)`) which should be returned.
         var hierarchy = OwnedNodeIndices.init();
-        hierarchy.append(try self.appendNextStandaloneExpression(tab)) catch return ParserError.out_of_memory;
+        _ = try self.appendNextStandaloneExpression(&hierarchy, tab);
         defer hierarchy.deinit();
 
         while (true) {
@@ -116,7 +116,7 @@ pub const Parser = struct {
             if (operation.type == .postfix) {
                 try self.appendPostfixOperation(&hierarchy, operation);
             } else {
-                const right_index = try self.appendNextStandaloneExpression(tab);
+                const right_index = try self.appendNextStandaloneExpression(&hierarchy, tab);
                 try self.appendInfixOperation(&hierarchy, operation, right_index);
             }
         }
@@ -170,8 +170,9 @@ pub const Parser = struct {
     /// Includes things like `1.234`, `My_variable`, `+4.56`, `-7.89`,
     /// `++Index` or `!Countdown` as well.  For member access like
     /// `First_identifier Second_identifier`, just grab the first one.
+    /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
     // TODO: also include operations like `my_function(...)`
-    fn appendNextStandaloneExpression(self: *Self, tab: u16) ParserError!NodeIndex {
+    fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16) ParserError!NodeIndex {
         try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing);
 
         switch (try self.peekToken(0)) {
@@ -181,6 +182,7 @@ pub const Parser = struct {
                 });
                 self.farthest_token_index += 1;
 
+                hierarchy.append(atomic_index) catch return ParserError.out_of_memory;
                 return atomic_index;
             },
             .operator => |operator| {
@@ -189,11 +191,23 @@ pub const Parser = struct {
                     return ParserError.syntax;
                 }
                 self.farthest_token_index += 1;
-                // TODO: multiple prefix operators probably don't work here.
-                return try self.justAppendNode(Node{ .prefix = .{
-                    .operator = operator,
-                    .node = try self.appendNextStandaloneExpression(tab),
-                } });
+                const prefix_index = try self.justAppendNode(Node{
+                    .prefix = .{
+                        .operator = operator,
+                        // This breaks the invariant, but we need to append to `hierarchy` first.
+                        // Then we need to append the next standalone expression.
+                        .node = 0,
+                    },
+                });
+                hierarchy.append(prefix_index) catch return ParserError.out_of_memory;
+                const next_index = try self.appendNextStandaloneExpression(hierarchy, tab);
+                switch (self.nodes.items()[prefix_index]) {
+                    // restore the invariant.
+                    .prefix => |*prefix| prefix.node = next_index,
+                    else => return ParserError.broken_invariant,
+                }
+                hierarchy.append(next_index) catch return ParserError.out_of_memory;
+                return prefix_index;
             },
             else => {
                 self.tokenizer.addErrorAt(self.farthest_token_index, "expected an expression");
@@ -210,8 +224,9 @@ pub const Parser = struct {
             hierarchy_index -= 1;
             left_index = hierarchy.inBounds(hierarchy_index);
             const left = &self.nodes.items()[left_index];
+            const left_operation = left.operation();
             // lower precedence means higher priority.
-            if (left.operation().precedence(Operation.Compare.on_left) <= operation_precedence) {
+            if (left_operation.isPostfix() or left_operation.precedence(Operation.Compare.on_left) <= operation_precedence) {
                 // `left` has higher priority; we should continue up the hierarchy
                 // until we find the spot that this new operation should take.
                 _ = hierarchy.pop();
@@ -225,7 +240,12 @@ pub const Parser = struct {
                             .node = boundary_index,
                         } });
                     },
-                    else => return ParserError.unimplemented,
+                    else => {
+                        common.debugStderr.print("trying to append postfix but got ", .{}) catch {};
+                        left.printLine(common.debugStderr) catch {};
+                        self.printTokenDebugInfo();
+                        return ParserError.unimplemented;
+                    },
                 }
                 return;
             }
@@ -247,8 +267,9 @@ pub const Parser = struct {
             hierarchy_index -= 1;
             left_index = hierarchy.inBounds(hierarchy_index);
             const left = &self.nodes.items()[left_index];
+            const left_operation = left.operation();
             // lower precedence means higher priority.
-            if (left.operation().precedence(Operation.Compare.on_left) <= operation_precedence) {
+            if (left_operation.isPostfix() or left_operation.precedence(Operation.Compare.on_left) <= operation_precedence) {
                 // `left` has higher priority; we should continue up the hierarchy
                 // until we find the spot that this new operation should take.
                 _ = hierarchy.pop();
@@ -263,7 +284,20 @@ pub const Parser = struct {
                             .right = right_index,
                         } });
                     },
-                    else => return ParserError.unimplemented,
+                    .prefix => |*prefix| {
+                        const boundary_index = prefix.node;
+                        prefix.node = try self.justAppendNode(.{ .binary = .{
+                            .operator = operation.operator,
+                            .left = boundary_index,
+                            .right = right_index,
+                        } });
+                    },
+                    else => {
+                        common.debugStderr.print("trying to append infix but got ", .{}) catch {};
+                        left.printLine(common.debugStderr) catch {};
+                        self.printTokenDebugInfo();
+                        return ParserError.unimplemented;
+                    },
                 }
                 return;
             }
@@ -312,6 +346,10 @@ pub const Parser = struct {
     }
 
     const Self = @This();
+
+    pub fn printTokenDebugInfo(self: *Self) void {
+        self.tokenizer.printDebugInfoAt(self.farthest_token_index);
+    }
 };
 
 const expected_spacing = "expected spacing between each identifier";
@@ -337,17 +375,17 @@ test "parser simple expressions" {
         Node{ .atomic_token = 1 }, // 3.456
         Node{ .statement = .{ .node = 3, .tab = 4 } },
         Node{ .atomic_token = 4 }, // Hello_you
-        Node{ .statement = .{ .node = 6, .tab = 0 } },
+        Node{ .statement = .{ .node = 5, .tab = 0 } },
         // [5]:
+        Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
         Node{ .atomic_token = 9 }, // 1.234
-        Node{ .prefix = .{ .operator = Operator.plus, .node = 5 } },
-        Node{ .statement = .{ .node = 9, .tab = 2 } },
+        Node{ .statement = .{ .node = 8, .tab = 2 } },
+        Node{ .prefix = .{ .operator = Operator.minus, .node = 9 } },
         Node{ .atomic_token = 14 }, // 5.678
-        Node{ .prefix = .{ .operator = Operator.minus, .node = 8 } },
         // [10]:
-        Node{ .statement = .{ .node = 12, .tab = 4 } },
+        Node{ .statement = .{ .node = 11, .tab = 4 } },
+        Node{ .prefix = .{ .operator = Operator.increment, .node = 12 } },
         Node{ .atomic_token = 19 }, // Foe
-        Node{ .prefix = .{ .operator = Operator.increment, .node = 11 } },
         Node{ .statement = .{ .node = 15, .tab = 8 } },
         Node{ .atomic_token = 22 }, // Fum
         // [15]:
@@ -364,9 +402,10 @@ test "parser simple expressions" {
     });
     try std.testing.expectEqual(Node.Statement{ .node = 1, .tab = 0 }, try parser.at(0));
     try std.testing.expectEqual(Node.Statement{ .node = 3, .tab = 4 }, try parser.at(1));
-    try std.testing.expectEqual(Node.Statement{ .node = 6, .tab = 0 }, try parser.at(2));
-    try std.testing.expectEqual(Node.Statement{ .node = 9, .tab = 2 }, try parser.at(3));
-    try std.testing.expectEqual(Node.Statement{ .node = 12, .tab = 4 }, try parser.at(4));
+    try std.testing.expectEqual(Node.Statement{ .node = 5, .tab = 0 }, try parser.at(2));
+    try std.testing.expectEqual(Node.Statement{ .node = 8, .tab = 2 }, try parser.at(3));
+    try std.testing.expectEqual(Node.Statement{ .node = 11, .tab = 4 }, try parser.at(4));
+    try std.testing.expectEqual(Node.Statement{ .node = 15, .tab = 8 }, try parser.at(5));
 }
 
 test "parser multiplication" {
@@ -375,14 +414,14 @@ test "parser multiplication" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    try parser.tokenizer.file.lines.append(try SmallString.init("Theta * 3.14"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("Wompus * 3.14"));
 
     try parser.complete();
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         Node{ .statement = .{ .node = 3, .tab = 0 } },
-        Node{ .atomic_token = 1 }, // "Theta"
-        Node{ .atomic_token = 5 }, // "3.14"
+        Node{ .atomic_token = 1 }, // Wompus
+        Node{ .atomic_token = 5 }, // 3.14
         Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
         .end,
     });
@@ -429,16 +468,16 @@ test "simple prefix/postfix operators with multiplication" {
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
         Node{ .statement = .{ .node = 4, .tab = 0 } },
+        Node{ .prefix = .{ .operator = Operator.increment, .node = 2 } },
         Node{ .atomic_token = 3 }, // Theta
-        Node{ .prefix = .{ .operator = Operator.increment, .node = 1 } },
         Node{ .atomic_token = 7 }, // Beta
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 2, .right = 3 } },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 3 } },
         // [5]:
         Node{ .statement = .{ .node = 9, .tab = 0 } },
         Node{ .atomic_token = 10 }, // Zeta
+        Node{ .prefix = .{ .operator = Operator.increment, .node = 8 } },
         Node{ .atomic_token = 16 }, // Woga
-        Node{ .prefix = .{ .operator = Operator.increment, .node = 7 } },
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 6, .right = 8 } },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 6, .right = 7 } },
         // [10]:
         Node{ .statement = .{ .node = 14, .tab = 0 } },
         Node{ .atomic_token = 19 }, // Yodus
@@ -447,7 +486,7 @@ test "simple prefix/postfix operators with multiplication" {
         Node{ .binary = .{ .operator = Operator.multiply, .left = 12, .right = 13 } },
         // [15]:
         Node{ .statement = .{ .node = 18, .tab = 0 } },
-        Node{ .atomic_token = 28 }, // Yodus
+        Node{ .atomic_token = 28 }, // Wobdash
         Node{ .atomic_token = 32 }, // Flobsmash
         Node{ .binary = .{ .operator = Operator.multiply, .left = 16, .right = 19 } },
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 17 } },
@@ -480,10 +519,54 @@ test "nested prefix/postfix operators" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Berry Cantaloupe--!"));
-    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("!++Berry Cantaloupe"));
-    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Yuck * Zoldy++!"));
-    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("!--Xeno Yak * Zelda"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("Abc Xyz-- !"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("! ++Def Uvw"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("Yammer * Zen++ !"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("! --Oh Great * Hessian"));
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .statement = .{ .node = 5, .tab = 0 } },
+        Node{ .atomic_token = 1 }, // Abc
+        Node{ .atomic_token = 3 }, // Xyz
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
+        Node{ .postfix = .{ .operator = Operator.decrement, .node = 3 } },
+        // [5]:
+        Node{ .postfix = .{ .operator = Operator.not, .node = 4 } },
+        Node{ .statement = .{ .node = 7, .tab = 0 } },
+        Node{ .prefix = .{ .operator = Operator.not, .node = 8 } },
+        Node{ .prefix = .{ .operator = Operator.increment, .node = 11 } },
+        Node{ .atomic_token = 14 }, // Def
+        // [10]:
+        Node{ .atomic_token = 16 }, // Uvw
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
+        Node{ .statement = .{ .node = 15, .tab = 0 } },
+        Node{ .atomic_token = 19 }, // Yammer
+        Node{ .atomic_token = 23 }, // Zen
+        // [15]:
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 13, .right = 17 } },
+        Node{ .postfix = .{ .operator = Operator.increment, .node = 14 } },
+        Node{ .postfix = .{ .operator = Operator.not, .node = 16 } },
+        Node{ .statement = .{ .node = 25, .tab = 0 } },
+        Node{ .prefix = .{ .operator = Operator.not, .node = 20 } },
+        // [20]:
+        Node{ .prefix = .{ .operator = Operator.decrement, .node = 23 } },
+        Node{ .atomic_token = 34 }, // Oh
+        Node{ .atomic_token = 36 }, // Great
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 21, .right = 22 } },
+        Node{ .atomic_token = 40 }, // Hessian
+        // [25]:
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 19, .right = 24 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+        6,
+        12,
+        18,
+    });
 }
 
 test "order of operations with addition and multiplication" {
