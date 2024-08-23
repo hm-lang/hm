@@ -422,7 +422,7 @@ test "simple prefix/postfix operators with multiplication" {
     try parser.tokenizer.file.lines.append(try SmallString.init("++Theta * Beta"));
     try parser.tokenizer.file.lines.append(try SmallString.init("Zeta * ++Woga"));
     try parser.tokenizer.file.lines.append(try SmallString.init("Yodus-- * Spatula"));
-    // TODO: try parser.tokenizer.file.lines.append(try SmallString.init("Wobdash * Flobsmash--"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("Wobdash * Flobsmash--"));
 
     try parser.complete();
 
@@ -446,12 +446,19 @@ test "simple prefix/postfix operators with multiplication" {
         Node{ .atomic_token = 25 }, // Spatula
         Node{ .binary = .{ .operator = Operator.multiply, .left = 12, .right = 13 } },
         // [15]:
+        Node{ .statement = .{ .node = 18, .tab = 0 } },
+        Node{ .atomic_token = 28 }, // Yodus
+        Node{ .atomic_token = 32 }, // Flobsmash
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 16, .right = 19 } },
+        Node{ .postfix = .{ .operator = Operator.decrement, .node = 17 } },
+        // [20]:
         .end,
     });
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
         0,
         5,
         10,
+        15,
     });
 }
 
@@ -485,14 +492,31 @@ test "order of operations with addition and multiplication" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    // TODO
-    //try parser.tokenizer.file.lines.append(try SmallString.init("Theta * Beta + Zeta"));
-    //try parser.tokenizer.file.lines.append(try SmallString.init("Panda + K_panda * 1000"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("Alpha * Gamma + Epsilon"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("Panko + K_panko * 1000"));
 
     try parser.complete();
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .statement = .{ .node = 5, .tab = 0 } },
+        Node{ .atomic_token = 1 }, // Alpha
+        Node{ .atomic_token = 5 }, // Gamma
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
+        Node{ .atomic_token = 9 }, // Epsilon
+        // [5]:
+        Node{ .binary = .{ .operator = Operator.plus, .left = 3, .right = 4 } },
+        Node{ .statement = .{ .node = 9, .tab = 0 } },
+        Node{ .atomic_token = 12 }, // Panko
+        Node{ .atomic_token = 16 }, // K_panko
+        Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 11 } },
+        // [10]:
+        Node{ .atomic_token = 20 }, // 1000
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 8, .right = 10 } },
         .end,
     });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{});
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+        6,
+    });
 }
