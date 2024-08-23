@@ -397,11 +397,45 @@ pub const Operator = enum(u64) {
     const Self = @This();
 };
 
-const OperationType = enum { none, prefix, infix, postfix };
+pub const OperationType = enum {
+    none,
+    prefix,
+    infix,
+    postfix,
 
-const Operation = struct {
-    operator: u64 = 0,
+    pub fn printLine(self: Self, writer: anytype) !void {
+        try self.print(writer);
+        try writer.print("\n", .{});
+    }
+
+    pub fn print(self: Self, writer: anytype) !void {
+        return switch (self) {
+            .none => writer.print("Operation.Type.none", .{}),
+            .prefix => writer.print("Operation.Type.prefix", .{}),
+            .infix => writer.print("Operation.Type.infix", .{}),
+            .postfix => writer.print("Operation.Type.postfix", .{}),
+        };
+    }
+
+    const Self = @This();
+};
+
+pub const Operation = struct {
+    operator: Operator = .none,
     type: Type = Type.none,
+
+    pub fn printLine(self: Self, writer: anytype) !void {
+        try self.print(writer);
+        try writer.print("\n", .{});
+    }
+
+    pub fn print(self: Self, writer: anytype) !void {
+        try writer.print("Operation{{ .operator = ", .{});
+        try self.operator.print(writer);
+        try writer.print(", .type = ", .{});
+        try self.type.print(writer);
+        try writer.print("}}", .{});
+    }
 
     pub fn isPrefix(self: Self) bool {
         return self.type == Type.prefix;
@@ -416,84 +450,83 @@ const Operation = struct {
     pub fn precedence(self: Self, compare: Compare) u8 {
         const rtl: u8 = @intFromEnum(compare);
         return switch (self.operator) {
-            // TODO: we should make all these u64s a special enum so we ensure we're using exhausting these switch cases.
-            SmallString.as64("~") => 10,
-            SmallString.as64("++") => 30,
-            SmallString.as64("--") => 30,
-            SmallString.as64("=") => 110,
-            SmallString.as64("==") => 90,
-            SmallString.as64("<") => 90,
-            SmallString.as64("<=") => 90,
-            SmallString.as64(">") => 90,
-            SmallString.as64(">=") => 90,
-            SmallString.as64("+") => if (self.isInfix()) 70 else 40 - rtl,
-            SmallString.as64("+=") => 110,
-            SmallString.as64("-") => if (self.isInfix()) 70 else 40 - rtl,
-            SmallString.as64("-=") => 110,
-            SmallString.as64("*") => 60,
-            SmallString.as64("*=") => 110,
-            SmallString.as64("**") => 30,
-            SmallString.as64("**=") => 110,
-            SmallString.as64("^") => 30,
-            SmallString.as64("^=") => 110,
-            SmallString.as64("/") => 60,
-            SmallString.as64("/=") => 110,
-            SmallString.as64("//") => 60,
-            SmallString.as64("//=") => 110,
-            SmallString.as64("%") => 60,
-            SmallString.as64("%=") => 110,
-            SmallString.as64("%%") => 60,
-            SmallString.as64("%%=") => 110,
-            SmallString.as64("?") => 20,
-            SmallString.as64("??") => 20,
-            SmallString.as64("??=") => 110,
-            SmallString.as64("!") => if (self.isPostfix()) 20 else 40 - rtl,
-            SmallString.as64("!!") => 40 - rtl,
-            SmallString.as64("!=") => 110,
-            SmallString.as64(":") => 110,
-            SmallString.as64(";") => 110,
-            SmallString.as64(".") => 110,
-            SmallString.as64(",") => 120,
-            SmallString.as64("&&") => 80,
-            SmallString.as64("&&=") => 110,
-            SmallString.as64("||") => 80,
-            SmallString.as64("||=") => 110,
-            SmallString.as64("&") => 70,
-            SmallString.as64("&=") => 110,
-            SmallString.as64("|") => 70,
-            SmallString.as64("|=") => 110,
-            SmallString.as64("><") => 80,
-            SmallString.as64("><=") => 110,
-            SmallString.as64("<>") => 40 - rtl,
-            SmallString.as64("<<") => 50,
-            SmallString.as64("<<=") => 110,
-            SmallString.as64(">>") => 50,
-            SmallString.as64(">>=") => 110,
-            SmallString.as64("$") => 20,
-            SmallString.as64("$$") => 20,
-            SmallString.as64("$$$") => 20,
-            SmallString.as64("$$$$") => 20,
-            SmallString.as64("$$$$$") => 20,
-            SmallString.as64("$$$$$$") => 20,
-            SmallString.as64("$$$$$$$") => 20,
-            SmallString.as64("$$$$$$$$") => 20,
-            SmallString.as64(" ") => 20,
-            SmallString.as64("::") => 20,
-            SmallString.as64(";;") => 20,
-            SmallString.as64("..") => 20,
-            SmallString.as64(";:") => 20,
-            SmallString.as64(":;") => 20,
-            SmallString.as64(";.") => 20,
-            SmallString.as64(".;") => 20,
-            SmallString.as64(":.") => 20,
-            SmallString.as64(".:") => 20,
-            SmallString.as64(":;.") => 20,
-            SmallString.as64(";:.") => 20,
-            SmallString.as64(":.;") => 20,
-            SmallString.as64(";.:") => 20,
-            SmallString.as64(".:;") => 20,
-            SmallString.as64(".;:") => 20,
-            else => 250,
+            .none => 1,
+            .new_generic => 10,
+            .increment => 30,
+            .decrement => 30,
+            .assign => 110,
+            .equals => 90,
+            .less_than => 90,
+            .less_equal => 90,
+            .greater_than => 90,
+            .greater_equal => 90,
+            .plus => if (self.isInfix()) 70 else 40 - rtl,
+            .plus_assign => 110,
+            .minus => if (self.isInfix()) 70 else 40 - rtl,
+            .minus_assign => 110,
+            .multiply => 60,
+            .multiply_assign => 110,
+            .exponentiate1 => 30,
+            .exponentiate1_assign => 110,
+            .exponentiate => 30,
+            .exponentiate_assign => 110,
+            .divide => 60,
+            .divide_assign => 110,
+            .integer_divide => 60,
+            .integer_divide_assign => 110,
+            .modulus => 60,
+            .modulus_assign => 110,
+            .remainder => 60,
+            .remainder_assign => 110,
+            .nullify => 20,
+            .nullish_or => 20,
+            .nullish_or_assign => 110,
+            .not => if (self.isPostfix()) 20 else 40 - rtl,
+            .not_not => 40 - rtl,
+            .not_equal => 110,
+            .declare_readonly => 110,
+            .declare_writable => 110,
+            .declare_temporary => 110,
+            .comma => 120,
+            .logical_and => 80,
+            .logical_and_assign => 110,
+            .logical_or => 80,
+            .logical_or_assign => 110,
+            .bitwise_and => 70,
+            .bitwise_and_assign => 110,
+            .bitwise_or => 70,
+            .bitwise_or_assign => 110,
+            .bitwise_xor => 80,
+            .bitwise_xor_assign => 110,
+            .bitwise_flip => 40 - rtl,
+            .bitshift_left => 50,
+            .bitshift_left_assign => 110,
+            .bitshift_right => 50,
+            .bitshift_right_assign => 110,
+            .lambda1 => 20,
+            .lambda2 => 20,
+            .lambda3 => 20,
+            .lambda4 => 20,
+            .lambda5 => 20,
+            .lambda6 => 20,
+            .lambda7 => 20,
+            .lambda8 => 20,
+            .implicit_member_access => 20,
+            .readonly_member_access => 20,
+            .writable_member_access => 20,
+            .temporary_member_access => 20,
+            .wr_member_access => 20,
+            .rw_member_access => 20,
+            .wt_member_access => 20,
+            .tw_member_access => 20,
+            .rt_member_access => 20,
+            .tr_member_access => 20,
+            .rwt_member_access => 20,
+            .wrt_member_access => 20,
+            .rtw_member_access => 20,
+            .wtr_member_access => 20,
+            .trw_member_access => 20,
+            .twr_member_access => 20,
         };
     }
 

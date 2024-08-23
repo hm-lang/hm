@@ -91,6 +91,7 @@ pub fn OwnedList(comptime T: type) type {
             return self.array.items[index];
         }
 
+        // TODO: probably should be `takeInBounds` or `removeInBounds`.
         pub inline fn remove(self: *Self, index: usize) ?T {
             return if (index < self.count())
                 self.array.orderedRemove(index)
