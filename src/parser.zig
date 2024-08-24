@@ -180,7 +180,7 @@ pub const Parser = struct {
         try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing);
 
         switch (try self.peekToken(0)) {
-            .starts_upper, .number => {
+            .starts_lower, .starts_upper, .number => {
                 const atomic_index = try self.justAppendNode(Node{
                     .atomic_token = self.farthest_token_index,
                 });
@@ -432,7 +432,7 @@ test "parser simple expressions" {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("3.456"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("    Hello_you"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("    hello_you"));
     try parser.tokenizer.file.lines.append(try SmallString.init("+1.234"));
     try parser.tokenizer.file.lines.append(try SmallString.init("  -5.678"));
     try parser.tokenizer.file.lines.append(try SmallString.init("    $$$Foe"));
@@ -445,7 +445,7 @@ test "parser simple expressions" {
         Node{ .statement = .{ .node = 1, .tab = 0 } },
         Node{ .atomic_token = 1 }, // 3.456
         Node{ .statement = .{ .node = 3, .tab = 4 } },
-        Node{ .atomic_token = 4 }, // Hello_you
+        Node{ .atomic_token = 4 }, // hello_you
         Node{ .statement = .{ .node = 5, .tab = 0 } },
         // [5]:
         Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
