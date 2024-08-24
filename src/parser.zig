@@ -94,12 +94,13 @@ pub const Parser = struct {
             else => return ParserError.broken_invariant,
         };
 
-        const node_index = try self.appendNextExpression(tab);
+        const node_index = try self.appendNextExpression(tab, Until.no_limit);
+        try self.assertAndConsumeNextTokenIf(.newline, "expected newline");
 
         return .{ .tab = tab, .node = node_index };
     }
 
-    fn appendNextExpression(self: *Self, tab: u16) ParserError!NodeIndex {
+    fn appendNextExpression(self: *Self, tab: u16, until: Until) ParserError!NodeIndex {
         // The current left node which can interact with the next operation,
         // is the last element of `hierarchy`, with nesting all the way up
         // to the "root node" (`hierarchy.inBounds(0)`) which should be returned.
@@ -108,9 +109,8 @@ pub const Parser = struct {
         defer hierarchy.deinit();
 
         while (true) {
-            const operation = try self.seekNextOperation(tab);
+            const operation = try self.seekNextOperation(tab, until);
             if (operation.operator == .none) {
-                try self.assertAndConsumeNextTokenIf(.newline, "expected newline");
                 return hierarchy.inBounds(0);
             }
             if (operation.type == .postfix) {
@@ -124,7 +124,9 @@ pub const Parser = struct {
 
     // Returns the next postfix or infix operation.
     // Prefix operations are taken care of inside of `appendNextStandaloneExpression`.
-    fn seekNextOperation(self: *Self, tab: u16) ParserError!Operation {
+    fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!Operation {
+        const restore_index = self.farthest_token_index;
+
         switch (try self.peekToken(0)) {
             // This was the last atom in the row.
             .newline => {
@@ -136,34 +138,36 @@ pub const Parser = struct {
             else => try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing),
         }
 
-        switch (try self.peekToken(0)) {
-            .operator => |operator| {
+        const operation: Operation = switch (try self.peekToken(0)) {
+            .operator => |operator| blk: {
                 if (operator.isInfixable()) {
                     self.farthest_token_index += 1;
-                    return .{ .operator = operator, .type = .infix };
+                    break :blk .{ .operator = operator, .type = .infix };
                 } else if (operator.isPostfixable()) {
                     self.farthest_token_index += 1;
-                    return .{ .operator = operator, .type = .postfix };
+                    break :blk .{ .operator = operator, .type = .postfix };
                 } else {
                     std.debug.assert(operator.isPrefixable());
                     // Back up so that the next standalone expression starts at the
                     // spacing before this prefix:
                     self.farthest_token_index -= 1;
                     // Pretend that we have an operator before this prefix.
-                    return .{ .operator = .implicit_member_access, .type = .infix };
+                    break :blk .{ .operator = .implicit_member_access, .type = .infix };
                 }
             },
-            else => {
+            else => blk: {
                 // We encountered another realizable token, back up so that
                 // we maintain the invariant that there's a space before the next real element.
                 self.farthest_token_index -= 1;
-                return .{ .operator = .implicit_member_access, .type = .infix };
+                break :blk .{ .operator = .implicit_member_access, .type = .infix };
             },
-        }
+        };
 
-        (try self.peekToken(0)).printLine(common.debugStderr) catch {};
-        self.addTokenizerError("expected end of line");
-        return ParserError.unimplemented;
+        if (until.shouldBreakBeforeOperation(operation)) {
+            self.farthest_token_index = restore_index;
+            return .{ .operator = .none };
+        }
+        return operation;
     }
 
     /// Adds an atom with possible prefix (but NOT postfix) operators.
@@ -190,33 +194,30 @@ pub const Parser = struct {
                     self.addTokenizerError("not a prefix operator");
                     return ParserError.syntax;
                 }
-                common.debugStderr.print("appending prefix, breaking invariant with operator ", .{}) catch {};
+                common.debugStderr.print("appending prefix operator ", .{}) catch {};
                 operator.printLine(common.debugStderr) catch {};
                 self.farthest_token_index += 1;
+                // We need to parse a different way because we can't break the hierarchy invariant here.
+                // Start with the prefix to maintain a rough left-to-right direction inside `self.nodes`.
                 const prefix_index = try self.justAppendNode(Node{
                     .prefix = .{
                         .operator = operator,
-                        // This breaks the invariant, but we need to append to `hierarchy` first.
-                        // Then we need to append the next standalone expression.
-                        // TODO: this may be bad because `hierarchy` may try to swap this out somewhere.
-                        //       this may need to be a unique "negative" number that we hunt for
-                        //       later and replace.
-                        //  ALTERNATIVELY: we should pass in a `appendNextExpressionUpTo(operator_precedence)`
-                        //  and then we know where we're supposed to put the prefix operator.
-                        .node = 0,
+                        .node = 0, // break the invariant here
                     },
                 });
-                hierarchy.append(prefix_index) catch return ParserError.out_of_memory;
-                const next_index = try self.appendNextStandaloneExpression(hierarchy, tab);
+                // We need every operation *stronger* than this prefix to be attached to this prefix.
+                const inner_index = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator));
                 switch (self.nodes.items()[prefix_index]) {
-                    // restore the invariant.
+                    // restore the invariant:
                     .prefix => |*prefix| {
-                        prefix.node = next_index;
-                        common.debugStderr.print("restoring prefix invariant ", .{}) catch {};
-                        self.nodes.items()[prefix_index].printLine(common.debugStderr) catch {};
+                        prefix.node = inner_index;
                     },
                     else => return ParserError.broken_invariant,
                 }
+                hierarchy.append(prefix_index) catch return ParserError.out_of_memory;
+                common.debugStderr.print("after appending prefix operator, hierarchy is ", .{}) catch {};
+                hierarchy.printLine(common.debugStderr) catch {};
+                self.nodes.printLine(common.debugStderr) catch {};
                 return prefix_index;
             },
             else => {
@@ -355,8 +356,6 @@ pub const Parser = struct {
         return ParserError.syntax;
     }
 
-    const Self = @This();
-
     fn addTokenizerError(self: *Self, error_message: []const u8) void {
         self.tokenizer.addErrorAt(self.farthest_token_index, error_message);
     }
@@ -364,6 +363,73 @@ pub const Parser = struct {
     pub fn printTokenDebugInfo(self: *Self) void {
         self.tokenizer.printDebugInfoAt(self.farthest_token_index);
     }
+
+    const Self = @This();
+};
+
+const UntilTag = enum {
+    precedence,
+};
+
+/// Necessary for prefix operations.
+const Until = union(UntilTag) {
+    precedence: u8,
+
+    pub const no_limit: Self = .{ .precedence = 255 };
+
+    /// Will keep going until this prefix operator should win.
+    pub fn prefix_strength_wins(operator: Operator) Self {
+        const operation = Operation{ .operator = operator, .type = .prefix };
+        return .{ .precedence = operation.precedence(Operation.Compare.on_left) };
+    }
+
+    pub fn shouldBreakBeforeOperation(self: Self, on_right: Operation) bool {
+        switch (self) {
+            .precedence => |left_precedence| {
+                const right_precedence = on_right.precedence(Operation.Compare.on_right);
+                // TODO: this should maybe be <= ??
+                return left_precedence < right_precedence;
+            },
+        }
+    }
+
+    pub fn equals(a: Self, b: Self) bool {
+        const tag_a = std.meta.activeTag(a);
+        const tag_b = std.meta.activeTag(b);
+        if (tag_a != tag_b) return false;
+
+        const info = switch (@typeInfo(Self)) {
+            .Union => |info| info,
+            else => unreachable,
+        };
+        inline for (info.fields) |field_info| {
+            if (@field(Tag, field_info.name) == tag_a) {
+                const SubField = @TypeOf(@field(a, field_info.name));
+                if (std.meta.hasMethod(SubField, "equals")) {
+                    return @field(a, field_info.name).equals(@field(b, field_info.name));
+                } else {
+                    return @field(a, field_info.name) == @field(b, field_info.name);
+                }
+            }
+        }
+        return false;
+    }
+
+    pub fn printLine(self: Self, writer: anytype) !void {
+        try self.print(writer);
+        try writer.print("\n", .{});
+    }
+
+    pub fn print(self: Self, writer: anytype) !void {
+        switch (self) {
+            .precedence => |precedence| {
+                try writer.print("Until{{ .precedence = {d} }}", .{precedence});
+            },
+        }
+    }
+
+    pub const Tag = UntilTag;
+    const Self = @This();
 };
 
 const expected_spacing = "expected spacing between each identifier";
@@ -553,8 +619,8 @@ test "complicated prefix/postfix operators with addition/multiplication" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    try parser.tokenizer.file.lines.append(try SmallString.init("Apple * !Berry Cantaloupe-- + 5"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("--Xeno Yak! + 3 * Zelda"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("Apple * !Berry Cantaloupe-- + 500"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("--Xeno Yak! - 3000 * Zelda"));
 
     try parser.complete();
 
@@ -562,15 +628,15 @@ test "complicated prefix/postfix operators with addition/multiplication" {
         // [0]:
         Node{ .statement = .{ .node = 9, .tab = 0 } },
         Node{ .atomic_token = 1 }, // Apple
-        Node{ .prefix = .{ .operator = Operator.not, .node = 7 } },
+        Node{ .prefix = .{ .operator = Operator.not, .node = 6 } },
         Node{ .atomic_token = 7 }, // Berry
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 6 } },
-        // [5]:
         Node{ .atomic_token = 9 }, // Cantaloupe
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 5 } },
-        Node{ .postfix = .{ .operator = Operator.decrement, .node = 3 } },
-        Node{ .atomic_token = 15 }, // 5
-        Node{ .binary = .{ .operator = Operator.plus, .left = 4, .right = 8 } }, // TODO: .right should be the `not` (node 2)
+        // [5]:
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 3, .right = 4 } },
+        Node{ .postfix = .{ .operator = Operator.decrement, .node = 5 } },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
+        Node{ .atomic_token = 15 }, // 500
+        Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 8 } },
         // [10]:
         Node{ .statement = .{ .node = 17, .tab = 0 } },
         Node{ .prefix = .{ .operator = Operator.decrement, .node = 15 } },
@@ -579,8 +645,8 @@ test "complicated prefix/postfix operators with addition/multiplication" {
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 12, .right = 13 } },
         // [15]:
         Node{ .postfix = .{ .operator = Operator.not, .node = 14 } },
-        Node{ .atomic_token = 28 }, // 3
-        Node{ .binary = .{ .operator = Operator.plus, .left = 11, .right = 19 } },
+        Node{ .atomic_token = 28 }, // 3000
+        Node{ .binary = .{ .operator = Operator.minus, .left = 11, .right = 19 } }, // TODO: left should be not (15)
         Node{ .atomic_token = 32 }, // Zelda
         Node{ .binary = .{ .operator = Operator.multiply, .left = 16, .right = 18 } },
         // [20]:

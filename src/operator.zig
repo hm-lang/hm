@@ -397,7 +397,7 @@ pub const Operator = enum(u64) {
     const Self = @This();
 };
 
-pub const OperationType = enum {
+const OperationType = enum {
     none,
     prefix,
     infix,
