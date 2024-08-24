@@ -146,7 +146,7 @@ pub fn OwnedList(comptime T: type) type {
         }
 
         pub fn expectEqualsSlice(self: Self, other: []const T) !void {
-            const stderr = std.io.getStdErr().writer();
+            const stderr = common.debugStderr;
             errdefer {
                 stderr.print("expected:\n", .{}) catch {};
                 common.printSliceLine(other, stderr) catch {};

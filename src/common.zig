@@ -120,6 +120,7 @@ pub fn printSliceTabbed(slice: anytype, writer: anytype, tab: u16) !void {
     try writer.print("}}", .{});
 }
 
+// TODO: reorder arguments so that `writer` comes first
 pub fn printSliceLine(slice: anytype, writer: anytype) !void {
     try printSliceTabbed(slice, writer, 0);
     try writer.print("\n", .{});

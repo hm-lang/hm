@@ -1051,7 +1051,6 @@ test "tokenizer question operators" {
     });
 }
 
-// TODO: invalid lambda test
 test "tokenizer lambda operators" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
@@ -1085,6 +1084,22 @@ test "tokenizer lambda operators" {
         Token{ .newline = 2 },
         .end,
     });
+}
+
+test "invalid tokenizer lambda operators" {
+    {
+        var tokenizer: Tokenizer = .{};
+        defer tokenizer.deinit();
+
+        try tokenizer.file.lines.append(try SmallString.init("$$$$$$$$$"));
+
+        try tokenizer.complete();
+
+        try tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "$$$$$$$$$",
+            "#@!~~~~~~ invalid operator",
+        });
+    }
 }
 
 test "tokenizer ampersand operators" {

@@ -27,6 +27,10 @@ pub const File = struct {
         self.lines.deinit();
     }
 
+    pub fn count(self: *const File) usize {
+        return self.lines.count();
+    }
+
     pub fn read(self: *File) FileError!void {
         const lines = try self.readInternal();
         self.lines.deinit();
@@ -99,6 +103,28 @@ pub const File = struct {
         return std.fs.cwd().createFile(self.path.slice(), .{}) catch {
             return FileError.FileNotFound;
         };
+    }
+
+    pub fn expectEqualsSlice(self: *const File, other: []const []const u8) !void {
+        const stderr = common.debugStderr;
+        errdefer {
+            stderr.print("expected:\n", .{}) catch {};
+            for (other) |line| {
+                stderr.print("{s}\n", .{line}) catch {};
+            }
+
+            stderr.print("\ngot:\n", .{}) catch {};
+            self.print(stderr) catch {};
+        }
+        for (0..@min(self.count(), other.len)) |index| {
+            const self_line = self.lines.inBounds(index);
+            const other_line = other[index];
+            std.testing.expectEqualStrings(other_line, self_line.slice()) catch |e| {
+                stderr.print("\nnot equal at index {d}\n\n", .{index}) catch {};
+                return e;
+            };
+        }
+        try std.testing.expectEqual(other.len, self.count());
     }
 };
 
