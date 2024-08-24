@@ -694,8 +694,6 @@ test "nested prefix/postfix operators" {
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("Abc Xyz-- !"));
     try parser.tokenizer.file.lines.append(try SmallString.init("! ++Def Uvw"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("Yammer * Zen++ !"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("! --Oh Great * Hessian"));
 
     try parser.complete();
 
@@ -715,30 +713,51 @@ test "nested prefix/postfix operators" {
         // [10]:
         Node{ .atomic_token = 16 }, // Uvw
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
-        Node{ .statement = .{ .node = 15, .tab = 0 } },
-        Node{ .atomic_token = 19 }, // Yammer
-        Node{ .atomic_token = 23 }, // Zen
-        // [15]:
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 13, .right = 17 } },
-        Node{ .postfix = .{ .operator = Operator.increment, .node = 14 } },
-        Node{ .postfix = .{ .operator = Operator.not, .node = 16 } },
-        Node{ .statement = .{ .node = 25, .tab = 0 } },
-        Node{ .prefix = .{ .operator = Operator.not, .node = 20 } },
-        // [20]:
-        Node{ .prefix = .{ .operator = Operator.decrement, .node = 23 } },
-        Node{ .atomic_token = 34 }, // Oh
-        Node{ .atomic_token = 36 }, // Great
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 21, .right = 22 } },
-        Node{ .atomic_token = 40 }, // Hessian
-        // [25]:
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 19, .right = 24 } },
         .end,
     });
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
         0,
         6,
-        12,
-        18,
+    });
+}
+
+test "deeply nested prefix/postfix operators" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    try parser.tokenizer.file.lines.append(try SmallString.init("$$Yammer * Zen++!"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("!--$Oh Great * Hessian"));
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .statement = .{ .node = 4, .tab = 0 } },
+        Node{ .prefix = .{ .operator = Operator.lambda2, .node = 2 } },
+        Node{ .atomic_token = 3 }, // Yammer
+        Node{ .atomic_token = 7 }, // Zen
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 6 } },
+        // [5]:
+        Node{ .postfix = .{ .operator = Operator.increment, .node = 3 } },
+        Node{ .postfix = .{ .operator = Operator.not, .node = 5 } },
+        Node{ .statement = .{ .node = 15, .tab = 0 } },
+        Node{ .prefix = .{ .operator = Operator.not, .node = 9 } },
+        Node{ .prefix = .{ .operator = Operator.decrement, .node = 13 } },
+        // [10]:
+        Node{ .prefix = .{ .operator = Operator.lambda1, .node = 11 } },
+        Node{ .atomic_token = 20 }, // Oh
+        Node{ .atomic_token = 22 }, // Great
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 12 } },
+        Node{ .atomic_token = 26 }, // Hessian
+        // [15]:
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 8, .right = 14 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+        7,
     });
 }
 

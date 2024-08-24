@@ -274,7 +274,9 @@ pub const Tokenizer = struct {
                 ']' => return self.getNextClose(Token.Close.bracket),
                 '}' => return self.getNextClose(Token.Close.brace),
                 ',' => return self.getNextComma(line),
+                '!' => return self.getNextExclamationOperator(line),
                 '?' => return self.getNextQuestionOperator(line),
+                '$' => return self.getNextLambdaOperator(line),
                 '&' => return try self.getNextAmpersandOperator(line),
                 else => return self.getNextOperator(line),
             }
@@ -421,6 +423,24 @@ pub const Tokenizer = struct {
         } };
     }
 
+    fn getNextExclamationOperator(self: *Self, line: SmallString) Token {
+        std.debug.assert(line.at(self.farthest_char_index) == '!');
+        switch (line.at(self.farthest_char_index + 1)) {
+            '!' => {
+                self.farthest_char_index += 2;
+                return Token{ .operator = Operator.not_not };
+            },
+            '=' => {
+                self.farthest_char_index += 2;
+                return Token{ .operator = Operator.not_equal };
+            },
+            else => {
+                self.farthest_char_index += 1;
+                return Token{ .operator = Operator.not };
+            },
+        }
+    }
+
     fn getNextQuestionOperator(self: *Self, line: SmallString) Token {
         std.debug.assert(line.at(self.farthest_char_index) == '?');
         if (line.at(self.farthest_char_index + 1) == '?') {
@@ -428,6 +448,28 @@ pub const Tokenizer = struct {
         }
         self.farthest_char_index += 1;
         return Token{ .operator = Operator.nullify };
+    }
+
+    fn getNextLambdaOperator(self: *Self, line: SmallString) Token {
+        std.debug.assert(line.at(self.farthest_char_index) == '$');
+        const initial_char_index = self.farthest_char_index;
+        self.farthest_char_index += 1;
+        while (line.at(self.farthest_char_index) == '$') {
+            self.farthest_char_index += 1;
+        }
+        const lambda_length = self.farthest_char_index - initial_char_index;
+        const operator: Operator = switch (lambda_length) {
+            1 => .lambda1,
+            2 => .lambda2,
+            3 => .lambda3,
+            4 => .lambda4,
+            5 => .lambda5,
+            6 => .lambda6,
+            7 => .lambda7,
+            8 => .lambda8,
+            else => return self.getInvalidToken(initial_char_index, Token.InvalidType.operator),
+        };
+        return Token{ .operator = operator };
     }
 
     /// &| is a special operator to create multiline strings, so check for that first.
@@ -449,9 +491,7 @@ pub const Tokenizer = struct {
             switch (line.inBounds(self.farthest_char_index)) {
                 '?',
                 '~',
-                '!',
                 '@',
-                '$',
                 '%',
                 '^',
                 '&',
@@ -957,23 +997,24 @@ test "tokenizer tokenizing" {
     try tokenizer.file.lines.inBounds(5).expectEqualsString("@[] @{} @() @ @hello_world  @A");
 }
 
-test "tokenizer ampersand operators" {
+test "tokenizer exclamation operators" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
 
-    try tokenizer.file.lines.append(try SmallString.init("&& &= &&= &|"));
+    try tokenizer.file.lines.append(try SmallString.init("! !! !!$ !="));
 
     try tokenizer.complete();
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
-        Token{ .operator = .logical_and },
-        Token{ .spacing = .{ .absolute = 3, .relative = 1 } },
-        Token{ .operator = .bitwise_and_assign },
-        Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
-        Token{ .operator = .logical_and_assign },
-        Token{ .spacing = .{ .absolute = 10, .relative = 1 } },
-        Token{ .open = Token.Open.multiline_quote },
-        Token{ .close = Token.Close.multiline_quote },
+        Token{ .operator = .not },
+        Token{ .spacing = .{ .absolute = 2, .relative = 1 } },
+        Token{ .operator = .not_not },
+        Token{ .spacing = .{ .absolute = 5, .relative = 1 } },
+        Token{ .operator = .not_not },
+        Token{ .spacing = .{ .absolute = 7, .relative = 0 } },
+        Token{ .operator = .lambda1 },
+        Token{ .spacing = .{ .absolute = 9, .relative = 1 } },
+        Token{ .operator = .not_equal },
         Token{ .newline = 1 },
         .end,
     });
@@ -1005,6 +1046,64 @@ test "tokenizer question operators" {
         Token{ .operator = .nullify },
         Token{ .spacing = .{ .absolute = 14, .relative = 0 } },
         Token{ .operator = .declare_temporary },
+        Token{ .newline = 1 },
+        .end,
+    });
+}
+
+// TODO: invalid lambda test
+test "tokenizer lambda operators" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    try tokenizer.file.lines.append(try SmallString.init("$$ !$ --$$$ $$$$$$$$"));
+    try tokenizer.file.lines.append(try SmallString.init("$$$$$$$ $$$$$$ $$$$$ $$$$"));
+
+    try tokenizer.complete();
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .operator = .lambda2 },
+        Token{ .spacing = .{ .absolute = 3, .relative = 1 } },
+        Token{ .operator = .not },
+        Token{ .spacing = .{ .absolute = 4, .relative = 0 } },
+        Token{ .operator = .lambda1 },
+        Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
+        Token{ .operator = .decrement },
+        Token{ .spacing = .{ .absolute = 8, .relative = 0 } },
+        Token{ .operator = .lambda3 },
+        Token{ .spacing = .{ .absolute = 12, .relative = 1 } },
+        Token{ .operator = .lambda8 },
+        Token{ .newline = 1 },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .operator = Operator.lambda7 },
+        Token{ .spacing = .{ .absolute = 8, .relative = 1 } },
+        Token{ .operator = Operator.lambda6 },
+        Token{ .spacing = .{ .absolute = 15, .relative = 1 } },
+        Token{ .operator = Operator.lambda5 },
+        Token{ .spacing = .{ .absolute = 21, .relative = 1 } },
+        Token{ .operator = Operator.lambda4 },
+        Token{ .newline = 2 },
+        .end,
+    });
+}
+
+test "tokenizer ampersand operators" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    try tokenizer.file.lines.append(try SmallString.init("&& &= &&= &|"));
+
+    try tokenizer.complete();
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        Token{ .spacing = .{ .absolute = 0, .relative = 0 } },
+        Token{ .operator = .logical_and },
+        Token{ .spacing = .{ .absolute = 3, .relative = 1 } },
+        Token{ .operator = .bitwise_and_assign },
+        Token{ .spacing = .{ .absolute = 6, .relative = 1 } },
+        Token{ .operator = .logical_and_assign },
+        Token{ .spacing = .{ .absolute = 10, .relative = 1 } },
+        Token{ .open = Token.Open.multiline_quote },
+        Token{ .close = Token.Close.multiline_quote },
         Token{ .newline = 1 },
         .end,
     });

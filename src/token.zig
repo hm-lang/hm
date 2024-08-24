@@ -152,9 +152,9 @@ pub const Token = union(TokenTag) {
                 try writer.print("\") }}", .{});
             },
             .operator => |operator| {
-                try writer.print("Token{{ .operator = SmallString.as64(\"", .{});
-                try operator.string().print(writer);
-                try writer.print("\") }}", .{});
+                try writer.print("Token{{ .operator = ", .{});
+                try operator.print(writer);
+                try writer.print(" }}", .{});
             },
             .open => |open| {
                 try writer.print("Token{{ .open = Token.Open.{s} }}", .{open.slice()});
