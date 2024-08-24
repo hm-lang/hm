@@ -180,14 +180,32 @@ pub const Parser = struct {
         try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing);
 
         switch (try self.peekToken(0)) {
-            .starts_lower, .starts_upper, .number => {
+            .starts_upper, .number => {
                 const atomic_index = try self.justAppendNode(Node{
                     .atomic_token = self.farthest_token_index,
                 });
                 self.farthest_token_index += 1;
 
+                // TODO: check for optional `[]` arguments for `starts_upper`.
                 hierarchy.append(atomic_index) catch return ParserError.out_of_memory;
                 return atomic_index;
+            },
+            .starts_lower => {
+                const atomic_index = try self.justAppendNode(Node{
+                    .atomic_token = self.farthest_token_index,
+                });
+                self.farthest_token_index += 1;
+
+                // TODO: check for optional `[]` and `()` arguments.
+                hierarchy.append(atomic_index) catch return ParserError.out_of_memory;
+                return atomic_index;
+            },
+            .open => |open| {
+                _ = try self.justAppendNode(Node{ .enclosed = .{
+                    .open = open,
+                } });
+                self.farthest_token_index += 1;
+                return ParserError.unimplemented;
             },
             .operator => |operator| {
                 if (!operator.isPrefixable()) {
