@@ -452,8 +452,7 @@ pub const Operation = struct {
         return switch (self.operator) {
             .none => 1,
             .new_generic => 10,
-            .increment => 30,
-            .decrement => 30,
+            .increment, .decrement => 30,
             .assign => 110,
             .equals => 90,
             .less_than => 90,

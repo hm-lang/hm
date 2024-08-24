@@ -17,6 +17,8 @@ const NodeTag = enum {
     end,
 };
 
+const NodeError = error{not_allowed};
+
 pub const Node = union(NodeTag) {
     statement: Statement,
     atomic_token: TokenIndex,
@@ -34,6 +36,24 @@ pub const Node = union(NodeTag) {
             .binary => |binary| binary.operation(),
             else => .{},
         };
+    }
+
+    /// Swaps out the current "right" operand with the new `NodeIndex`.
+    /// Returns the old "right" operand.
+    pub fn swapRight(self: *Self, new_index: NodeIndex) NodeError!NodeIndex {
+        switch (self.*) {
+            .binary => |*binary| {
+                const old_index = binary.right;
+                binary.right = new_index;
+                return old_index;
+            },
+            .prefix => |*prefix| {
+                const old_index = prefix.node;
+                prefix.node = new_index;
+                return old_index;
+            },
+            else => return NodeError.not_allowed,
+        }
     }
 
     pub fn printLine(self: Self, writer: anytype) !void {
@@ -137,6 +157,7 @@ pub const Node = union(NodeTag) {
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
     pub const Operation = operator_zig.Operation;
+    pub const Error = NodeError;
     const Self = @This();
 };
 
