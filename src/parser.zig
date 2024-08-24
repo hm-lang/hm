@@ -194,8 +194,6 @@ pub const Parser = struct {
                     self.addTokenizerError("not a prefix operator");
                     return ParserError.syntax;
                 }
-                common.debugStderr.print("appending prefix operator ", .{}) catch {};
-                operator.printLine(common.debugStderr) catch {};
                 self.farthest_token_index += 1;
                 // We need to parse a different way because we can't break the hierarchy invariant here.
                 // Start with the prefix to maintain a rough left-to-right direction inside `self.nodes`.
@@ -214,10 +212,9 @@ pub const Parser = struct {
                     },
                     else => return ParserError.broken_invariant,
                 }
+                // We don't need to append `inner_index` because we know it will reappear.
+                // It was stronger than `prefix_index` and so should never be split out.
                 hierarchy.append(prefix_index) catch return ParserError.out_of_memory;
-                common.debugStderr.print("after appending prefix operator, hierarchy is ", .{}) catch {};
-                hierarchy.printLine(common.debugStderr) catch {};
-                self.nodes.printLine(common.debugStderr) catch {};
                 return prefix_index;
             },
             else => {
@@ -246,10 +243,7 @@ pub const Parser = struct {
                 // break an invariant here:
                 const inner_index = left.swapRight(0) catch {
                     self.addTokenizerError("cannot postfix this");
-                    common.debugStderr.print("trying to append postfix but got ", .{}) catch {};
-                    left.printLine(common.debugStderr) catch {};
-                    self.printTokenDebugInfo();
-                    return ParserError.unimplemented;
+                    return ParserError.syntax;
                 };
                 const next_index = try self.justAppendNode(.{ .postfix = .{
                     .operator = operation.operator,
@@ -257,8 +251,6 @@ pub const Parser = struct {
                 } });
                 // restore the invariant:
                 _ = left.swapRight(next_index) catch unreachable;
-                common.debugStderr.print("\nhierarchy so far, adding {d} and {d}: ", .{ next_index, inner_index }) catch {};
-                hierarchy.printLine(common.debugStderr) catch {};
                 // Fix up the hierarchy at the end:
                 hierarchy.append(next_index) catch return ParserError.out_of_memory;
                 hierarchy.append(inner_index) catch return ParserError.out_of_memory;
@@ -293,10 +285,7 @@ pub const Parser = struct {
                 // break an invariant here:
                 const inner_index = left.swapRight(0) catch {
                     self.addTokenizerError("cannot right-operate on this");
-                    common.debugStderr.print("trying to append infix but got ", .{}) catch {};
-                    left.printLine(common.debugStderr) catch {};
-                    self.printTokenDebugInfo();
-                    return ParserError.unimplemented;
+                    return ParserError.syntax;
                 };
                 const next_index = try self.justAppendNode(.{ .binary = .{
                     .operator = operation.operator,
@@ -306,8 +295,6 @@ pub const Parser = struct {
                 // restore the invariant:
                 _ = left.swapRight(next_index) catch unreachable;
                 // Fix up the hierarchy at the end:
-                common.debugStderr.print("\nhierarchy so far, adding {d} and {d}: ", .{ next_index, inner_index }) catch {};
-                hierarchy.printLine(common.debugStderr) catch {};
                 hierarchy.append(next_index) catch return ParserError.out_of_memory;
                 hierarchy.append(inner_index) catch return ParserError.out_of_memory;
                 return;
@@ -785,3 +772,5 @@ test "order of operations with addition and multiplication" {
         6,
     });
 }
+
+// TODO: error tests, e.g., "cannot postfix this"
