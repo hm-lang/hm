@@ -558,10 +558,47 @@ test "parser complicated (and prefix) implicit member access" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    // TODO:
-    // try parser.tokenizer.file.lines.append(try SmallString.init("--Why Shy Spy"));
-    // try parser.tokenizer.file.lines.append(try SmallString.init("!Chai Lie Fry"));
-    // try parser.tokenizer.file.lines.append(try SmallString.init("!Knife Fly Nigh!"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("--Why Shy Spy"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("!Chai Lie Fry"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("!Knife Fly Nigh!"));
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .statement = .{ .node = 1, .tab = 0 } },
+        Node{ .prefix = .{ .operator = Operator.decrement, .node = 6 } },
+        Node{ .atomic_token = 3 }, // Why
+        Node{ .atomic_token = 5 }, // Shy
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        // [5]:
+        Node{ .atomic_token = 7 }, // Spy
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 4, .right = 5 } },
+        Node{ .statement = .{ .node = 8, .tab = 0 } },
+        Node{ .prefix = .{ .operator = Operator.not, .node = 13 } },
+        Node{ .atomic_token = 12 }, // Chai
+        // [10]:
+        Node{ .atomic_token = 14 }, // Lie
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
+        Node{ .atomic_token = 16 }, // Fry
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 11, .right = 12 } },
+        Node{ .statement = .{ .node = 15, .tab = 0 } },
+        // [15]:
+        Node{ .prefix = .{ .operator = Operator.not, .node = 21 } },
+        Node{ .atomic_token = 21 }, // Knife
+        Node{ .atomic_token = 23 }, // Fly
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 16, .right = 17 } },
+        Node{ .atomic_token = 25 }, // Nigh
+        // [20]:
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 18, .right = 19 } },
+        Node{ .postfix = .{ .operator = Operator.not, .node = 20 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+        7,
+        14,
+    });
 }
 
 test "simple prefix/postfix operators with multiplication" {
