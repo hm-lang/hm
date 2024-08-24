@@ -231,8 +231,7 @@ pub const Parser = struct {
         while (hierarchy_index > 0) {
             hierarchy_index -= 1;
             left_index = hierarchy.inBounds(hierarchy_index);
-            const left = &self.nodes.items()[left_index];
-            const left_operation = left.operation();
+            const left_operation = self.nodeInBounds(left_index).operation();
             // lower precedence means higher priority.
             if (left_operation.isPostfix() or left_operation.precedence(Operation.Compare.on_left) <= operation_precedence) {
                 // `left` has higher priority; we should continue up the hierarchy
@@ -241,7 +240,7 @@ pub const Parser = struct {
             } else {
                 // `operation` has higher priority, so we need to invert the nodes a bit.
                 // break an invariant here:
-                const inner_index = left.swapRight(0) catch {
+                const inner_index = self.nodeInBounds(left_index).swapRight(0) catch {
                     self.addTokenizerError("cannot postfix this");
                     return ParserError.syntax;
                 };
@@ -249,8 +248,9 @@ pub const Parser = struct {
                     .operator = operation.operator,
                     .node = inner_index,
                 } });
-                // restore the invariant:
-                _ = left.swapRight(next_index) catch unreachable;
+                // Restore the invariant.  Don't hold onto a reference to the `left_index` node
+                // because it can be invalidated by appending (i.e., in the previous statement).
+                _ = self.nodeInBounds(left_index).swapRight(next_index) catch unreachable;
                 // Fix up the hierarchy at the end:
                 hierarchy.append(next_index) catch return ParserError.out_of_memory;
                 hierarchy.append(inner_index) catch return ParserError.out_of_memory;
@@ -273,8 +273,7 @@ pub const Parser = struct {
         while (hierarchy_index > 0) {
             hierarchy_index -= 1;
             left_index = hierarchy.inBounds(hierarchy_index);
-            const left = &self.nodes.items()[left_index];
-            const left_operation = left.operation();
+            const left_operation = self.nodeInBounds(left_index).operation();
             // lower precedence means higher priority.
             if (left_operation.isPostfix() or left_operation.precedence(Operation.Compare.on_left) <= operation_precedence) {
                 // `left` has higher priority; we should continue up the hierarchy
@@ -283,7 +282,7 @@ pub const Parser = struct {
             } else {
                 // `operation` has higher priority, so we need to invert the nodes a bit.
                 // break an invariant here:
-                const inner_index = left.swapRight(0) catch {
+                const inner_index = self.nodeInBounds(left_index).swapRight(0) catch {
                     self.addTokenizerError("cannot right-operate on this");
                     return ParserError.syntax;
                 };
@@ -292,8 +291,9 @@ pub const Parser = struct {
                     .left = inner_index,
                     .right = right_index,
                 } });
-                // restore the invariant:
-                _ = left.swapRight(next_index) catch unreachable;
+                // Restore the invariant.  Don't hold onto a reference to the `left_index` node
+                // because it can be invalidated by appending (i.e., in the previous statement).
+                _ = self.nodeInBounds(left_index).swapRight(next_index) catch unreachable;
                 // Fix up the hierarchy at the end:
                 hierarchy.append(next_index) catch return ParserError.out_of_memory;
                 hierarchy.append(inner_index) catch return ParserError.out_of_memory;
@@ -349,6 +349,10 @@ pub const Parser = struct {
 
     pub fn printTokenDebugInfo(self: *Self) void {
         self.tokenizer.printDebugInfoAt(self.farthest_token_index);
+    }
+
+    fn nodeInBounds(self: *Self, index: usize) *Node {
+        return &self.nodes.items()[index];
     }
 
     const Self = @This();
@@ -431,7 +435,7 @@ test "parser simple expressions" {
     try parser.tokenizer.file.lines.append(try SmallString.init("    Hello_you"));
     try parser.tokenizer.file.lines.append(try SmallString.init("+1.234"));
     try parser.tokenizer.file.lines.append(try SmallString.init("  -5.678"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("    ++Foe"));
+    try parser.tokenizer.file.lines.append(try SmallString.init("    $$$Foe"));
     try parser.tokenizer.file.lines.append(try SmallString.init("        Fum--"));
 
     try parser.complete();
@@ -451,7 +455,7 @@ test "parser simple expressions" {
         Node{ .atomic_token = 14 }, // 5.678
         // [10]:
         Node{ .statement = .{ .node = 11, .tab = 4 } },
-        Node{ .prefix = .{ .operator = Operator.increment, .node = 12 } },
+        Node{ .prefix = .{ .operator = Operator.lambda3, .node = 12 } },
         Node{ .atomic_token = 19 }, // Foe
         Node{ .statement = .{ .node = 15, .tab = 8 } },
         Node{ .atomic_token = 22 }, // Fum
