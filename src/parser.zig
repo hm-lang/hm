@@ -639,14 +639,14 @@ test "complicated prefix/postfix operators with addition/multiplication" {
         Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 8 } },
         // [10]:
         Node{ .statement = .{ .node = 17, .tab = 0 } },
-        Node{ .prefix = .{ .operator = Operator.decrement, .node = 15 } },
+        Node{ .prefix = .{ .operator = Operator.decrement, .node = 14 } },
         Node{ .atomic_token = 20 }, // Xeno
         Node{ .atomic_token = 22 }, // Yak
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 12, .right = 13 } },
         // [15]:
-        Node{ .postfix = .{ .operator = Operator.not, .node = 14 } },
+        Node{ .postfix = .{ .operator = Operator.not, .node = 11 } },
         Node{ .atomic_token = 28 }, // 3000
-        Node{ .binary = .{ .operator = Operator.minus, .left = 11, .right = 19 } }, // TODO: left should be not (15)
+        Node{ .binary = .{ .operator = Operator.minus, .left = 15, .right = 19 } },
         Node{ .atomic_token = 32 }, // Zelda
         Node{ .binary = .{ .operator = Operator.multiply, .left = 16, .right = 18 } },
         // [20]:
