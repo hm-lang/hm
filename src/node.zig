@@ -88,7 +88,7 @@ pub const Node = union(NodeTag) {
                 try writer.print(", .left = {d}, .right = {d} }} }}", .{ binary.left, binary.right });
             },
             .enclosed => |enclosed| {
-                try writer.print("Node{{ .enclosed = .{{ .open = ", .{});
+                try writer.print("Node{{ .enclosed = .{{ .open = .", .{});
                 try enclosed.open.print(writer);
                 try writer.print(", .root = {d} }} }}", .{enclosed.root});
             },

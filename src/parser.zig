@@ -155,6 +155,15 @@ pub const Parser = struct {
                     break :blk .{ .operator = .implicit_member_access, .type = .infix };
                 }
             },
+            .close => |close| blk: {
+                if (until.shouldBreakAtClose(close)) {
+                    self.farthest_token_index += 1;
+                    return .{ .operator = .none };
+                }
+                // Same as the `else` block below:
+                self.farthest_token_index -= 1;
+                break :blk .{ .operator = .implicit_member_access, .type = .infix };
+            },
             else => blk: {
                 // We encountered another realizable token, back up so that
                 // we maintain the invariant that there's a space before the next real element.
@@ -201,11 +210,20 @@ pub const Parser = struct {
                 return atomic_index;
             },
             .open => |open| {
-                _ = try self.justAppendNode(Node{ .enclosed = .{
+                const enclosed_index = try self.justAppendNode(Node{ .enclosed = .{
                     .open = open,
                 } });
                 self.farthest_token_index += 1;
-                return ParserError.unimplemented;
+                const inner_index = try self.appendNextExpression(tab, Until.closing(open));
+                switch (self.nodes.items()[enclosed_index]) {
+                    // restore the invariant:
+                    .enclosed => |*enclosed| {
+                        enclosed.root = inner_index;
+                    },
+                    else => return ParserError.broken_invariant,
+                }
+                hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
+                return enclosed_index;
             },
             .operator => |operator| {
                 if (!operator.isPrefixable()) {
@@ -378,11 +396,13 @@ pub const Parser = struct {
 
 const UntilTag = enum {
     precedence,
+    close,
 };
 
 /// Necessary for prefix operations.
 const Until = union(UntilTag) {
     precedence: u8,
+    close: Token.Close,
 
     pub const no_limit: Self = .{ .precedence = 255 };
 
@@ -392,6 +412,10 @@ const Until = union(UntilTag) {
         return .{ .precedence = operation.precedence(Operation.Compare.on_left) };
     }
 
+    pub fn closing(open: Token.Open) Self {
+        return .{ .close = open };
+    }
+
     pub fn shouldBreakBeforeOperation(self: Self, on_right: Operation) bool {
         switch (self) {
             .precedence => |left_precedence| {
@@ -399,6 +423,16 @@ const Until = union(UntilTag) {
                 // TODO: this should maybe be <= ??
                 return left_precedence < right_precedence;
             },
+            else => return false,
+        }
+    }
+
+    pub fn shouldBreakAtClose(self: Self, close: Token.Close) bool {
+        switch (self) {
+            .close => |self_close| {
+                return self_close == close;
+            },
+            else => return false,
         }
     }
 
@@ -812,6 +846,90 @@ test "order of operations with addition and multiplication" {
         0,
         6,
     });
+}
+
+test "simple parentheses, brackets, and braces" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("(Wow, Great)"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .paren, .root = 4 } },
+            Node{ .atomic_token = 3 }, // Wow
+            Node{ .atomic_token = 7 }, // Great
+            Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
+            // [5]:
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("[wow, jam, time]"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .bracket, .root = 6 } },
+            Node{ .atomic_token = 3 }, // wow
+            Node{ .atomic_token = 7 }, // jam
+            Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
+            // [5]:
+            Node{ .atomic_token = 11 }, // time
+            Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 5 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("{Boo: 3, hoo: 123 + 4}"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .brace, .root = 6 } },
+            Node{ .atomic_token = 3 }, // Boo
+            Node{ .atomic_token = 7 }, // 3
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
+            // [5]:
+            Node{ .atomic_token = 11 }, // hoo
+            Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 8 } },
+            Node{ .atomic_token = 15 }, // 123
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 5, .right = 10 } },
+            Node{ .atomic_token = 19 }, // 4
+            // [10]:
+            Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 9 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
 }
 
 // TODO: error tests, e.g., "cannot postfix this"
