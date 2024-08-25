@@ -16,6 +16,7 @@ const NodeTag = enum {
     postfix,
     binary,
     enclosed,
+    function,
     end,
 };
 
@@ -28,6 +29,7 @@ pub const Node = union(NodeTag) {
     postfix: PostfixNode,
     binary: BinaryNode,
     enclosed: EnclosedNode,
+    function: FunctionNode,
     end: void,
     // TODO: function_call: {function_name: NodeIndex, first_argument: Argument}
     // TODO: Argument: {name: NodeIndex, value: NodeIndex, next_argument: NodeIndex}
@@ -91,6 +93,13 @@ pub const Node = union(NodeTag) {
                 try writer.print("Node{{ .enclosed = .{{ .open = .", .{});
                 try enclosed.open.print(writer);
                 try writer.print(", .root = {d} }} }}", .{enclosed.root});
+            },
+            .function => |function| {
+                try writer.print("Node{{ .function = .{{ .name_token = {d}, .generics = {d}, .arguments = {d} }} }}", .{
+                    function.name_token,
+                    function.generics,
+                    function.arguments,
+                });
             },
             .end => try writer.print(".end", .{}),
         }
@@ -165,6 +174,8 @@ pub const Node = union(NodeTag) {
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
     pub const Enclosed = EnclosedNode;
+    pub const Function = FunctionNode;
+
     pub const Operation = operator_zig.Operation;
     pub const Error = NodeError;
     const Self = @This();
@@ -249,6 +260,22 @@ const EnclosedNode = struct {
 
     pub fn equals(a: Self, b: Self) bool {
         return a.open == b.open and a.root == b.root;
+    }
+
+    pub fn expectEquals(a: Self, b: Self) !void {
+        try std.testing.expect(a.equals(b));
+    }
+
+    const Self = @This();
+};
+
+const FunctionNode = struct {
+    name_token: TokenIndex,
+    generics: NodeIndex = 0,
+    arguments: NodeIndex = 0,
+
+    pub fn equals(a: Self, b: Self) bool {
+        return a.name_token == b.name_token and a.generics == b.generics and a.arguments == b.arguments;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
