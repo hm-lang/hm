@@ -855,18 +855,19 @@ test "simple parentheses, brackets, and braces" {
         errdefer {
             parser.tokenizer.file.print(common.debugStderr) catch {};
         }
-        try parser.tokenizer.file.lines.append(try SmallString.init("(Wow, Great)"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("+(Wow, Great)"));
 
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
             Node{ .statement = .{ .node = 1, .tab = 0 } },
-            Node{ .enclosed = .{ .open = .paren, .root = 4 } },
-            Node{ .atomic_token = 3 }, // Wow
-            Node{ .atomic_token = 7 }, // Great
-            Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
+            Node{ .prefix = .{ .operator = Operator.plus, .node = 2 } },
+            Node{ .enclosed = .{ .open = .paren, .root = 5 } },
+            Node{ .atomic_token = 5 }, // Wow
+            Node{ .atomic_token = 9 }, // Great
             // [5]:
+            Node{ .binary = .{ .operator = Operator.comma, .left = 3, .right = 4 } },
             .end,
         });
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
@@ -879,13 +880,13 @@ test "simple parentheses, brackets, and braces" {
         errdefer {
             parser.tokenizer.file.print(common.debugStderr) catch {};
         }
-        try parser.tokenizer.file.lines.append(try SmallString.init("[wow, jam, time]"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("[wow, jam, time]!"));
 
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .statement = .{ .node = 7, .tab = 0 } },
             Node{ .enclosed = .{ .open = .bracket, .root = 6 } },
             Node{ .atomic_token = 3 }, // wow
             Node{ .atomic_token = 7 }, // jam
@@ -893,6 +894,7 @@ test "simple parentheses, brackets, and braces" {
             // [5]:
             Node{ .atomic_token = 11 }, // time
             Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 5 } },
+            Node{ .postfix = .{ .operator = Operator.not, .node = 1 } },
             .end,
         });
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
@@ -905,25 +907,27 @@ test "simple parentheses, brackets, and braces" {
         errdefer {
             parser.tokenizer.file.print(common.debugStderr) catch {};
         }
-        try parser.tokenizer.file.lines.append(try SmallString.init("{Boo: 3, hoo: 123 + 4}"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("{Boo: 33, hoo: 123 + 44}-57"));
 
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .statement = .{ .node = 12, .tab = 0 } },
             Node{ .enclosed = .{ .open = .brace, .root = 6 } },
             Node{ .atomic_token = 3 }, // Boo
-            Node{ .atomic_token = 7 }, // 3
+            Node{ .atomic_token = 7 }, // 33
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
             // [5]:
             Node{ .atomic_token = 11 }, // hoo
             Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 8 } },
             Node{ .atomic_token = 15 }, // 123
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 5, .right = 10 } },
-            Node{ .atomic_token = 19 }, // 4
+            Node{ .atomic_token = 19 }, // 44
             // [10]:
             Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 9 } },
+            Node{ .atomic_token = 25 }, // 57
+            Node{ .binary = .{ .operator = Operator.minus, .left = 1, .right = 11 } },
             .end,
         });
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
