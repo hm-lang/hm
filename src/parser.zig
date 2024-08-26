@@ -936,4 +936,104 @@ test "simple parentheses, brackets, and braces" {
     }
 }
 
+test "parser declare" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("Whatever: type1"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 3, .tab = 0 } },
+            Node{ .atomic_token = 1 }, // Whatever
+            Node{ .atomic_token = 5 }, // type1
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 2 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("Writable_whatever; type2"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 3, .tab = 0 } },
+            Node{ .atomic_token = 1 }, // Writable_whatever
+            Node{ .atomic_token = 5 }, // type2
+            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+}
+
+test "parser declare and assign" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("Declassign: type_assign1 = 12345"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            Node{ .atomic_token = 1 }, // Declassign
+            Node{ .atomic_token = 5 }, // type_assign1
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 2 } },
+            Node{ .atomic_token = 9 }, // 12345
+            // [5]:
+            Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 4 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("Oh_writable; type_assign2 = 7890"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            Node{ .atomic_token = 1 }, // Declassign
+            Node{ .atomic_token = 5 }, // type_assign2
+            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
+            Node{ .atomic_token = 9 }, // 7890
+            // [5]:
+            Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 4 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+}
+
 // TODO: error tests, e.g., "cannot postfix this"
