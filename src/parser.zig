@@ -1036,4 +1036,89 @@ test "parser declare and assign" {
     }
 }
 
+test "parser declare and nested assigns" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("D1: D2; D3"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 3, .tab = 0 } },
+            Node{ .atomic_token = 1 }, // D1
+            Node{ .atomic_token = 5 }, // D2
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 5 } },
+            Node{ .atomic_token = 9 }, // D3
+            // [5]:
+            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 2, .right = 4 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("X3 = Y4 = 750"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 3, .tab = 0 } },
+            Node{ .atomic_token = 1 }, // X3
+            Node{ .atomic_token = 5 }, // Y4
+            Node{ .binary = .{ .operator = Operator.assign, .left = 1, .right = 5 } },
+            Node{ .atomic_token = 9 }, // 750
+            // [5]:
+            Node{ .binary = .{ .operator = Operator.assign, .left = 2, .right = 4 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("VarQ; i32 = Qu16 = VarU: i16 = 750"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            Node{ .atomic_token = 1 }, // VarQ
+            Node{ .atomic_token = 5 }, // i32
+            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
+            Node{ .atomic_token = 9 }, // Qu16
+            // [5]:
+            Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 7 } },
+            Node{ .atomic_token = 13 }, // VarU
+            Node{ .binary = .{ .operator = Operator.assign, .left = 4, .right = 11 } },
+            Node{ .atomic_token = 17 }, // i16
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 6, .right = 8 } },
+            // [10]:
+            Node{ .atomic_token = 21 }, // 750
+            Node{ .binary = .{ .operator = Operator.assign, .left = 9, .right = 10 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+}
+
 // TODO: error tests, e.g., "cannot postfix this"
