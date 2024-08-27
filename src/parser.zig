@@ -88,7 +88,7 @@ pub const Parser = struct {
     }
 
     fn getNextStatement(self: *Self) ParserError!Node.Statement {
-        const tab = switch (try self.peekToken(0)) {
+        const tab = switch (try self.peekToken()) {
             .spacing => |spacing| spacing.absolute,
             .end => return ParserError.out_of_statements,
             else => return ParserError.broken_invariant,
@@ -127,7 +127,7 @@ pub const Parser = struct {
     fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!Operation {
         const restore_index = self.farthest_token_index;
 
-        switch (try self.peekToken(0)) {
+        switch (try self.peekToken()) {
             // This was the last atom in the row.
             .newline => {
                 // TODO: check if we had a double-indent on the next line and continue parsing if so.
@@ -138,7 +138,7 @@ pub const Parser = struct {
             else => try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing),
         }
 
-        const operation: Operation = switch (try self.peekToken(0)) {
+        const operation: Operation = switch (try self.peekToken()) {
             .operator => |operator| blk: {
                 if (operator.isInfixable()) {
                     self.farthest_token_index += 1;
@@ -188,7 +188,7 @@ pub const Parser = struct {
     fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16) ParserError!NodeIndex {
         try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing);
 
-        switch (try self.peekToken(0)) {
+        switch (try self.peekToken()) {
             .starts_upper, .number => {
                 const atomic_index = try self.justAppendNode(Node{
                     .atomic_token = self.farthest_token_index,
@@ -196,18 +196,31 @@ pub const Parser = struct {
                 self.farthest_token_index += 1;
 
                 // TODO: check for optional `[]` arguments for `starts_upper`.
+                // `starts_upper` can also get `()` arguments in case we're defining something,
+                // e.g., `MyExampleClass(X: 3, StartingY: 4)` is equivalent to
+                // `MyExampleClass: myExampleClass(X: 3, StartingY: 4)`.
+                // TODO: brackets may look like array indexing but we can distinguish based
+                // on whether the identifier is in scope or not??
                 hierarchy.append(atomic_index) catch return ParserError.out_of_memory;
                 return atomic_index;
             },
             .starts_lower => {
-                const atomic_index = try self.justAppendNode(Node{
-                    .atomic_token = self.farthest_token_index,
-                });
+                const callable_index = try self.justAppendNode(Node{ .callable = .{
+                    .name_token = self.farthest_token_index,
+                } });
                 self.farthest_token_index += 1;
 
-                // TODO: check for optional `[]` and `()` arguments.
-                hierarchy.append(atomic_index) catch return ParserError.out_of_memory;
-                return atomic_index;
+                hierarchy.append(callable_index) catch return ParserError.out_of_memory;
+
+                const additional_fields = self.maybeAppendCallableFields(tab) orelse return callable_index;
+                switch (self.nodes.items()[callable_index]) {
+                    .callable => |*callable| {
+                        callable.generics = additional_fields.generics;
+                        callable.arguments = additional_fields.arguments;
+                    },
+                    else => return ParserError.broken_invariant,
+                }
+                return callable_index;
             },
             .open => |open| {
                 const enclosed_index = try self.justAppendNode(Node{ .enclosed = .{
@@ -257,6 +270,59 @@ pub const Parser = struct {
                 self.addTokenizerError("expected an expression");
                 return ParserError.syntax;
             },
+        }
+    }
+
+    /// Only the `arguments` and `generics` fields are populated on the return value.
+    /// Returns null if there were no generic or argument fields to parse.
+    fn maybeAppendCallableFields(self: *Self, tab: u16) ?Node.Callable {
+        const restore_index = self.farthest_token_index;
+        const non_spacing_token_index = self.peekNonSpacingTokenIndex(tab) orelse return null;
+
+        switch (self.tokenAt(non_spacing_token_index) catch return null) {
+            .open => |open| switch (open) {
+                .bracket => {
+                    self.farthest_token_index = non_spacing_token_index + 1;
+                    const generics_index = self.appendNextExpression(tab, Until.closing(Token.Open.bracket)) catch {
+                        self.farthest_token_index = restore_index;
+                        return null;
+                    };
+                    const arguments_index = self.maybeAppendNextParen(tab) orelse {
+                        // We had an issue getting the arguments but that's ok, return only generics.
+                        return Node.Callable{ .generics = generics_index };
+                    };
+                    return Node.Callable{ .generics = generics_index, .arguments = arguments_index };
+                },
+                .paren => {
+                    self.farthest_token_index = non_spacing_token_index + 1;
+                    const arguments_index = self.appendNextExpression(tab, Until.closing(Token.Open.paren)) catch {
+                        self.farthest_token_index = restore_index;
+                        return null;
+                    };
+                    return Node.Callable{ .arguments = arguments_index };
+                },
+                // Probably a syntax error but who knows!
+                else => return null,
+            },
+            else => return null,
+        }
+    }
+
+    fn maybeAppendNextParen(self: *Self, tab: u16) ?NodeIndex {
+        const non_spacing_token_index = self.peekNonSpacingTokenIndex(tab) orelse return null;
+
+        switch (self.tokenAt(non_spacing_token_index) catch return null) {
+            .open => |open| {
+                if (open != Token.Open.paren) {
+                    return null;
+                }
+                const restore_index = self.farthest_token_index;
+                return self.appendNextExpression(tab, Until.closing(Token.Open.paren)) catch {
+                    self.farthest_token_index = restore_index;
+                    return null;
+                };
+            },
+            else => return null,
         }
     }
 
@@ -355,21 +421,46 @@ pub const Parser = struct {
     }
 
     fn nextToken(self: *Self) ParserError!Token {
-        const token = try self.peekToken(0);
+        const token = try self.peekToken();
         self.farthest_token_index += 1;
         return token;
     }
 
-    fn peekToken(self: *Self, delta: usize) ParserError!Token {
-        return self.tokenizer.at(self.farthest_token_index + delta) catch {
+    fn peekToken(self: *Self) ParserError!Token {
+        return self.tokenAt(self.farthest_token_index);
+    }
+
+    fn tokenAt(self: *Self, at_index: usize) ParserError!Token {
+        return self.tokenizer.at(at_index) catch {
             // TODO: probably should distinguish between out of memory (rethrow)
             // and out of tokens => out_of_statements
             return ParserError.out_of_statements;
         };
     }
 
+    fn peekNonSpacingTokenIndex(self: *Self, tab: u16) ?usize {
+        switch (self.tokenAt(self.farthest_token_index) catch return null) {
+            .end => return null,
+            .spacing => return self.farthest_token_index + 1,
+            .newline => {},
+            else => return null,
+        }
+        // Should only get here if we had a `newline`:
+        switch (self.tokenAt(self.farthest_token_index + 1) catch return null) {
+            .end => return null,
+            .spacing => |spacing| {
+                // TODO: this is probably borked
+                if (spacing.absolute >= tab) {
+                    return self.farthest_token_index + 2;
+                }
+                return null;
+            },
+            else => return null,
+        }
+    }
+
     fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, error_message: []const u8) ParserError!void {
-        const next_token = try self.peekToken(0);
+        const next_token = try self.peekToken();
         if (next_token.tag() == expected_tag) {
             self.farthest_token_index += 1;
             return;
@@ -497,7 +588,7 @@ test "parser simple expressions" {
         Node{ .statement = .{ .node = 1, .tab = 0 } },
         Node{ .atomic_token = 1 }, // 3.456
         Node{ .statement = .{ .node = 3, .tab = 4 } },
-        Node{ .atomic_token = 4 }, // hello_you
+        Node{ .callable = .{ .name_token = 4 } }, // hello_you
         Node{ .statement = .{ .node = 5, .tab = 0 } },
         // [5]:
         Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
@@ -888,11 +979,11 @@ test "simple parentheses, brackets, and braces" {
             // [0]:
             Node{ .statement = .{ .node = 7, .tab = 0 } },
             Node{ .enclosed = .{ .open = .bracket, .root = 6 } },
-            Node{ .atomic_token = 3 }, // wow
-            Node{ .atomic_token = 7 }, // jam
+            Node{ .callable = .{ .name_token = 3 } }, // wow
+            Node{ .callable = .{ .name_token = 7 } }, // jam
             Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
             // [5]:
-            Node{ .atomic_token = 11 }, // time
+            Node{ .callable = .{ .name_token = 11 } }, // time
             Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 5 } },
             Node{ .postfix = .{ .operator = Operator.not, .node = 1 } },
             .end,
@@ -919,7 +1010,7 @@ test "simple parentheses, brackets, and braces" {
             Node{ .atomic_token = 7 }, // 33
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
             // [5]:
-            Node{ .atomic_token = 11 }, // hoo
+            Node{ .callable = .{ .name_token = 11 } }, // hoo
             Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 8 } },
             Node{ .atomic_token = 15 }, // 123
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 5, .right = 10 } },
@@ -951,7 +1042,7 @@ test "parser declare" {
             // [0]:
             Node{ .statement = .{ .node = 3, .tab = 0 } },
             Node{ .atomic_token = 1 }, // Whatever
-            Node{ .atomic_token = 5 }, // type1
+            Node{ .callable = .{ .name_token = 5 } }, // type1
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 2 } },
             .end,
         });
@@ -973,7 +1064,7 @@ test "parser declare" {
             // [0]:
             Node{ .statement = .{ .node = 3, .tab = 0 } },
             Node{ .atomic_token = 1 }, // Writable_whatever
-            Node{ .atomic_token = 5 }, // type2
+            Node{ .callable = .{ .name_token = 5 } }, // type2
             Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
             .end,
         });
@@ -998,7 +1089,7 @@ test "parser declare and assign" {
             // [0]:
             Node{ .statement = .{ .node = 5, .tab = 0 } },
             Node{ .atomic_token = 1 }, // Declassign
-            Node{ .atomic_token = 5 }, // type_assign1
+            Node{ .callable = .{ .name_token = 5 } }, // type_assign1
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 2 } },
             Node{ .atomic_token = 9 }, // 12345
             // [5]:
@@ -1023,7 +1114,7 @@ test "parser declare and assign" {
             // [0]:
             Node{ .statement = .{ .node = 5, .tab = 0 } },
             Node{ .atomic_token = 1 }, // Declassign
-            Node{ .atomic_token = 5 }, // type_assign2
+            Node{ .callable = .{ .name_token = 5 } }, // type_assign2
             Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
             Node{ .atomic_token = 9 }, // 7890
             // [5]:
@@ -1101,14 +1192,14 @@ test "parser declare and nested assigns" {
             // [0]:
             Node{ .statement = .{ .node = 5, .tab = 0 } },
             Node{ .atomic_token = 1 }, // VarQ
-            Node{ .atomic_token = 5 }, // i32
+            Node{ .callable = .{ .name_token = 5 } }, // i32
             Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
             Node{ .atomic_token = 9 }, // Qu16
             // [5]:
             Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 7 } },
             Node{ .atomic_token = 13 }, // VarU
             Node{ .binary = .{ .operator = Operator.assign, .left = 4, .right = 11 } },
-            Node{ .atomic_token = 17 }, // i16
+            Node{ .callable = .{ .name_token = 17 } }, // i16
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 6, .right = 8 } },
             // [10]:
             Node{ .atomic_token = 21 }, // 750

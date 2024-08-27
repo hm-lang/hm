@@ -16,7 +16,7 @@ const NodeTag = enum {
     postfix,
     binary,
     enclosed,
-    function,
+    callable,
     end,
 };
 
@@ -29,10 +29,8 @@ pub const Node = union(NodeTag) {
     postfix: PostfixNode,
     binary: BinaryNode,
     enclosed: EnclosedNode,
-    function: FunctionNode,
+    callable: CallableNode,
     end: void,
-    // TODO: function_call: {function_name: NodeIndex, first_argument: Argument}
-    // TODO: Argument: {name: NodeIndex, value: NodeIndex, next_argument: NodeIndex}
 
     pub fn operation(self: Self) Operation {
         return switch (self) {
@@ -94,11 +92,11 @@ pub const Node = union(NodeTag) {
                 try enclosed.open.print(writer);
                 try writer.print(", .root = {d} }} }}", .{enclosed.root});
             },
-            .function => |function| {
-                try writer.print("Node{{ .function = .{{ .name_token = {d}, .generics = {d}, .arguments = {d} }} }}", .{
-                    function.name_token,
-                    function.generics,
-                    function.arguments,
+            .callable => |callable| {
+                try writer.print("Node{{ .callable = .{{ .name_token = {d}, .generics = {d}, .arguments = {d} }} }}", .{
+                    callable.name_token,
+                    callable.generics,
+                    callable.arguments,
                 });
             },
             .end => try writer.print(".end", .{}),
@@ -174,7 +172,7 @@ pub const Node = union(NodeTag) {
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
     pub const Enclosed = EnclosedNode;
-    pub const Function = FunctionNode;
+    pub const Callable = CallableNode;
 
     pub const Operation = operator_zig.Operation;
     pub const Error = NodeError;
@@ -269,13 +267,18 @@ const EnclosedNode = struct {
     const Self = @This();
 };
 
-const FunctionNode = struct {
-    name_token: TokenIndex,
+/// Might be a function, might be a type.
+const CallableNode = struct {
+    name_token: TokenIndex = 0,
     generics: NodeIndex = 0,
     arguments: NodeIndex = 0,
 
     pub fn equals(a: Self, b: Self) bool {
         return a.name_token == b.name_token and a.generics == b.generics and a.arguments == b.arguments;
+    }
+
+    pub fn couldBeAType(self: Self) bool {
+        return self.arguments == 0;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
