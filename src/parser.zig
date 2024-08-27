@@ -141,6 +141,7 @@ pub const Parser = struct {
         const operation: Operation = switch (try self.peekToken()) {
             .operator => |operator| blk: {
                 if (operator.isInfixable()) {
+                    // TODO: check for operator.isPostfixable() if there's nothing else
                     self.farthest_token_index += 1;
                     break :blk .{ .operator = operator, .type = .infix };
                 } else if (operator.isPostfixable()) {
@@ -317,6 +318,7 @@ pub const Parser = struct {
                     return null;
                 }
                 const restore_index = self.farthest_token_index;
+                self.farthest_token_index = non_spacing_token_index + 1;
                 return self.appendNextExpression(tab, Until.closing(Token.Open.paren)) catch {
                     self.farthest_token_index = restore_index;
                     return null;
@@ -936,6 +938,85 @@ test "order of operations with addition and multiplication" {
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
         0,
         6,
+    });
+}
+
+// TODO: generic types
+
+test "simple function calls" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    try parser.tokenizer.file.lines.append(try SmallString.init("superb(Brepus. 161, Canyon; Noynac, Candid)"));
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .statement = .{ .node = 1, .tab = 0 } },
+        Node{ .callable = .{ .name_token = 1, .arguments = 10 } }, // superb
+        Node{ .atomic_token = 5 }, // Brepus
+        Node{ .atomic_token = 9 }, // 161
+        Node{ .binary = .{ .operator = Operator.declare_temporary, .left = 2, .right = 3 } },
+        // [5]:
+        Node{ .atomic_token = 13 }, // Canyon
+        Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 8 } },
+        Node{ .atomic_token = 17 }, // Noynac
+        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 5, .right = 7 } },
+        Node{ .atomic_token = 21 }, // Candid
+        // [10]:
+        Node{ .binary = .{ .operator = Operator.comma, .left = 6, .right = 9 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+    });
+}
+
+test "generic function calls" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    try parser.tokenizer.file.lines.append(try SmallString.init("fungus[type1: t_array[str7], type2, type3; i64](Life: 17, Cardio!, Fritz; foo_fritz)"));
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .statement = .{ .node = 1, .tab = 0 } },
+        Node{ .callable = .{ .name_token = 1, .generics = 9, .arguments = 19 } }, // fungus
+        Node{ .callable = .{ .name_token = 5 } }, // type1
+        Node{ .callable = .{ .name_token = 9, .generics = 4 } }, // t_array
+        Node{ .callable = .{ .name_token = 13 } }, // str7
+        // [5]:
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
+        Node{ .callable = .{ .name_token = 19 } }, // type2
+        Node{ .binary = .{ .operator = Operator.comma, .left = 5, .right = 6 } },
+        Node{ .callable = .{ .name_token = 23 } }, // type3
+        Node{ .binary = .{ .operator = Operator.comma, .left = 7, .right = 11 } },
+        // [10]:
+        Node{ .callable = .{ .name_token = 27 } }, // i64
+        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 8, .right = 10 } },
+        Node{ .atomic_token = 33 }, // Life
+        Node{ .atomic_token = 37 }, // 17
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 12, .right = 13 } },
+        // [15]:
+        Node{ .atomic_token = 41 }, // Cardio
+        Node{ .binary = .{ .operator = Operator.comma, .left = 14, .right = 17 } },
+        Node{ .postfix = .{ .operator = Operator.not, .node = 15 } },
+        Node{ .atomic_token = 47 }, // Fritz
+        Node{ .binary = .{ .operator = Operator.comma, .left = 16, .right = 21 } },
+        // [20]:
+        Node{ .callable = .{ .name_token = 51 } }, // foo_fritz
+        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 18, .right = 20 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
     });
 }
 

@@ -355,6 +355,7 @@ pub const Operator = enum(u64) {
             .declare_generic,
             .declare_readonly,
             .declare_writable,
+            .declare_temporary,
             .comma,
             .implicit_member_access,
             .readonly_member_access,
