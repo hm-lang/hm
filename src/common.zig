@@ -18,6 +18,33 @@ pub const At = enum {
     end,
 };
 
+const OrElseTag = enum {
+    fail_with,
+    only_try,
+};
+
+pub const OrElse = union(OrElseTag) {
+    fail_with: []const u8, // error message
+    only_try: void,
+
+    pub fn be_noisy(self: Self) ?[]const u8 {
+        return switch (self) {
+            .fail_with => |fail_with| fail_with,
+            else => null,
+        };
+    }
+
+    pub fn map(self: Self, new_error_message: []const u8) Self {
+        return switch (self) {
+            .fail_with => .{ .fail_with = new_error_message },
+            .only_try => .only_try,
+        };
+    }
+
+    pub const Tag = OrElseTag;
+    const Self = @This();
+};
+
 pub const Error = error{
     unknown,
 };

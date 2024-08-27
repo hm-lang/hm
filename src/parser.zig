@@ -1,4 +1,5 @@
 const common = @import("common.zig");
+const OrElse = common.OrElse;
 const OwnedList = @import("owned_list.zig").OwnedList;
 const SmallString = @import("string.zig").Small;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
@@ -94,37 +95,61 @@ pub const Parser = struct {
             else => return ParserError.broken_invariant,
         };
 
-        const node_index = try self.appendNextExpression(tab, Until.no_limit);
-        try self.assertAndConsumeNextTokenIf(.newline, "expected newline");
+        const node_index = try self.appendNextExpression(tab, Until.no_limit, .{
+            .fail_with = "statement needs an expression",
+        });
+        try self.assertAndConsumeNextTokenIf(.newline, .{ .fail_with = "expected newline" });
 
         return .{ .tab = tab, .node = node_index };
     }
 
-    fn appendNextExpression(self: *Self, tab: u16, until: Until) ParserError!NodeIndex {
+    fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
+        errdefer {
+            if (or_else.be_noisy()) |error_message| {
+                self.addTokenizerError(error_message);
+            }
+        }
         // The current left node which can interact with the next operation,
         // is the last element of `hierarchy`, with nesting all the way up
         // to the "root node" (`hierarchy.inBounds(0)`) which should be returned.
         var hierarchy = OwnedNodeIndices.init();
-        _ = try self.appendNextStandaloneExpression(&hierarchy, tab);
+        // TODO: will we ever run into any malformed input where we need `until`
+        // inside the `appendNextStandaloneExpression`?  e.g., `(whatever, +)`?
+        // i think that will be some other syntax error, though.
+        _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else);
         defer hierarchy.deinit();
 
         while (true) {
-            const operation = try self.seekNextOperation(tab, until);
+            const operation = try self.seekNextOperation(tab, until, or_else);
             if (operation.operator == .none) {
                 return hierarchy.inBounds(0);
             }
             if (operation.type == .postfix) {
                 try self.appendPostfixOperation(&hierarchy, operation);
-            } else {
-                const right_index = try self.appendNextStandaloneExpression(&hierarchy, tab);
+            } else if (self.appendNextStandaloneExpression(&hierarchy, tab, .only_try)) |right_index| {
                 try self.appendInfixOperation(&hierarchy, operation, right_index);
+            } else |error_attempting_infix| {
+                if (!operation.operator.isPostfixable()) {
+                    if (or_else.be_noisy()) |_| {
+                        self.addTokenizerError("infix operator needs right-hand expression");
+                    }
+                    return error_attempting_infix;
+                }
+                // We check for postfixable operations only after infix errors because
+                // we need to verify there's no standalone expression available after
+                // the operation (since infix would take precedence), and we don't want
+                // to re-implement logic that checks for a standalone expression.
+                try self.appendPostfixOperation(&hierarchy, .{
+                    .operator = operation.operator,
+                    .type = .postfix,
+                });
             }
         }
     }
 
     // Returns the next postfix or infix operation.
     // Prefix operations are taken care of inside of `appendNextStandaloneExpression`.
-    fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!Operation {
+    fn seekNextOperation(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!Operation {
         const restore_index = self.farthest_token_index;
 
         switch (try self.peekToken()) {
@@ -135,13 +160,12 @@ pub const Parser = struct {
                 return .{ .operator = .none };
             },
             .end => return .{ .operator = .none },
-            else => try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing),
+            else => try self.assertAndConsumeNextTokenIf(.spacing, or_else.map(expected_spacing)),
         }
 
         const operation: Operation = switch (try self.peekToken()) {
             .operator => |operator| blk: {
                 if (operator.isInfixable()) {
-                    // TODO: check for operator.isPostfixable() if there's nothing else
                     self.farthest_token_index += 1;
                     break :blk .{ .operator = operator, .type = .infix };
                 } else if (operator.isPostfixable()) {
@@ -185,9 +209,8 @@ pub const Parser = struct {
     /// `++Index` or `!Countdown` as well.  For member access like
     /// `First_identifier Second_identifier`, just grab the first one.
     /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
-    // TODO: also include operations like `my_function(...)`
-    fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16) ParserError!NodeIndex {
-        try self.assertAndConsumeNextTokenIf(.spacing, expected_spacing);
+    fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse) ParserError!NodeIndex {
+        try self.assertAndConsumeNextTokenIf(.spacing, or_else.map(expected_spacing));
 
         switch (try self.peekToken()) {
             .starts_upper, .number => {
@@ -198,8 +221,8 @@ pub const Parser = struct {
 
                 // TODO: check for optional `[]` arguments for `starts_upper`.
                 // `starts_upper` can also get `()` arguments in case we're defining something,
-                // e.g., `MyExampleClass(X: 3, StartingY: 4)` is equivalent to
-                // `MyExampleClass: myExampleClass(X: 3, StartingY: 4)`.
+                // e.g., `MyExampleClass(X: 3, StartingY: 4);` is equivalent to
+                // `MyExampleClass; myExampleClass(X: 3, StartingY: 4)`.
                 // TODO: brackets may look like array indexing but we can distinguish based
                 // on whether the identifier is in scope or not??
                 hierarchy.append(atomic_index) catch return ParserError.out_of_memory;
@@ -228,7 +251,7 @@ pub const Parser = struct {
                     .open = open,
                 } });
                 self.farthest_token_index += 1;
-                const inner_index = try self.appendNextExpression(tab, Until.closing(open));
+                const inner_index = try self.appendNextExpression(tab, Until.closing(open), or_else);
                 switch (self.nodes.items()[enclosed_index]) {
                     // restore the invariant:
                     .enclosed => |*enclosed| {
@@ -241,7 +264,9 @@ pub const Parser = struct {
             },
             .operator => |operator| {
                 if (!operator.isPrefixable()) {
-                    self.addTokenizerError("not a prefix operator");
+                    if (or_else.be_noisy()) |_| {
+                        self.addTokenizerError("not a prefix operator");
+                    }
                     return ParserError.syntax;
                 }
                 self.farthest_token_index += 1;
@@ -254,7 +279,7 @@ pub const Parser = struct {
                     },
                 });
                 // We need every operation *stronger* than this prefix to be attached to this prefix.
-                const inner_index = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator));
+                const inner_index = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else);
                 switch (self.nodes.items()[prefix_index]) {
                     // restore the invariant:
                     .prefix => |*prefix| {
@@ -284,7 +309,7 @@ pub const Parser = struct {
             .open => |open| switch (open) {
                 .bracket => {
                     self.farthest_token_index = non_spacing_token_index + 1;
-                    const generics_index = self.appendNextExpression(tab, Until.closing(Token.Open.bracket)) catch {
+                    const generics_index = self.appendNextExpression(tab, Until.closing(Token.Open.bracket), .only_try) catch {
                         self.farthest_token_index = restore_index;
                         return null;
                     };
@@ -296,7 +321,7 @@ pub const Parser = struct {
                 },
                 .paren => {
                     self.farthest_token_index = non_spacing_token_index + 1;
-                    const arguments_index = self.appendNextExpression(tab, Until.closing(Token.Open.paren)) catch {
+                    const arguments_index = self.appendNextExpression(tab, Until.closing(Token.Open.paren), .only_try) catch {
                         self.farthest_token_index = restore_index;
                         return null;
                     };
@@ -319,7 +344,7 @@ pub const Parser = struct {
                 }
                 const restore_index = self.farthest_token_index;
                 self.farthest_token_index = non_spacing_token_index + 1;
-                return self.appendNextExpression(tab, Until.closing(Token.Open.paren)) catch {
+                return self.appendNextExpression(tab, Until.closing(Token.Open.paren), .only_try) catch {
                     self.farthest_token_index = restore_index;
                     return null;
                 };
@@ -461,14 +486,16 @@ pub const Parser = struct {
         }
     }
 
-    fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, error_message: []const u8) ParserError!void {
+    fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, or_else: OrElse) ParserError!void {
         const next_token = try self.peekToken();
         if (next_token.tag() == expected_tag) {
             self.farthest_token_index += 1;
             return;
         }
-        common.debugStderr.print("actual tag is {d}\n", .{@intFromEnum(next_token.tag())}) catch {};
-        self.addTokenizerError(error_message);
+        if (or_else.be_noisy()) |error_message| {
+            common.debugStderr.print("actual tag is {d}\n", .{@intFromEnum(next_token.tag())}) catch {};
+            self.addTokenizerError(error_message);
+        }
         return ParserError.syntax;
     }
 
@@ -1020,6 +1047,47 @@ test "generic function calls" {
     });
 }
 
+test "declarations with missing right expressions" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("Esper;"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("Jesper."));
+        try parser.tokenizer.file.lines.append(try SmallString.init("Esperk:"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 2, .tab = 0 } },
+            Node{ .atomic_token = 1 }, // Esper
+            Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 1 } },
+            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            Node{ .atomic_token = 6 }, // Jesper
+            // [5]:
+            Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 4 } },
+            Node{ .statement = .{ .node = 8, .tab = 0 } },
+            Node{ .atomic_token = 11 }, // Esperk
+            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 7 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+            3,
+            6,
+        });
+        // No errors in attempts to parse a RHS expression for the infix operators.
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "Esper;",
+            "Jesper.",
+            "Esperk:",
+        });
+    }
+}
+
 test "simple parentheses, brackets, and braces" {
     {
         var parser: Parser = .{};
@@ -1072,6 +1140,10 @@ test "simple parentheses, brackets, and braces" {
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
             0,
         });
+        // No errors in attempts to parse `callable`.
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "[wow, jam, time]!",
+        });
     }
     {
         var parser: Parser = .{};
@@ -1104,6 +1176,10 @@ test "simple parentheses, brackets, and braces" {
         });
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
             0,
+        });
+        // Attempts to parse generics or arguments for `callable` don't add errors:
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "{Boo: 33, hoo: 123 + 44}-57",
         });
     }
 }
@@ -1180,6 +1256,10 @@ test "parser declare and assign" {
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
             0,
         });
+        // No errors in attempts to parse `callable`.
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "Declassign: type_assign1 = 12345",
+        });
     }
     {
         var parser: Parser = .{};
@@ -1204,6 +1284,10 @@ test "parser declare and assign" {
         });
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
             0,
+        });
+        // No errors in attempts to parse `callable`.
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "Oh_writable; type_assign2 = 7890",
         });
     }
 }
