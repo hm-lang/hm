@@ -316,6 +316,7 @@ pub const Operator = enum(u64) {
         return switch (self) {
             moot,
             cancel_if_null,
+            .comma,
             .increment,
             .decrement,
             .declare_generic,

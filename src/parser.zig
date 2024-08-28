@@ -1152,7 +1152,7 @@ test "declarations with missing right expressions" {
         errdefer {
             parser.tokenizer.file.print(common.debugStderr) catch {};
         }
-        try parser.tokenizer.file.lines.append(try SmallString.init("funE1(F2!, G3;, H4:): i5"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("funE1(F2., G3;, H4:): i5"));
 
         try parser.complete();
 
@@ -1161,7 +1161,7 @@ test "declarations with missing right expressions" {
             Node{ .statement = .{ .node = 11, .tab = 0 } },
             Node{ .callable = .{ .name_token = 1, .arguments = 8 } }, // funE1
             Node{ .atomic_token = 5 }, // F2
-            Node{ .postfix = .{ .operator = Operator.not, .node = 2 } },
+            Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 2 } },
             Node{ .atomic_token = 11 }, // G3
             // [5]:
             Node{ .binary = .{ .operator = Operator.comma, .left = 3, .right = 6 } },
@@ -1179,7 +1179,7 @@ test "declarations with missing right expressions" {
         });
         // No errors in attempts to parse a RHS expression for the infix operators.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
-            "funE1(F2!, G3;, H4:): i5",
+            "funE1(F2., G3;, H4:): i5",
         });
     }
 }
@@ -1277,6 +1277,83 @@ test "simple parentheses, brackets, and braces" {
         // Attempts to parse generics or arguments for `callable` don't add errors:
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "{Boo: 33, hoo: 123 + 44}-57",
+        });
+    }
+}
+
+test "trailing commas are ok" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("(C0, C1, C2,)"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .paren, .root = 7 } },
+            Node{ .atomic_token = 3 }, // C0
+            Node{ .atomic_token = 7 }, // C1
+            Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
+            // [5]:
+            Node{ .atomic_token = 11 }, // C2
+            Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 5 } },
+            Node{ .postfix = .{ .operator = Operator.comma, .node = 6 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("[Bk0, Bk1,]"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .bracket, .root = 5 } },
+            Node{ .atomic_token = 3 }, // Bk0
+            Node{ .atomic_token = 7 }, // Bk1
+            Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
+            // [5]:
+            Node{ .postfix = .{ .operator = Operator.comma, .node = 4 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("{Bc0,}"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .brace, .root = 3 } },
+            Node{ .atomic_token = 3 }, // Bc0
+            Node{ .postfix = .{ .operator = Operator.comma, .node = 2 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
         });
     }
 }
