@@ -128,12 +128,12 @@ pub const Parser = struct {
                 try self.appendPostfixOperation(&hierarchy, operation);
             } else if (self.appendNextStandaloneExpression(&hierarchy, tab, .only_try)) |right_index| {
                 try self.appendInfixOperation(&hierarchy, operation, right_index);
-            } else |error_attempting_infix| {
+            } else |error_getting_right_hand_expression| {
                 if (!operation.operator.isPostfixable()) {
                     if (or_else.be_noisy()) |_| {
                         self.addTokenizerError("infix operator needs right-hand expression");
                     }
-                    return error_attempting_infix;
+                    return error_getting_right_hand_expression;
                 }
                 // We check for postfixable operations only after infix errors because
                 // we need to verify there's no standalone expression available after
@@ -143,14 +143,21 @@ pub const Parser = struct {
                     .operator = operation.operator,
                     .type = .postfix,
                 });
+                // This is not very pretty but some version of this logic (here or elsewhere)
+                // needs to exist for declaring things like `Int;` in one line.
+                // TODO: maybe we need to restore `self.farthest_token_index` in `appendNextStandaloneExpression`.
                 switch (try self.peekToken()) {
                     .close => |close| {
                         if (until.shouldBreakAtClose(close)) {
                             self.farthest_token_index += 1;
                             return hierarchy.inBounds(0);
                         }
+                        self.farthest_token_index -= 1;
                     },
-                    else => {},
+                    .newline => {},
+                    else => {
+                        self.farthest_token_index -= 1;
+                    },
                 }
             }
         }
@@ -1139,7 +1146,44 @@ test "declarations with missing right expressions" {
             "{Quinine.}",
         });
     }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("funE1(F2!, G3;, H4:): i5"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 11, .tab = 0 } },
+            Node{ .callable = .{ .name_token = 1, .arguments = 8 } }, // funE1
+            Node{ .atomic_token = 5 }, // F2
+            Node{ .postfix = .{ .operator = Operator.not, .node = 2 } },
+            Node{ .atomic_token = 11 }, // G3
+            // [5]:
+            Node{ .binary = .{ .operator = Operator.comma, .left = 3, .right = 6 } },
+            Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 4 } },
+            Node{ .atomic_token = 17 }, // H4
+            Node{ .binary = .{ .operator = Operator.comma, .left = 5, .right = 9 } },
+            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 7 } },
+            // [10]:
+            Node{ .callable = .{ .name_token = 25 } }, // i5
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 10 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+        });
+        // No errors in attempts to parse a RHS expression for the infix operators.
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "funE1(F2!, G3;, H4:): i5",
+        });
+    }
 }
+// TODO: allow commmas to be postfixable
 
 test "simple parentheses, brackets, and braces" {
     {
