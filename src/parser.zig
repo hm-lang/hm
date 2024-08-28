@@ -621,12 +621,15 @@ test "parser simple expressions" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    try parser.tokenizer.file.lines.append(try SmallString.init("3.456"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("    hello_you"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("+1.234"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("  -5.678"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("    $$$Foe"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("        Fum--"));
+    const file_slice = [_][]const u8{
+        "3.456",
+        "    hello_you",
+        "+1.234",
+        "  -5.678",
+        "    $$$Foe",
+        "        Fum--",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
 
     try parser.complete();
 
@@ -667,6 +670,8 @@ test "parser simple expressions" {
     try std.testing.expectEqual(Node.Statement{ .node = 8, .tab = 2 }, try parser.at(3));
     try std.testing.expectEqual(Node.Statement{ .node = 11, .tab = 4 }, try parser.at(4));
     try std.testing.expectEqual(Node.Statement{ .node = 15, .tab = 8 }, try parser.at(5));
+    // No tampering done with the file, i.e., no errors.
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
 test "parser multiplication" {
@@ -788,10 +793,13 @@ test "simple prefix/postfix operators with multiplication" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    try parser.tokenizer.file.lines.append(try SmallString.init("++Theta * Beta"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("Zeta * ++Woga"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("Yodus-- * Spatula"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("Wobdash * Flobsmash--"));
+    const file_slice = [_][]const u8{
+        "++Theta * Beta",
+        "Zeta * ++Woga",
+        "Yodus-- * Spatula",
+        "Wobdash * Flobsmash--",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
 
     try parser.complete();
 
@@ -829,6 +837,7 @@ test "simple prefix/postfix operators with multiplication" {
         10,
         15,
     });
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
 test "complicated prefix/postfix operators with addition/multiplication" {
@@ -882,8 +891,11 @@ test "nested prefix/postfix operators" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    try parser.tokenizer.file.lines.append(try SmallString.init("Abc Xyz-- !"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("! ++Def Uvw"));
+    const file_slice = [_][]const u8{
+        "Abc Xyz-- !",
+        "! ++Def Uvw",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
 
     try parser.complete();
 
@@ -909,6 +921,7 @@ test "nested prefix/postfix operators" {
         0,
         6,
     });
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
 test "deeply nested prefix/postfix operators" {
@@ -986,7 +999,44 @@ test "order of operations with addition and multiplication" {
     });
 }
 
-// TODO: generic types
+test "generic types" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    const file_slice = [_][]const u8{
+        "container54[of; i1234, at. str5[qusp], array[dongle]]",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .statement = .{ .node = 1, .tab = 0 } },
+        Node{ .callable = .{ .name_token = 1, .generics = 12 } }, // container54
+        Node{ .callable = .{ .name_token = 5 } }, // of
+        Node{ .callable = .{ .name_token = 9 } }, // i1234
+        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 2, .right = 3 } },
+        // [5]:
+        Node{ .callable = .{ .name_token = 13 } }, // at
+        Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 9 } },
+        Node{ .callable = .{ .name_token = 17, .generics = 8 } }, // str5
+        Node{ .callable = .{ .name_token = 21 } }, // qusp
+        Node{ .binary = .{ .operator = Operator.declare_temporary, .left = 5, .right = 7 } },
+        // [10]:
+        Node{ .callable = .{ .name_token = 27, .generics = 11 } }, // array
+        Node{ .callable = .{ .name_token = 31 } }, // dongle
+        Node{ .binary = .{ .operator = Operator.comma, .left = 6, .right = 10 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+    });
+    // No errors when parsing:
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+}
 
 test "simple function calls" {
     var parser: Parser = .{};
@@ -994,7 +1044,10 @@ test "simple function calls" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    try parser.tokenizer.file.lines.append(try SmallString.init("superb(Brepus. 161, Canyon; Noynac, Candid)"));
+    const file_slice = [_][]const u8{
+        "superb(Brepus. 161, Canyon; Noynac, Candid)",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
 
     try parser.complete();
 
@@ -1018,6 +1071,8 @@ test "simple function calls" {
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
         0,
     });
+    // No errors when parsing:
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
 test "generic function calls" {
@@ -1026,7 +1081,10 @@ test "generic function calls" {
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
-    try parser.tokenizer.file.lines.append(try SmallString.init("fungus[type1: t_array[str7], type2, type3; i64](Life: 17, Cardio!, Fritz; foo_fritz)"));
+    const file_slice = [_][]const u8{
+        "fungus[type1: t_array[str7], type2, type3; i64](Life: 17, Cardio!, Fritz; foo_fritz)",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
 
     try parser.complete();
 
@@ -1063,6 +1121,7 @@ test "generic function calls" {
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
         0,
     });
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
 test "declarations with missing right expressions" {
