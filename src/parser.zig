@@ -143,6 +143,15 @@ pub const Parser = struct {
                     .operator = operation.operator,
                     .type = .postfix,
                 });
+                switch (try self.peekToken()) {
+                    .close => |close| {
+                        if (until.shouldBreakAtClose(close)) {
+                            self.farthest_token_index += 1;
+                            return hierarchy.inBounds(0);
+                        }
+                    },
+                    else => {},
+                }
             }
         }
     }
@@ -293,7 +302,9 @@ pub const Parser = struct {
                 return prefix_index;
             },
             else => {
-                self.addTokenizerError("expected an expression");
+                if (or_else.be_noisy()) |_| {
+                    self.addTokenizerError("expected an expression");
+                }
                 return ParserError.syntax;
             },
         }
@@ -1084,6 +1095,48 @@ test "declarations with missing right expressions" {
             "Esper;",
             "Jesper.",
             "Esperk:",
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            parser.tokenizer.file.print(common.debugStderr) catch {};
+        }
+        try parser.tokenizer.file.lines.append(try SmallString.init("(Jarok:)"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("[Turmeric;]"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("{Quinine.}"));
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .paren, .root = 3 } },
+            Node{ .atomic_token = 3 }, // Jarok
+            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 2 } },
+            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            // [5]:
+            Node{ .enclosed = .{ .open = .bracket, .root = 7 } },
+            Node{ .atomic_token = 12 }, // Turmeric
+            Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 6 } },
+            Node{ .statement = .{ .node = 9, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .brace, .root = 11 } },
+            // [10]:
+            Node{ .atomic_token = 21 }, // Quinine
+            Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 10 } },
+            .end,
+        });
+        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+            0,
+            4,
+            8,
+        });
+        // No errors in attempts to parse a RHS expression for the infix operators.
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "(Jarok:)",
+            "[Turmeric;]",
+            "{Quinine.}",
         });
     }
 }
