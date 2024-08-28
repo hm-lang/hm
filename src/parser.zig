@@ -1242,6 +1242,54 @@ test "declarations with missing right expressions" {
     }
 }
 
+// TODO: should we add `generics` and `arguments` to a `VariableNode` struct?
+// or should we remove `generics` and `arguments` from the `CallableNode` struct?
+test "declaring a default-named generic" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        parser.tokenizer.file.print(common.debugStderr) catch {};
+    }
+    const file_slice = [_][]const u8{
+        "Array[element_type]:",
+        "Lot[inner_type, at: index4];",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .statement = .{ .node = 5, .tab = 0 } },
+        Node{ .atomic_token = 1 }, // Array
+        Node{ .enclosed = .{ .open = .bracket, .root = 3 } },
+        Node{ .callable = .{ .name_token = 5 } }, // element_type
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
+        // [5]:
+        Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 4 } },
+        Node{ .statement = .{ .node = 15, .tab = 0 } },
+        Node{ .atomic_token = 12 }, // Lot
+        Node{ .enclosed = .{ .open = .bracket, .root = 11 } },
+        Node{ .callable = .{ .name_token = 16 } }, // inner_type
+        // [10]:
+        Node{ .callable = .{ .name_token = 20 } }, // at
+        Node{ .binary = .{ .operator = Operator.comma, .left = 9, .right = 13 } },
+        Node{ .callable = .{ .name_token = 24 } }, //index4
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 10, .right = 12 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 7, .right = 8 } },
+        // [15]:
+        Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 14 } },
+        .end,
+    });
+    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
+        0,
+        6,
+    });
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+}
+
+// TODO: MyVariableName(X: Y, Z):`
+
 test "simple parentheses, brackets, and braces" {
     {
         var parser: Parser = .{};
