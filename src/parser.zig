@@ -1244,14 +1244,22 @@ test "declarations with missing right expressions" {
 
 // TODO: should we add `generics` and `arguments` to a `VariableNode` struct?
 // or should we remove `generics` and `arguments` from the `CallableNode` struct?
-test "declaring a default-named generic" {
+// i think i like `generics` and `arguments` on a `callable` because they do go
+// together in the same way always.  in contrast, `generics` and `arguments` don't
+// always mean the same thing for variables; in a declaration, `Array[int]:` means
+// `Array: array[int]` but in an expression `Array[3]` means to grab the fourth value.
+// we can handle `Array[3]` as `variable { .generics = "[3]" }` but it's not super
+// consistent with `Array[3][4]` which would be implicit_member_access on the "[4]".
+// if we keep it as is, then we'd have `implicit_member_access`es for both [3] and [4].
+test "declaring a variable with arguments and/or generics" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
         parser.tokenizer.file.print(common.debugStderr) catch {};
     }
     const file_slice = [_][]const u8{
-        "Array[element_type]:",
+        "Set(543).",
+        "Array[element_type](1, 2, 3):",
         "Lot[inner_type, at: index4];",
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
@@ -1261,29 +1269,45 @@ test "declaring a default-named generic" {
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
         Node{ .statement = .{ .node = 5, .tab = 0 } },
-        Node{ .atomic_token = 1 }, // Array
-        Node{ .enclosed = .{ .open = .bracket, .root = 3 } },
-        Node{ .callable = .{ .name_token = 5 } }, // element_type
+        Node{ .atomic_token = 1 }, // Set
+        Node{ .enclosed = .{ .open = .paren, .root = 3 } },
+        Node{ .atomic_token = 5 }, // 543
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
         // [5]:
-        Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 4 } },
-        Node{ .statement = .{ .node = 15, .tab = 0 } },
-        Node{ .atomic_token = 12 }, // Lot
-        Node{ .enclosed = .{ .open = .bracket, .root = 11 } },
-        Node{ .callable = .{ .name_token = 16 } }, // inner_type
+        Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 4 } },
+        Node{ .statement = .{ .node = 18, .tab = 0 } },
+        Node{ .atomic_token = 12 }, // Array
+        Node{ .enclosed = .{ .open = .bracket, .root = 9 } },
+        Node{ .callable = .{ .name_token = 16 } }, // element_type
         // [10]:
-        Node{ .callable = .{ .name_token = 20 } }, // at
-        Node{ .binary = .{ .operator = Operator.comma, .left = 9, .right = 13 } },
-        Node{ .callable = .{ .name_token = 24 } }, //index4
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 10, .right = 12 } },
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 7, .right = 8 } },
+        Node{ .enclosed = .{ .open = .paren, .root = 16 } },
+        Node{ .atomic_token = 22 }, // 1
+        Node{ .atomic_token = 26 }, // 2
+        Node{ .binary = .{ .operator = Operator.comma, .left = 12, .right = 13 } },
         // [15]:
-        Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 14 } },
+        Node{ .atomic_token = 30 }, // 3
+        Node{ .binary = .{ .operator = Operator.comma, .left = 14, .right = 15 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 11 } },
+        Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 17 } },
+        Node{ .statement = .{ .node = 28, .tab = 0 } },
+        // [20]:
+        Node{ .atomic_token = 37 }, // Lot
+        Node{ .enclosed = .{ .open = .bracket, .root = 24 } },
+        Node{ .callable = .{ .name_token = 41 } }, // inner_type
+        Node{ .callable = .{ .name_token = 45 } }, // at
+        Node{ .binary = .{ .operator = Operator.comma, .left = 22, .right = 26 } },
+        // [25]:
+        Node{ .callable = .{ .name_token = 49 } }, // index4
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 23, .right = 25 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 20, .right = 21 } },
+        Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 27 } },
         .end,
     });
     try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
         0,
         6,
+        19,
     });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
