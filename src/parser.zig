@@ -1152,13 +1152,13 @@ test "declarations with missing right expressions" {
         errdefer {
             parser.tokenizer.file.print(common.debugStderr) catch {};
         }
-        try parser.tokenizer.file.lines.append(try SmallString.init("funE1(F2., G3;, H4:): i5"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("funE1(F2., G3;, H4:):"));
 
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 11, .tab = 0 } },
+            Node{ .statement = .{ .node = 10, .tab = 0 } },
             Node{ .callable = .{ .name_token = 1, .arguments = 8 } }, // funE1
             Node{ .atomic_token = 5 }, // F2
             Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 2 } },
@@ -1170,8 +1170,7 @@ test "declarations with missing right expressions" {
             Node{ .binary = .{ .operator = Operator.comma, .left = 5, .right = 9 } },
             Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 7 } },
             // [10]:
-            Node{ .callable = .{ .name_token = 25 } }, // i5
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 10 } },
+            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 1 } },
             .end,
         });
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
@@ -1179,11 +1178,10 @@ test "declarations with missing right expressions" {
         });
         // No errors in attempts to parse a RHS expression for the infix operators.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
-            "funE1(F2., G3;, H4:): i5",
+            "funE1(F2., G3;, H4:):",
         });
     }
 }
-// TODO: allow commmas to be postfixable
 
 test "simple parentheses, brackets, and braces" {
     {
@@ -1315,19 +1313,21 @@ test "trailing commas are ok" {
         errdefer {
             parser.tokenizer.file.print(common.debugStderr) catch {};
         }
-        try parser.tokenizer.file.lines.append(try SmallString.init("[Bk0, Bk1,]"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("[Bk0, Bk1,]-761"));
 
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .statement = .{ .node = 7, .tab = 0 } },
             Node{ .enclosed = .{ .open = .bracket, .root = 5 } },
             Node{ .atomic_token = 3 }, // Bk0
             Node{ .atomic_token = 7 }, // Bk1
             Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
             // [5]:
             Node{ .postfix = .{ .operator = Operator.comma, .node = 4 } },
+            Node{ .atomic_token = 15 }, // 761
+            Node{ .binary = .{ .operator = Operator.minus, .left = 1, .right = 6 } },
             .end,
         });
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
@@ -1340,16 +1340,19 @@ test "trailing commas are ok" {
         errdefer {
             parser.tokenizer.file.print(common.debugStderr) catch {};
         }
-        try parser.tokenizer.file.lines.append(try SmallString.init("{Bc0,}"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("{Bc0,}+Abcdef"));
 
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .statement = .{ .node = 5, .tab = 0 } },
             Node{ .enclosed = .{ .open = .brace, .root = 3 } },
             Node{ .atomic_token = 3 }, // Bc0
             Node{ .postfix = .{ .operator = Operator.comma, .node = 2 } },
+            Node{ .atomic_token = 11 }, // Abcdef
+            // [5]:
+            Node{ .binary = .{ .operator = Operator.plus, .left = 1, .right = 4 } },
             .end,
         });
         try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
