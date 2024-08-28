@@ -7,11 +7,11 @@ const OwnedSmalls = owned_list.OwnedList(SmallString);
 const std = @import("std");
 
 pub const FileError = error{
-    FileNotFound,
-    LineTooLong,
-    OutOfMemory,
-    OtherError,
-    WriteError,
+    not_found,
+    line_too_long,
+    out_of_memory,
+    write,
+    other,
 };
 
 pub const File = struct {
@@ -50,10 +50,10 @@ pub const File = struct {
         for (self.lines.items()) |line| {
             // TODO: can we somehow use `line.printLine(file)`??
             file.writeAll(line.slice()) catch {
-                return FileError.WriteError;
+                return FileError.write;
             };
             const result = file.write("\n") catch {
-                return FileError.WriteError;
+                return FileError.write;
             };
             std.debug.assert(result == 1); // should have written 1 byte
         }
@@ -63,7 +63,7 @@ pub const File = struct {
         var result = OwnedSmalls.init();
         errdefer result.deinit();
 
-        var buffer: [SmallString.max_size]u8 = undefined;
+        var buffer: [SmallString.max_count]u8 = undefined;
 
         const file = try self.openForRead();
         defer file.close();
@@ -78,15 +78,15 @@ pub const File = struct {
                         result.count() + 1,
                         buffer[0..32],
                     });
-                    return FileError.LineTooLong;
+                    return FileError.line_too_long;
                 }
-                return FileError.OtherError;
+                return FileError.other;
             } orelse break;
             const line = SmallString.init(line_buffer) catch {
-                return FileError.OutOfMemory;
+                return FileError.out_of_memory;
             };
             result.append(line) catch {
-                return FileError.OutOfMemory;
+                return FileError.out_of_memory;
             };
         }
 
@@ -95,14 +95,28 @@ pub const File = struct {
 
     fn openForRead(self: *const File) FileError!std.fs.File {
         return std.fs.cwd().openFile(self.path.slice(), .{}) catch {
-            return FileError.FileNotFound;
+            return FileError.not_found;
         };
     }
 
     fn openForWrite(self: *const File) FileError!std.fs.File {
         return std.fs.cwd().createFile(self.path.slice(), .{}) catch {
-            return FileError.FileNotFound;
+            return FileError.not_found;
         };
+    }
+
+    pub fn appendSlice(self: *File, slice: []const []const u8) FileError!void {
+        for (slice) |line_u8| {
+            if (line_u8.len > SmallString.max_count) {
+                return FileError.line_too_long;
+            }
+            const line = SmallString.init(line_u8) catch {
+                return FileError.out_of_memory;
+            };
+            self.lines.append(line) catch {
+                return FileError.out_of_memory;
+            };
+        }
     }
 
     pub fn expectEqualsSlice(self: *const File, other: []const []const u8) !void {

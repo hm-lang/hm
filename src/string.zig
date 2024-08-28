@@ -17,7 +17,7 @@ pub const Small = extern struct {
     const Self = @This();
 
     pub const Error = StringError;
-    pub const max_size: usize = std.math.maxInt(u16);
+    pub const max_count: usize = std.math.maxInt(u16);
 
     /// Each `Small` will only ever get to 65535 as the max size, so
     /// 65534 will be the max (non-empty) `start` field and
@@ -111,7 +111,7 @@ pub const Small = extern struct {
     // Probably not something we want to support, though.
     /// Note this will not provide a signature.
     pub fn allocExactly(new_size: anytype) StringError!Small {
-        if (new_size > max_size) {
+        if (new_size > max_count) {
             return StringError.string_too_long;
         }
         var string: Small = .{ .size = @intCast(new_size) };
@@ -180,7 +180,7 @@ pub const Small = extern struct {
             const full_small_buffer: *[medium_size]u8 = @ptrCast(&self.short[0]);
             return full_small_buffer[0..self.size];
         } else {
-            const full_buffer: *[Small.max_size]u8 = @ptrCast(self.remaining.pointer);
+            const full_buffer: *[Small.max_count]u8 = @ptrCast(self.remaining.pointer);
             return full_buffer[0..self.size];
         }
     }
@@ -200,7 +200,7 @@ pub const Small = extern struct {
             const full_small_buffer: *const [medium_size]u8 = @ptrCast(&self.short[0]);
             return full_small_buffer[0..self.size];
         } else {
-            const full_buffer: *const [Small.max_size]u8 = @ptrCast(self.remaining.pointer);
+            const full_buffer: *const [Small.max_count]u8 = @ptrCast(self.remaining.pointer);
             return full_buffer[0..self.size];
         }
     }
@@ -416,7 +416,7 @@ test "signs large strings" {
 
 test "signs very large strings" {
     // This is the largest string we can do:
-    var string = try Small.init("g" ** Small.max_size);
+    var string = try Small.init("g" ** Small.max_count);
     defer string.deinit();
 
     try std.testing.expectEqualStrings("g65535", string.signature());
@@ -424,7 +424,7 @@ test "signs very large strings" {
 }
 
 test "too large of a string" {
-    try std.testing.expectError(StringError.string_too_long, Small.init("g" ** (Small.max_size + 1)));
+    try std.testing.expectError(StringError.string_too_long, Small.init("g" ** (Small.max_count + 1)));
 }
 
 test "copies all bytes of short string" {
