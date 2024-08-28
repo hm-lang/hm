@@ -504,7 +504,7 @@ test "invalid operator tokens" {
         const operator = Operator.init(string_operator.slice());
         if (operator == .none) continue;
 
-        std.debug.print("expected {s} to be an invalid operator, got {d}\n", .{ string_operator.slice(), operator.to64() });
+        std.debug.print("expected {s} to be an invalid operator, got {d}\n", .{ string_operator.slice(), operator.string().slice() });
     }
 }
 
