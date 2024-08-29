@@ -1242,8 +1242,7 @@ test "declarations with missing right expressions" {
     }
 }
 
-// TODO: should we add `generics` and `arguments` to a `VariableNode` struct?
-// or should we remove `generics` and `arguments` from the `CallableNode` struct?
+// TODO: should we remove `generics` and `arguments` from the `CallableNode` struct?
 // i think i like `generics` and `arguments` on a `callable` because they do go
 // together in the same way always.  in contrast, `generics` and `arguments` don't
 // always mean the same thing for variables; in a declaration, `Array[int]:` means
@@ -1311,8 +1310,6 @@ test "declaring a variable with arguments and/or generics" {
     });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
-
-// TODO: MyVariableName(X: Y, Z):`
 
 test "simple parentheses, brackets, and braces" {
     {
