@@ -10,11 +10,23 @@ pub const TokenIndex = usize;
 pub const NodeIndex = usize;
 
 const NodeTag = enum {
+    // TODO: get rid of statement entirely (rely on `block` and `comma`)
     statement,
     atomic_token,
     prefix,
     postfix,
+    /// commas are separate because they are essentially lowest priority operators
+    /// that create new statements in the current block, and we want to make blocks
+    /// not need a depth-first search to find the first statement.  (LTR operators
+    /// essentially stack the left operand, so if it was an operator it'd be, e.g.,
+    /// `[Op: ',', Left: [Op: ',', Left: [Statement1], Right: [Statement2]], Right: [Statement3]]`
+    /// where we want to make it like this instead:
+    /// `[Node: [Statement1], Next: [Node: [Statement2], Next: [Statement3]]]`.)
+    // TODO: rename to `statement`
+    comma,
     binary,
+    // TODO: rename to `block` and add `tab` internally.
+    // the root block has `.tab = 0` and `open = .brace`.
     enclosed,
     callable,
     end,
@@ -27,6 +39,7 @@ pub const Node = union(NodeTag) {
     atomic_token: TokenIndex,
     prefix: PrefixNode,
     postfix: PostfixNode,
+    comma: CommaNode,
     binary: BinaryNode,
     enclosed: EnclosedNode,
     callable: CallableNode,
@@ -81,6 +94,9 @@ pub const Node = union(NodeTag) {
                 try writer.print("Node{{ .postfix = .{{ .operator = ", .{});
                 try postfix.operator.print(writer);
                 try writer.print(", .node = {d} }} }}", .{postfix.node});
+            },
+            .comma => |comma| {
+                try writer.print("Node{{ .comma = .{{ .node = {d}, .next = {d} }} }}", .{ comma.node, comma.next });
             },
             .binary => |binary| {
                 try writer.print("Node{{ .binary = .{{ .operator = ", .{});
@@ -168,6 +184,7 @@ pub const Node = union(NodeTag) {
 
     pub const Tag = NodeTag;
     pub const Statement = StatementNode;
+    pub const Comma = CommaNode;
     pub const Binary = BinaryNode;
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
@@ -185,6 +202,27 @@ const StatementNode = struct {
 
     pub fn equals(a: Self, b: Self) bool {
         return a.node == b.node and a.tab == b.tab;
+    }
+
+    pub fn expectEquals(a: Self, b: Self) !void {
+        try std.testing.expect(a.equals(b));
+    }
+
+    const Self = @This();
+};
+
+const CommaNode = struct {
+    node: NodeIndex = 0,
+    next: NodeIndex = 0,
+
+    pub fn operation(self: Self) operator_zig.Operation {
+        _ = self;
+        // we should never ask for a `CommaNode`'s operation.
+        return .{ .type = .infix, .operator = .comma };
+    }
+
+    pub fn equals(a: Self, b: Self) bool {
+        return a.node == b.node and a.next == b.next;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
