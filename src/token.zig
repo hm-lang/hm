@@ -7,21 +7,21 @@ const std = @import("std");
 const TokenTag = enum {
     // [0]:
     invalid,
-    end,
-    newline,
+    file_end,
+    // includes newlines.
     spacing,
     starts_upper,
-    // [5]:
     starts_lower,
     /// a part of a string (pure string), e.g., "hello, world"
     /// becomes just the inner part (no quotes).  escape sequences
     /// will still be present, e.g., \" for escaping the quote.
+    // [5]:
     slice,
     number,
     operator,
     open,
-    // [10]:
     close,
+    // [10]:
     /// E.g., for "$(MyLogic)" inside a string, the opening paren.
     /// also ok for "$[MyLogic]" or '${MyLogic}'
     interpolation_open,
@@ -31,8 +31,7 @@ const TokenTag = enum {
 
 pub const Token = union(TokenTag) {
     invalid: InvalidToken,
-    end: void,
-    newline: u32,
+    file_end: void,
     spacing: SpacingToken,
     starts_upper: SmallString,
     starts_lower: SmallString,
@@ -70,11 +69,18 @@ pub const Token = union(TokenTag) {
         }
     }
 
+    pub fn isNewline(self: Self) bool {
+        return switch (self) {
+            .spacing => |spacing| spacing.isNewline(),
+            .file_end => true,
+            else => false,
+        };
+    }
+
     pub fn countChars(self: Token) u16 {
         return switch (self) {
             .invalid => |invalid| invalid.columns.count(),
-            .end => 0,
-            .newline => 0,
+            .file_end => 0,
             .spacing => 0,
             .starts_upper => |string| string.count(),
             .starts_lower => |string| string.count(),
@@ -89,18 +95,13 @@ pub const Token = union(TokenTag) {
         };
     }
 
-    // TODO: add more of these tag helpers
-    pub fn isNewline(self: Token) bool {
-        return std.meta.activeTag(self) == TokenTag.newline;
-    }
-
     pub fn isSpacing(self: Token) bool {
         return std.meta.activeTag(self) == TokenTag.spacing;
     }
 
     pub fn isWhitespace(self: Token) bool {
         switch (std.meta.activeTag(self)) {
-            TokenTag.newline, TokenTag.spacing, TokenTag.end => return true,
+            TokenTag.spacing, TokenTag.file_end => return true,
             else => return false,
         }
     }
@@ -119,16 +120,14 @@ pub const Token = union(TokenTag) {
                     @intFromEnum(invalid.type),
                 });
             },
-            .end => {
-                try writer.print(".end", .{});
-            },
-            .newline => |value| {
-                try writer.print("Token{{ .newline = {d} }}", .{value});
+            .file_end => {
+                try writer.print(".file_end", .{});
             },
             .spacing => |value| {
-                try writer.print("Token{{ .spacing = .{{ .absolute = {d}, .relative = {d} }} }}", .{
+                try writer.print("Token{{ .spacing = .{{ .absolute = {d}, .relative = {d}, .line = {d} }} }}", .{
                     value.absolute,
                     value.relative,
+                    value.line,
                 });
             },
             .starts_upper => |string| {
@@ -305,6 +304,7 @@ pub const Token = union(TokenTag) {
     pub const InvalidType = InvalidTokenType;
 
     pub const Tag = TokenTag;
+    pub const Spacing = SpacingToken;
     const Self = @This();
 };
 
@@ -374,14 +374,29 @@ pub const SpacingToken = struct {
 
     absolute: u16,
     relative: u16,
+    line: u32,
+
+    pub inline fn isNewline(self: Self) bool {
+        return self.absolute == self.relative;
+    }
+
+    pub fn getNewlineIndex(self: Self) ?u32 {
+        return if (self.isNewline()) self.line else null;
+    }
+
+    /// Returns the tab for a newline token, or null.
+    pub fn getNewlineTab(self: Self) ?u16 {
+        return if (self.isNewline()) self.absolute else null;
+    }
 
     pub fn equals(self: Self, other: Self) bool {
-        return self.absolute == other.absolute and self.relative == other.relative;
+        return self.absolute == other.absolute and self.relative == other.relative and self.line == other.line;
     }
 
     pub fn expectEquals(self: Self, other: Self) !void {
         try std.testing.expectEqual(other.absolute, self.absolute);
         try std.testing.expectEqual(other.relative, self.relative);
+        try std.testing.expectEqual(other.line, self.line);
     }
 
     pub fn expectNotEquals(self: Self, other: Self) !void {
@@ -531,13 +546,13 @@ test "token equality" {
         },
     });
 
-    const end: Token = .end;
-    try std.testing.expect(end.equals(.end));
-    try end.expectEquals(.end);
+    const end: Token = .file_end;
+    try std.testing.expect(end.equals(end));
+    try end.expectEquals(end);
 
     const starts_upper = Token{ .starts_upper = try SmallString.init("Cabbage") };
     try starts_upper.expectNotEquals(end);
-    try std.testing.expect(!starts_upper.equals(.end));
+    try std.testing.expect(!starts_upper.equals(end));
     try starts_upper.expectEquals(starts_upper);
     try std.testing.expect(starts_upper.equals(starts_upper));
     try starts_upper.expectNotEquals(Token{ .starts_upper = try SmallString.init("Apples") });
@@ -553,31 +568,19 @@ test "token equality" {
     try starts_lower.expectNotEquals(Token{ .starts_lower = try SmallString.init("Apples") });
     try std.testing.expect(!starts_lower.equals(Token{ .starts_lower = try SmallString.init("Apples") }));
 
-    const newline = Token{ .newline = 123 };
-    try newline.expectNotEquals(end);
-    try std.testing.expect(!newline.equals(end));
-    try newline.expectNotEquals(starts_upper);
-    try std.testing.expect(!newline.equals(starts_upper));
-    try newline.expectNotEquals(starts_lower);
-    try std.testing.expect(!newline.equals(starts_lower));
-    try newline.expectEquals(newline);
-    try std.testing.expect(newline.equals(newline));
-    try newline.expectNotEquals(Token{ .newline = 456 });
-    try std.testing.expect(!newline.equals(Token{ .newline = 456 }));
-
-    const spacing = Token{ .spacing = .{ .absolute = 123, .relative = 4 } };
+    const spacing = Token{ .spacing = .{ .absolute = 123, .relative = 4, .line = 55 } };
     try spacing.expectNotEquals(end);
     try std.testing.expect(!spacing.equals(end));
     try spacing.expectNotEquals(starts_upper);
     try std.testing.expect(!spacing.equals(starts_upper));
     try spacing.expectNotEquals(starts_lower);
     try std.testing.expect(!spacing.equals(starts_lower));
-    try spacing.expectNotEquals(newline);
-    try std.testing.expect(!spacing.equals(newline));
     try spacing.expectEquals(spacing);
     try std.testing.expect(spacing.equals(spacing));
-    try spacing.expectNotEquals(Token{ .spacing = .{ .absolute = 456, .relative = 4 } });
-    try std.testing.expect(!spacing.equals(Token{ .spacing = .{ .absolute = 123, .relative = 5 } }));
+    try spacing.expectNotEquals(Token{ .spacing = .{ .absolute = 456, .relative = 4, .line = 55 } });
+    try std.testing.expect(!spacing.equals(Token{ .spacing = .{ .absolute = 123, .relative = 5, .line = 55 } }));
+    try spacing.expectNotEquals(Token{ .spacing = .{ .absolute = 123, .relative = 4, .line = 53 } });
+    try std.testing.expect(!spacing.equals(Token{ .spacing = .{ .absolute = 123, .relative = 4, .line = 53 } }));
 
     const operator = Token{ .operator = .bitwise_xor };
     try operator.expectNotEquals(end);
@@ -586,8 +589,6 @@ test "token equality" {
     try std.testing.expect(!operator.equals(starts_upper));
     try operator.expectNotEquals(starts_lower);
     try std.testing.expect(!operator.equals(starts_lower));
-    try operator.expectNotEquals(newline);
-    try std.testing.expect(!operator.equals(newline));
     try operator.expectNotEquals(spacing);
     try std.testing.expect(!operator.equals(spacing));
     try operator.expectEquals(operator);

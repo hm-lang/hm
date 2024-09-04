@@ -91,14 +91,13 @@ pub const Parser = struct {
     fn getNextStatement(self: *Self) ParserError!Node.Statement {
         const tab = switch (try self.peekToken()) {
             .spacing => |spacing| spacing.absolute,
-            .end => return ParserError.out_of_statements,
+            .file_end => return ParserError.out_of_statements,
             else => return ParserError.broken_invariant,
         };
 
         const node_index = try self.appendNextExpression(tab, Until.no_limit, .{
             .fail_with = "statement needs an expression",
         });
-        try self.assertAndConsumeNextTokenIf(.newline, .{ .fail_with = "expected newline" });
 
         return .{ .tab = tab, .node = node_index };
     }
@@ -120,7 +119,7 @@ pub const Parser = struct {
         defer hierarchy.deinit();
 
         while (true) {
-            const operation = try self.seekNextOperation(tab, until, or_else);
+            const operation = try self.seekNextOperation(tab, until);
             if (operation.operator == .none) {
                 return hierarchy.inBounds(0);
             }
@@ -154,7 +153,9 @@ pub const Parser = struct {
                         }
                         self.farthest_token_index -= 1;
                     },
-                    .newline => {},
+                    .spacing => |spacing| if (!spacing.isNewline()) {
+                        self.farthest_token_index -= 1;
+                    },
                     else => {
                         self.farthest_token_index -= 1;
                     },
@@ -165,20 +166,12 @@ pub const Parser = struct {
 
     // Returns the next postfix or infix operation.
     // Prefix operations are taken care of inside of `appendNextStandaloneExpression`.
-    fn seekNextOperation(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!Operation {
+    fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!Operation {
         const restore_index = self.farthest_token_index;
 
-        switch (try self.peekToken()) {
-            // This was the last atom in the row.
-            .newline => {
-                // TODO: check if we had a double-indent on the next line and continue parsing if so.
-                _ = tab;
-                return .{ .operator = .none };
-            },
-            .end => return .{ .operator = .none },
-            else => try self.assertAndConsumeNextTokenIf(.spacing, or_else.map(expected_spacing)),
-        }
-
+        self.farthest_token_index = self.peekNonSpacingTokenIndex(tab) orelse {
+            return .{ .operator = .none };
+        };
         const operation: Operation = switch (try self.peekToken()) {
             .operator => |operator| blk: {
                 if (operator.isInfixable()) {
@@ -191,6 +184,7 @@ pub const Parser = struct {
                     std.debug.assert(operator.isPrefixable());
                     // Back up so that the next standalone expression starts at the
                     // spacing before this prefix:
+                    // TODO: this will probably break tab functionality
                     self.farthest_token_index -= 1;
                     // Pretend that we have an operator before this prefix.
                     break :blk .{ .operator = .implicit_member_access, .type = .infix };
@@ -485,20 +479,17 @@ pub const Parser = struct {
 
     fn peekNonSpacingTokenIndex(self: *Self, tab: u16) ?usize {
         switch (self.tokenAt(self.farthest_token_index) catch return null) {
-            .end => return null,
-            .spacing => return self.farthest_token_index + 1,
-            .newline => {},
-            else => return null,
-        }
-        // Should only get here if we had a `newline`:
-        switch (self.tokenAt(self.farthest_token_index + 1) catch return null) {
-            .end => return null,
-            .spacing => |spacing| {
-                // TODO: this is probably borked
-                if (spacing.absolute >= tab) {
-                    return self.farthest_token_index + 2;
+            .file_end => return null,
+            .spacing => |spacing| if (spacing.getNewlineTab()) |new_tab| {
+                // This was a newline space token, with a tab.
+                if (new_tab >= tab + 8) {
+                    // TODO: this needs to be more complicated
+                    return self.farthest_token_index + 1;
                 }
                 return null;
+            } else {
+                // This was a plain space token.
+                return self.farthest_token_index + 1;
             },
             else => return null,
         }
@@ -638,20 +629,20 @@ test "parser simple expressions" {
         Node{ .statement = .{ .node = 1, .tab = 0 } },
         Node{ .atomic_token = 1 }, // 3.456
         Node{ .statement = .{ .node = 3, .tab = 4 } },
-        Node{ .callable = .{ .name_token = 4 } }, // hello_you
+        Node{ .callable = .{ .name_token = 3 } }, // hello_you
         Node{ .statement = .{ .node = 5, .tab = 0 } },
         // [5]:
         Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
-        Node{ .atomic_token = 9 }, // 1.234
+        Node{ .atomic_token = 7 }, // 1.234
         Node{ .statement = .{ .node = 8, .tab = 2 } },
         Node{ .prefix = .{ .operator = Operator.minus, .node = 9 } },
-        Node{ .atomic_token = 14 }, // 5.678
+        Node{ .atomic_token = 11 }, // 5.678
         // [10]:
         Node{ .statement = .{ .node = 11, .tab = 4 } },
         Node{ .prefix = .{ .operator = Operator.lambda3, .node = 12 } },
-        Node{ .atomic_token = 19 }, // Foe
+        Node{ .atomic_token = 15 }, // Foe
         Node{ .statement = .{ .node = 15, .tab = 8 } },
-        Node{ .atomic_token = 22 }, // Fum
+        Node{ .atomic_token = 17 }, // Fum
         // [15]:
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 14 } },
         .end,
@@ -716,16 +707,16 @@ test "parser simple (and postfix) implicit member access" {
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
         Node{ .statement = .{ .node = 8, .tab = 0 } },
         // [5]:
-        Node{ .atomic_token = 6 }, // Sci
-        Node{ .atomic_token = 8 }, // Fi
+        Node{ .atomic_token = 5 }, // Sci
+        Node{ .atomic_token = 7 }, // Fi
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 5, .right = 6 } },
         Node{ .postfix = .{ .operator = Operator.increment, .node = 7 } },
         Node{ .statement = .{ .node = 15, .tab = 0 } },
         // [10]:
-        Node{ .atomic_token = 13 }, // Kite
-        Node{ .atomic_token = 15 }, // Sty
+        Node{ .atomic_token = 11 }, // Kite
+        Node{ .atomic_token = 13 }, // Sty
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 11 } },
-        Node{ .atomic_token = 17 }, // Five
+        Node{ .atomic_token = 15 }, // Five
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 12, .right = 13 } },
         // [15]:
         Node{ .postfix = .{ .operator = Operator.not, .node = 14 } },
@@ -762,19 +753,19 @@ test "parser complicated (and prefix) implicit member access" {
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 4, .right = 5 } },
         Node{ .statement = .{ .node = 8, .tab = 0 } },
         Node{ .prefix = .{ .operator = Operator.not, .node = 13 } },
-        Node{ .atomic_token = 12 }, // Chai
+        Node{ .atomic_token = 11 }, // Chai
         // [10]:
-        Node{ .atomic_token = 14 }, // Lie
+        Node{ .atomic_token = 13 }, // Lie
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
-        Node{ .atomic_token = 16 }, // Fry
+        Node{ .atomic_token = 15 }, // Fry
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 11, .right = 12 } },
         Node{ .statement = .{ .node = 15, .tab = 0 } },
         // [15]:
         Node{ .prefix = .{ .operator = Operator.not, .node = 21 } },
-        Node{ .atomic_token = 21 }, // Knife
-        Node{ .atomic_token = 23 }, // Fly
+        Node{ .atomic_token = 19 }, // Knife
+        Node{ .atomic_token = 21 }, // Fly
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 16, .right = 17 } },
-        Node{ .atomic_token = 25 }, // Nigh
+        Node{ .atomic_token = 23 }, // Nigh
         // [20]:
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 18, .right = 19 } },
         Node{ .postfix = .{ .operator = Operator.not, .node = 20 } },
@@ -812,20 +803,20 @@ test "simple prefix/postfix operators with multiplication" {
         Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 3 } },
         // [5]:
         Node{ .statement = .{ .node = 9, .tab = 0 } },
-        Node{ .atomic_token = 10 }, // Zeta
+        Node{ .atomic_token = 9 }, // Zeta
         Node{ .prefix = .{ .operator = Operator.increment, .node = 8 } },
-        Node{ .atomic_token = 16 }, // Woga
+        Node{ .atomic_token = 15 }, // Woga
         Node{ .binary = .{ .operator = Operator.multiply, .left = 6, .right = 7 } },
         // [10]:
         Node{ .statement = .{ .node = 14, .tab = 0 } },
-        Node{ .atomic_token = 19 }, // Yodus
+        Node{ .atomic_token = 17 }, // Yodus
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 11 } },
-        Node{ .atomic_token = 25 }, // Spatula
+        Node{ .atomic_token = 23 }, // Spatula
         Node{ .binary = .{ .operator = Operator.multiply, .left = 12, .right = 13 } },
         // [15]:
         Node{ .statement = .{ .node = 18, .tab = 0 } },
-        Node{ .atomic_token = 28 }, // Wobdash
-        Node{ .atomic_token = 32 }, // Flobsmash
+        Node{ .atomic_token = 25 }, // Wobdash
+        Node{ .atomic_token = 29 }, // Flobsmash
         Node{ .binary = .{ .operator = Operator.multiply, .left = 16, .right = 19 } },
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 17 } },
         // [20]:
@@ -867,14 +858,14 @@ test "complicated prefix/postfix operators with addition/multiplication" {
         // [10]:
         Node{ .statement = .{ .node = 17, .tab = 0 } },
         Node{ .prefix = .{ .operator = Operator.decrement, .node = 14 } },
-        Node{ .atomic_token = 20 }, // Xeno
-        Node{ .atomic_token = 22 }, // Yak
+        Node{ .atomic_token = 19 }, // Xeno
+        Node{ .atomic_token = 21 }, // Yak
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 12, .right = 13 } },
         // [15]:
         Node{ .postfix = .{ .operator = Operator.not, .node = 11 } },
-        Node{ .atomic_token = 28 }, // 3000
+        Node{ .atomic_token = 27 }, // 3000
         Node{ .binary = .{ .operator = Operator.minus, .left = 15, .right = 19 } },
-        Node{ .atomic_token = 32 }, // Zelda
+        Node{ .atomic_token = 31 }, // Zelda
         Node{ .binary = .{ .operator = Operator.multiply, .left = 16, .right = 18 } },
         // [20]:
         .end,
@@ -911,9 +902,9 @@ test "nested prefix/postfix operators" {
         Node{ .statement = .{ .node = 7, .tab = 0 } },
         Node{ .prefix = .{ .operator = Operator.not, .node = 8 } },
         Node{ .prefix = .{ .operator = Operator.increment, .node = 11 } },
-        Node{ .atomic_token = 14 }, // Def
+        Node{ .atomic_token = 13 }, // Def
         // [10]:
-        Node{ .atomic_token = 16 }, // Uvw
+        Node{ .atomic_token = 15 }, // Uvw
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
         .end,
     });
@@ -950,10 +941,10 @@ test "deeply nested prefix/postfix operators" {
         Node{ .prefix = .{ .operator = Operator.decrement, .node = 13 } },
         // [10]:
         Node{ .prefix = .{ .operator = Operator.lambda1, .node = 11 } },
-        Node{ .atomic_token = 20 }, // Oh
-        Node{ .atomic_token = 22 }, // Great
+        Node{ .atomic_token = 19 }, // Oh
+        Node{ .atomic_token = 21 }, // Great
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 12 } },
-        Node{ .atomic_token = 26 }, // Hessian
+        Node{ .atomic_token = 25 }, // Hessian
         // [15]:
         Node{ .binary = .{ .operator = Operator.multiply, .left = 8, .right = 14 } },
         .end,
@@ -972,7 +963,6 @@ test "order of operations with addition and multiplication" {
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("Alpha * Gamma + Epsilon"));
     try parser.tokenizer.file.lines.append(try SmallString.init("Panko + K_panko * 1000"));
-
     try parser.complete();
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
@@ -985,11 +975,11 @@ test "order of operations with addition and multiplication" {
         // [5]:
         Node{ .binary = .{ .operator = Operator.plus, .left = 3, .right = 4 } },
         Node{ .statement = .{ .node = 9, .tab = 0 } },
-        Node{ .atomic_token = 12 }, // Panko
-        Node{ .atomic_token = 16 }, // K_panko
+        Node{ .atomic_token = 11 }, // Panko
+        Node{ .atomic_token = 15 }, // K_panko
         Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 11 } },
         // [10]:
-        Node{ .atomic_token = 20 }, // 1000
+        Node{ .atomic_token = 19 }, // 1000
         Node{ .binary = .{ .operator = Operator.multiply, .left = 8, .right = 10 } },
         .end,
     });

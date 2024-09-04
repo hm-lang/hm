@@ -150,15 +150,15 @@ pub const Small = extern struct {
         return internalAs64(chars);
     }
 
-    pub inline fn at(self: *const Small, at_index: anytype) u8 {
+    pub inline fn at(self: *const Small, at_index: anytype) ?u8 {
         var index: i64 = @intCast(at_index);
         if (index < 0) {
             index += self.size;
             if (index < 0) {
-                return 0;
+                return null;
             }
         } else if (index >= self.size) {
-            return 0;
+            return null;
         }
         return self.slice()[@intCast(index)];
     }

@@ -29,6 +29,7 @@ const NodeTag = enum {
     // the root block has `.tab = 0` and `open = .brace`.
     enclosed,
     callable,
+    // TODO: rename to `file_end` or something
     end,
 };
 
