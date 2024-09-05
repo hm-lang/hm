@@ -6,6 +6,7 @@ pub const operator_zig = @import("operator.zig");
 pub const Parser = @import("parser.zig").Parser;
 pub const SmallString = @import("string.zig").Small;
 pub const testing = @import("testing.zig");
+pub const Until = @import("until.zig").Until;
 
 const std = @import("std");
 

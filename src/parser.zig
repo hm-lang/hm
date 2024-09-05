@@ -11,6 +11,7 @@ const NodeIndex = node_zig.NodeIndex;
 const operator_zig = @import("operator.zig");
 const Operator = operator_zig.Operator;
 const Operation = operator_zig.Operation;
+const Until = @import("until.zig").Until;
 
 const std = @import("std");
 
@@ -72,7 +73,7 @@ pub const Parser = struct {
     fn addNextStatement(self: *Self) ParserError!void {
         errdefer {
             self.valid_statement_count = self.statement_indices.count();
-            common.debugPrint("had problems getting next statement:\n", self.nodes);
+            // common.debugPrint("had problems getting next statement:\n", self.nodes);
         }
         // So that `node == 0` appears to be invalid, append the
         // statement first, then its child nodes.  Only update
@@ -91,10 +92,13 @@ pub const Parser = struct {
 
     fn getNextStatement(self: *Self) ParserError!Node.Statement {
         const tab = switch (try self.peekToken()) {
-            .spacing => |spacing| spacing.absolute,
+            .spacing => |spacing| spacing.getNewlineTab() orelse {
+                return ParserError.broken_invariant;
+            },
             .file_end => return ParserError.out_of_statements,
             else => return ParserError.broken_invariant,
         };
+        self.farthest_token_index += 1;
 
         const node_index = try self.appendNextExpression(tab, Until.no_limit, .{
             .fail_with = "statement needs an expression",
@@ -103,6 +107,8 @@ pub const Parser = struct {
         return .{ .tab = tab, .node = node_index };
     }
 
+    /// Supports starting with spacing *or not* (e.g., for the start of a statement
+    /// where we don't want to check the indent yet).
     fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
         errdefer {
             if (or_else.be_noisy()) |error_message| {
@@ -154,10 +160,10 @@ pub const Parser = struct {
                         }
                         self.farthest_token_index -= 1;
                     },
-                    .file_end => return hierarchy.inBounds(0),
-                    .spacing => |spacing| if (!spacing.isNewline()) {
-                        self.farthest_token_index -= 1;
+                    .spacing => {
+                        // The only way we can get here is if we newline'd it.
                     },
+                    .file_end => return hierarchy.inBounds(0),
                     else => {
                         self.farthest_token_index -= 1;
                     },
@@ -221,8 +227,15 @@ pub const Parser = struct {
     /// `++Index` or `!Countdown` as well.  For member access like
     /// `First_identifier Second_identifier`, just grab the first one.
     /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
+    /// Supports starting with spacing *or not* (e.g., for the start of a statement).
     fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse) ParserError!NodeIndex {
-        try self.assertAndConsumeNextTokenIf(.spacing, or_else.map(expected_spacing));
+        switch (try self.peekToken()) {
+            .spacing => |spacing| {
+                try self.assertSyntax(self.shouldContinueAfterSpacing(spacing, tab), or_else.map(expected_spacing));
+                self.farthest_token_index += 1;
+            },
+            else => {},
+        }
 
         switch (try self.peekToken()) {
             .starts_upper, .number => {
@@ -480,31 +493,44 @@ pub const Parser = struct {
     }
 
     fn peekNonSpacingTokenIndex(self: *Self, tab: u16) ?usize {
-        switch (self.tokenAt(self.farthest_token_index) catch return null) {
+        switch (self.peekToken() catch return null) {
             .file_end => return null,
-            .spacing => |spacing| if (spacing.getNewlineTab()) |new_tab| {
-                // This was a newline space token, with a tab.
-                if (new_tab >= tab + 8) {
-                    // TODO: this needs to be more complicated
-                    return self.farthest_token_index + 1;
-                }
-                return null;
-            } else {
-                // This was a plain space token.
+            .spacing => |spacing| if (self.shouldContinueAfterSpacing(spacing, tab)) {
                 return self.farthest_token_index + 1;
+            } else {
+                return null;
             },
             else => return null,
         }
     }
 
+    /// This needs to be a Parser method because it will look for open
+    /// parens/braces/brackets on the next line.
+    fn shouldContinueAfterSpacing(self: *Self, spacing: Token.Spacing, tab: u16) bool {
+        _ = self;
+        // TODO: check for being the first token since starting an expression
+        if (spacing.getNewlineTab()) |new_tab| {
+            // TODO: this needs to be more complicated based on braces etc.
+            return new_tab >= tab + 8;
+        }
+        // We are just continuing on one line
+        return true;
+    }
+
     fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, or_else: OrElse) ParserError!void {
         const next_token = try self.peekToken();
-        if (next_token.tag() == expected_tag) {
-            self.farthest_token_index += 1;
+        errdefer {
+            common.debugPrint("actual tag is {d}\n", .{@intFromEnum(next_token.tag())});
+        }
+        try self.assertSyntax(next_token.tag() == expected_tag, or_else);
+        self.farthest_token_index += 1;
+    }
+
+    fn assertSyntax(self: *Self, value: bool, or_else: OrElse) ParserError!void {
+        if (value) {
             return;
         }
         if (or_else.be_noisy()) |error_message| {
-            common.debugPrint("actual tag is {d}\n", .{@intFromEnum(next_token.tag())});
             self.addTokenizerError(error_message);
         }
         return ParserError.syntax;
@@ -522,87 +548,6 @@ pub const Parser = struct {
         return &self.nodes.items()[index];
     }
 
-    const Self = @This();
-};
-
-const UntilTag = enum {
-    precedence,
-    close,
-};
-
-/// Necessary for prefix operations.
-const Until = union(UntilTag) {
-    precedence: u8,
-    close: Token.Close,
-
-    pub const no_limit: Self = .{ .precedence = 255 };
-
-    /// Will keep going until this prefix operator should win.
-    pub fn prefix_strength_wins(operator: Operator) Self {
-        const operation = Operation{ .operator = operator, .type = .prefix };
-        return .{ .precedence = operation.precedence(Operation.Compare.on_left) };
-    }
-
-    pub fn closing(open: Token.Open) Self {
-        return .{ .close = open };
-    }
-
-    pub fn shouldBreakBeforeOperation(self: Self, on_right: Operation) bool {
-        switch (self) {
-            .precedence => |left_precedence| {
-                const right_precedence = on_right.precedence(Operation.Compare.on_right);
-                // TODO: this should maybe be <= ??
-                return left_precedence < right_precedence;
-            },
-            else => return false,
-        }
-    }
-
-    pub fn shouldBreakAtClose(self: Self, close: Token.Close) bool {
-        switch (self) {
-            .close => |self_close| {
-                return self_close == close;
-            },
-            else => return false,
-        }
-    }
-
-    pub fn equals(a: Self, b: Self) bool {
-        const tag_a = std.meta.activeTag(a);
-        const tag_b = std.meta.activeTag(b);
-        if (tag_a != tag_b) return false;
-
-        const info = switch (@typeInfo(Self)) {
-            .Union => |info| info,
-            else => unreachable,
-        };
-        inline for (info.fields) |field_info| {
-            if (@field(Tag, field_info.name) == tag_a) {
-                const SubField = @TypeOf(@field(a, field_info.name));
-                if (std.meta.hasMethod(SubField, "equals")) {
-                    return @field(a, field_info.name).equals(@field(b, field_info.name));
-                } else {
-                    return @field(a, field_info.name) == @field(b, field_info.name);
-                }
-            }
-        }
-        return false;
-    }
-
-    pub fn printLine(self: Self, writer: anytype) !void {
-        try self.print(writer);
-        try writer.print("\n", .{});
-    }
-
-    pub fn print(self: Self, writer: anytype) !void {
-        switch (self) {
-            .precedence => |precedence| {
-                try writer.print("Until{{ .precedence = {d} }}", .{precedence});
-            },
-        }
-    }
-
-    pub const Tag = UntilTag;
     const Self = @This();
 };
 
@@ -1123,6 +1068,7 @@ test "declarations with missing right expressions" {
         defer parser.deinit();
         errdefer {
             common.debugPrint("# file:\n", parser.tokenizer.file);
+            common.debugPrint("# tokens:\n", parser.tokenizer.tokens);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Esper;"));
         try parser.tokenizer.file.lines.append(try SmallString.init("Jesper."));
@@ -1177,12 +1123,12 @@ test "declarations with missing right expressions" {
             Node{ .statement = .{ .node = 5, .tab = 0 } },
             // [5]:
             Node{ .enclosed = .{ .open = .bracket, .root = 7 } },
-            Node{ .atomic_token = 12 }, // Turmeric
+            Node{ .atomic_token = 11 }, // Turmeric
             Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 6 } },
             Node{ .statement = .{ .node = 9, .tab = 0 } },
             Node{ .enclosed = .{ .open = .brace, .root = 11 } },
             // [10]:
-            Node{ .atomic_token = 21 }, // Quinine
+            Node{ .atomic_token = 19 }, // Quinine
             Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 10 } },
             .end,
         });
@@ -1268,29 +1214,29 @@ test "declaring a variable with arguments and/or generics" {
         // [5]:
         Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 4 } },
         Node{ .statement = .{ .node = 18, .tab = 0 } },
-        Node{ .atomic_token = 12 }, // Array
+        Node{ .atomic_token = 11 }, // Array
         Node{ .enclosed = .{ .open = .bracket, .root = 9 } },
-        Node{ .callable = .{ .name_token = 16 } }, // element_type
+        Node{ .callable = .{ .name_token = 15 } }, // element_type
         // [10]:
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 7, .right = 8 } },
         Node{ .enclosed = .{ .open = .paren, .root = 16 } },
-        Node{ .atomic_token = 22 }, // 1
-        Node{ .atomic_token = 26 }, // 2
+        Node{ .atomic_token = 21 }, // 1
+        Node{ .atomic_token = 25 }, // 2
         Node{ .binary = .{ .operator = Operator.comma, .left = 12, .right = 13 } },
         // [15]:
-        Node{ .atomic_token = 30 }, // 3
+        Node{ .atomic_token = 29 }, // 3
         Node{ .binary = .{ .operator = Operator.comma, .left = 14, .right = 15 } },
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 11 } },
         Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 17 } },
         Node{ .statement = .{ .node = 28, .tab = 0 } },
         // [20]:
-        Node{ .atomic_token = 37 }, // Lot
+        Node{ .atomic_token = 35 }, // Lot
         Node{ .enclosed = .{ .open = .bracket, .root = 24 } },
-        Node{ .callable = .{ .name_token = 41 } }, // inner_type
-        Node{ .callable = .{ .name_token = 45 } }, // at
+        Node{ .callable = .{ .name_token = 39 } }, // inner_type
+        Node{ .callable = .{ .name_token = 43 } }, // at
         Node{ .binary = .{ .operator = Operator.comma, .left = 22, .right = 26 } },
         // [25]:
-        Node{ .callable = .{ .name_token = 49 } }, // index4
+        Node{ .callable = .{ .name_token = 47 } }, // index4
         Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 23, .right = 25 } },
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 20, .right = 21 } },
         Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 27 } },
