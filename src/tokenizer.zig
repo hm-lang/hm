@@ -142,7 +142,7 @@ pub const Tokenizer = struct {
                     _ = self.opens.pop();
                     try self.justAppendToken(Token{ .close = .multiline_quote });
                 }
-            }
+            } else {}
         } else if (next.isWhitespace() or common.when(self.tokens.before(initial_count), Token.isSpacing)) {
             // No need to add implicit spacing between existing whitespace...
         } else {
@@ -156,16 +156,20 @@ pub const Tokenizer = struct {
     }
 
     fn postCommitToken(self: *Self, next: Token) TokenizerError!void {
-        // Some tokens have secondary effects.
         switch (next) {
             .invalid => |invalid| {
                 self.addErrorAt(self.tokens.count() - 1, invalid.type.error_message());
             },
             .file_end => {
                 self.committed_line_index = @intCast(self.file.count());
-                self.last_token_index = self.tokens.count() - 1;
-                const last_open = self.opens.at(-1) orelse return;
-                self.addErrorAt(self.last_token_index, Token.InvalidType.expected_close(last_open).error_message());
+                const token_index = self.tokens.count() - 1;
+                const last_open = self.opens.at(-1) orelse {
+                    self.last_token_index = token_index;
+                    return;
+                };
+                // This will set `self.last_token_index`; doing it here would
+                // cause `addErrorAt` to chicken out and not add a message.
+                self.addErrorAt(token_index, Token.InvalidType.expected_close(last_open).error_message());
             },
             .spacing => |spacing| if (spacing.getNewlineIndex()) |newline_index| {
                 if (self.committed_line_index != 0 and newline_index == 0) {
@@ -1569,7 +1573,6 @@ test "tokenizer nested interpolations" {
 
 test "tokenizer quote failures" {
     {
-        common.debugPrint("\n\n\nOH no starting test\n\n", .{});
         var tokenizer: Tokenizer = .{};
         defer tokenizer.deinit();
         try tokenizer.file.appendSlice(&[_][]const u8{
@@ -1595,18 +1598,25 @@ test "tokenizer quote failures" {
     {
         var tokenizer: Tokenizer = .{};
         defer tokenizer.deinit();
+        try tokenizer.file.appendSlice(&[_][]const u8{
+            "\"abc",
+        });
 
-        try tokenizer.file.lines.append(try SmallString.init("\"abc"));
         try tokenizer.complete();
 
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
             Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
             Token{ .open = Token.Open.double_quote },
             Token{ .slice = SmallString.noAlloc("abc") },
+            .file_end,
         });
         try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{.double_quote});
 
-        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! ^ expected closing `\"`");
+        try tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "\"abc",
+            // Note we're "off by one" due to needing to escape " in the previous line.
+            "#@! ^ expected closing `\"` by end of line",
+        });
     }
 }
 

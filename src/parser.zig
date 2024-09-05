@@ -1062,7 +1062,6 @@ test "generic function calls" {
 }
 
 test "declarations with missing right expressions" {
-    common.debugPrint("\n\nstarting missing right exp\n\n", .{});
     {
         var parser: Parser = .{};
         defer parser.deinit();
