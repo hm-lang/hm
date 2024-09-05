@@ -65,7 +65,18 @@ else
     std.io.getStdErr().writer();
 
 /// Use `stderr` for real code errors, `debugStderr` for when debugging.
+// TODO: this should be `debug_stderr` based on Zig rules
 pub const debugStderr = std.io.getStdErr().writer();
+
+pub inline fn debugPrint(format: anytype, values: anytype) void {
+    const Values = @TypeOf(values);
+    if (std.meta.hasMethod(Values, "printLine")) {
+        debugStderr.print(format, .{}) catch {};
+        values.printLine(debugStderr) catch {};
+    } else {
+        debugStderr.print(format, values) catch {};
+    }
+}
 
 pub fn swap(a: anytype, b: anytype) void {
     const c = a.*;

@@ -373,8 +373,8 @@ test "at/inBounds works for large strings" {
     try std.testing.expectEqual('?', string.at(-1));
 
     // OOBs works for `at`
-    try std.testing.expectEqual(0, string.at(-count - 1));
-    try std.testing.expectEqual(0, string.at(count));
+    try std.testing.expectEqual(null, string.at(-count - 1));
+    try std.testing.expectEqual(null, string.at(count));
 }
 
 test "at/inBounds works for small strings" {
@@ -396,8 +396,8 @@ test "at/inBounds works for small strings" {
     try std.testing.expectEqual('!', string.at(-1));
 
     // OOBs works for `at`
-    try std.testing.expectEqual(0, string.at(-count - 1));
-    try std.testing.expectEqual(0, string.at(count));
+    try std.testing.expectEqual(null, string.at(-count - 1));
+    try std.testing.expectEqual(null, string.at(count));
 }
 
 test "does not sign short strings" {

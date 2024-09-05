@@ -95,6 +95,10 @@ pub const Token = union(TokenTag) {
         };
     }
 
+    pub fn isFileEnd(self: Token) bool {
+        return std.meta.activeTag(self) == TokenTag.file_end;
+    }
+
     pub fn isSpacing(self: Token) bool {
         return std.meta.activeTag(self) == TokenTag.spacing;
     }
@@ -352,9 +356,9 @@ const InvalidTokenType = enum {
             // Had a `{` somewhere that was closed by something else...
             .expected_close_brace => "expected `}`",
             // Had a `'` somewhere that was closed by something else...
-            .expected_single_quote => "expected closing `'`",
+            .expected_single_quote => "expected closing `'` by end of line",
             // Had a `"` somewhere that was closed by something else...
-            .expected_double_quote => "expected closing `\"`",
+            .expected_double_quote => "expected closing `\"` by end of line",
             // Had a close that didn't have a corresponding open
             .unexpected_close => "no corresponding open",
             .number => "invalid number",

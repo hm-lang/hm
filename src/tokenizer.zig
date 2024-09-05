@@ -57,21 +57,21 @@ pub const Tokenizer = struct {
     pub fn printDebugInfoAt(self: *Self, token_index: usize) void {
         _ = self.at(token_index) catch {};
         if (token_index >= self.tokens.count()) {
-            common.debugStderr.print("token {d} was out of bounds (count: {d})\n", .{
+            common.debugPrint("token {d} was out of bounds (count: {d})\n", .{
                 token_index,
                 self.tokens.count(),
-            }) catch {};
+            });
             return;
         }
         const line_index = self.lineIndexAt(token_index);
         const columns = self.columnsAt(token_index);
-        common.debugStderr.print("token {d} was on line {d}:{d}-{d}\n", .{
+        common.debugPrint("token {d} was on line {d}:{d}-{d}\n", .{
             token_index,
             line_index + 1,
             columns.start,
             columns.end,
-        }) catch {};
-        self.tokens.inBounds(token_index).printLine(common.debugStderr) catch {};
+        });
+        common.debugPrint("# token: ", self.tokens.inBounds(token_index));
     }
 
     pub fn complete(self: *Self) TokenizerError!void {
@@ -95,9 +95,12 @@ pub const Tokenizer = struct {
         const line = self.file.lines.inBounds(self.farthest_line_index);
         const next = if (self.farthest_char_index >= line.count())
             self.getNextNewline()
-        else if (common.when(self.opens.at(-1), Token.Open.isQuote)) {
-            // Inside quotes, we don't have hooks (besides those for `.end`).
+        else if (common.when(self.opens.at(-1), Token.Open.isQuote)) blk: {
+            // Inside quotes, we don't have hooks (besides those for `.file_end`).
             const token = try self.getNextInQuoteToken(line);
+            if (token.isFileEnd()) {
+                break :blk .file_end;
+            }
             try self.justAppendToken(token);
             return token;
         } else try self.getNextExplicitToken(line);
@@ -151,7 +154,7 @@ pub const Tokenizer = struct {
             } });
         }
     }
-    
+
     fn postCommitToken(self: *Self, next: Token) TokenizerError!void {
         // Some tokens have secondary effects.
         switch (next) {
@@ -189,15 +192,6 @@ pub const Tokenizer = struct {
         var is_escaped = false;
         while (line.at(self.farthest_char_index)) |char| {
             switch (char) {
-                0 => {
-                    // We reached the end of the line.
-                    // Note that we need to have moved forward at least a little bit
-                    // since we've already checked for EOL before calling this.
-                    return Token{ .slice = try smallString(line.in(.{
-                        .start = initial_char_index,
-                        .end = self.farthest_char_index,
-                    })) };
-                },
                 '$' => if (is_escaped) {
                     is_escaped = false;
                 } else switch (line.at(self.farthest_char_index + 1) orelse 0) {
@@ -226,8 +220,13 @@ pub const Tokenizer = struct {
             }
             self.farthest_char_index += 1;
         }
-
-        return TokenizerError.out_of_tokens;
+        // We reached the end of the line.
+        // Note that we need to have moved forward at least a little bit
+        // since we've already checked for EOL before calling this.
+        return Token{ .slice = try smallString(line.in(.{
+            .start = initial_char_index,
+            .end = self.farthest_char_index,
+        })) };
     }
 
     fn maybeInterpolate(self: *Self, open: Token.Open, line: SmallString, initial_char_index: u16) TokenizerError!Token {
@@ -554,23 +553,22 @@ pub const Tokenizer = struct {
     /// Adds an error around the given token index (i.e., on the line after that token).
     pub fn addErrorAt(self: *Self, at_token_index: usize, error_message: []const u8) void {
         if (false) {
-            common.debugStderr.print("\n\n", .{}) catch {};
-            self.tokens.printLine(common.debugStderr) catch {};
+            common.debugPrint("\n# tokens:\n", self.tokens);
         }
         std.debug.assert(at_token_index < self.tokens.count());
         const error_columns = self.columnsAt(at_token_index);
         const error_line_index = self.lineIndexAt(at_token_index);
         if (false) {
-            common.debugStderr.print("{s} at token {d} that was on line {d}:{d}-{d}\n", .{
+            common.debugPrint("{s} at token {d} that was on line {d}:{d}-{d}\n", .{
                 error_message,
                 at_token_index,
                 error_line_index + 1,
                 error_columns.start,
                 error_columns.end,
-            }) catch {};
+            });
         }
         if (at_token_index >= self.last_token_index) {
-            common.debugStderr.print("token was past the last valid token index {d}\n", .{self.last_token_index}) catch {};
+            common.debugPrint("token was past the last valid token index {d}\n", .{self.last_token_index});
             return;
         }
         self.last_token_index = at_token_index;
@@ -579,8 +577,9 @@ pub const Tokenizer = struct {
             return;
         };
         self.file.lines.insert(error_line_index + 1, string) catch {
-            self.file.lines.inBounds(error_line_index).printLine(common.debugStderr) catch {};
-            string.printLine(common.debugStderr) catch {};
+            common.debugPrint("problem at line {d}\n", .{error_line_index + 1});
+            common.debugPrint("# line:\n", self.file.lines.inBounds(error_line_index));
+            common.debugPrint("# error:\n", string);
             string.deinit();
             return;
         };
@@ -658,7 +657,7 @@ pub const Tokenizer = struct {
     fn printErrorMessage(self: *Self, error_line_index: usize, error_columns: SmallString.Range, error_message: []const u8) void {
         // TODO: also print line[error_line_index]
         _ = self;
-        common.debugStderr.print(
+        common.debugPrint(
             "error {s} on line {d}:{d}-{d}\n",
             .{
                 error_message,
@@ -666,7 +665,7 @@ pub const Tokenizer = struct {
                 error_columns.start,
                 error_columns.end,
             },
-        ) catch {};
+        );
     }
 
     /// Returns the line index for the given token index.
@@ -716,12 +715,12 @@ pub const Tokenizer = struct {
                         // We add implicit spacing between everything that's not
                         // whitespace (see `fn appendTokenAndPerformHooks`).  So
                         // we're not sure what's happening here, so go ham.
-                        common.debugStderr.print("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{}) catch {};
+                        common.debugPrint("expected to see a tab at tokens[index] or tokens[index - 1]\n", .{});
                         return self.fullLineColumnsAt(at_token_index);
                     },
                 }
             } else {
-                common.debugStderr.print("expected to see spacing at tokens[0]\n", .{}) catch {};
+                common.debugPrint("expected to see spacing at tokens[0]\n", .{});
                 return self.fullLineColumnsAt(at_token_index);
             },
         }
@@ -933,7 +932,7 @@ test "tokenizer tokenizing" {
         Token{ .spacing = .{ .absolute = 18, .relative = 2, .line = 0 } },
         Token{ .operator = .divide },
         // Ignores spacing at the end
-        Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 1} },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 1 } },
         Token{ .number = SmallString.noAlloc("2.73456") },
         Token{ .spacing = .{ .absolute = 11, .relative = 4, .line = 1 } },
         Token{ .operator = .minus },
@@ -1275,20 +1274,31 @@ test "tokenizer multiline quote parsing" {
     try tokenizer.file.lines.append(try SmallString.init("&| "));
     // No need to escape things like other quotes or parentheses
     try tokenizer.file.lines.append(try SmallString.init("    &|$&|*'\"()[]{}`"));
+    // No need to escape comments either
+    try tokenizer.file.lines.append(try SmallString.init("    &|#asdf1#[asdf2`"));
+
     try tokenizer.complete();
 
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        // [0]:
         Token{ .spacing = .{ .absolute = 2, .relative = 2, .line = 0 } },
         Token{ .open = Token.Open.multiline_quote },
         Token{ .close = Token.Close.multiline_quote },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 1 } },
         Token{ .open = Token.Open.multiline_quote },
+        // [5]:
         Token{ .slice = SmallString.noAlloc(" ") },
         Token{ .close = Token.Close.multiline_quote },
         Token{ .spacing = .{ .absolute = 4, .relative = 4, .line = 2 } },
         Token{ .open = Token.Open.multiline_quote },
         Token{ .slice = SmallString.noAlloc("$&|*'\"()[]{}`") },
+        // [10]:
         Token{ .close = Token.Close.multiline_quote },
+        Token{ .spacing = .{ .absolute = 4, .relative = 4, .line = 3 } },
+        Token{ .open = Token.Open.multiline_quote },
+        Token{ .slice = SmallString.noAlloc("#asdf1#[asdf2`") },
+        Token{ .close = Token.Close.multiline_quote },
+        // [15]:
         .file_end,
     });
     try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
@@ -1298,7 +1308,7 @@ test "tokenizer ignores empty newlines" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
     errdefer {
-        tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", tokenizer.file);
     }
     const file_slice = [_][]const u8{
         "Hi57",
@@ -1559,19 +1569,28 @@ test "tokenizer nested interpolations" {
 
 test "tokenizer quote failures" {
     {
+        common.debugPrint("\n\n\nOH no starting test\n\n", .{});
         var tokenizer: Tokenizer = .{};
         defer tokenizer.deinit();
+        try tokenizer.file.appendSlice(&[_][]const u8{
+            "    ' ",
+        });
 
-        try tokenizer.file.lines.append(try SmallString.init("    ' "));
         try tokenizer.complete();
 
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+            // [0]:
             Token{ .spacing = .{ .absolute = 4, .relative = 4, .line = 0 } },
             Token{ .open = Token.Open.single_quote },
             Token{ .slice = SmallString.noAlloc(" ") },
+            .file_end,
         });
+        try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{.single_quote});
 
-        try tokenizer.file.lines.inBounds(1).expectEqualsString("#@!   ^ expected closing `'`");
+        try tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "    ' ",
+            "#@!   ^ expected closing `'` by end of line",
+        });
     }
     {
         var tokenizer: Tokenizer = .{};
@@ -1585,6 +1604,7 @@ test "tokenizer quote failures" {
             Token{ .open = Token.Open.double_quote },
             Token{ .slice = SmallString.noAlloc("abc") },
         });
+        try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{.double_quote});
 
         try tokenizer.file.lines.inBounds(1).expectEqualsString("#@! ^ expected closing `\"`");
     }
@@ -1651,7 +1671,7 @@ test "tokenizer comments" {
         Token{ .comment = SmallString.noAlloc("#  also EOL") },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 3 } },
         Token{ .comment = SmallString.noAlloc("#( OH YEAH )#") },
-        Token{ .spacing = .{ .absolute = 14, .relative = 1 , .line = 3} },
+        Token{ .spacing = .{ .absolute = 14, .relative = 1, .line = 3 } },
         Token{ .starts_lower = SmallString.noAlloc("hi") },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 4 } },
         Token{ .starts_lower = SmallString.noAlloc("start") },

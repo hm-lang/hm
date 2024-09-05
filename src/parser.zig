@@ -72,6 +72,7 @@ pub const Parser = struct {
     fn addNextStatement(self: *Self) ParserError!void {
         errdefer {
             self.valid_statement_count = self.statement_indices.count();
+            common.debugPrint("had problems getting next statement:\n", self.nodes);
         }
         // So that `node == 0` appears to be invalid, append the
         // statement first, then its child nodes.  Only update
@@ -153,6 +154,7 @@ pub const Parser = struct {
                         }
                         self.farthest_token_index -= 1;
                     },
+                    .file_end => return hierarchy.inBounds(0),
                     .spacing => |spacing| if (!spacing.isNewline()) {
                         self.farthest_token_index -= 1;
                     },
@@ -502,7 +504,7 @@ pub const Parser = struct {
             return;
         }
         if (or_else.be_noisy()) |error_message| {
-            common.debugStderr.print("actual tag is {d}\n", .{@intFromEnum(next_token.tag())}) catch {};
+            common.debugPrint("actual tag is {d}\n", .{@intFromEnum(next_token.tag())});
             self.addTokenizerError(error_message);
         }
         return ParserError.syntax;
@@ -610,7 +612,7 @@ test "parser simple expressions" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     const file_slice = [_][]const u8{
         "3.456",
@@ -669,7 +671,7 @@ test "parser multiplication" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("Wompus * 3.14"));
 
@@ -691,7 +693,7 @@ test "parser simple (and postfix) implicit member access" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("Pi Sky"));
     try parser.tokenizer.file.lines.append(try SmallString.init("Sci Fi++"));
@@ -733,7 +735,7 @@ test "parser complicated (and prefix) implicit member access" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("--Why Shy Spy"));
     try parser.tokenizer.file.lines.append(try SmallString.init("!Chai Lie Fry"));
@@ -782,7 +784,7 @@ test "simple prefix/postfix operators with multiplication" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     const file_slice = [_][]const u8{
         "++Theta * Beta",
@@ -835,7 +837,7 @@ test "complicated prefix/postfix operators with addition/multiplication" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("Apple * !Berry Cantaloupe-- + 500"));
     try parser.tokenizer.file.lines.append(try SmallString.init("--Xeno Yak! - 3000 * Zelda"));
@@ -880,7 +882,7 @@ test "nested prefix/postfix operators" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     const file_slice = [_][]const u8{
         "Abc Xyz-- !",
@@ -919,7 +921,7 @@ test "deeply nested prefix/postfix operators" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("$$Yammer * Zen++!"));
     try parser.tokenizer.file.lines.append(try SmallString.init("!--$Oh Great * Hessian"));
@@ -959,7 +961,7 @@ test "order of operations with addition and multiplication" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     try parser.tokenizer.file.lines.append(try SmallString.init("Alpha * Gamma + Epsilon"));
     try parser.tokenizer.file.lines.append(try SmallString.init("Panko + K_panko * 1000"));
@@ -993,7 +995,7 @@ test "generic types" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     const file_slice = [_][]const u8{
         "container54[of; i1234, at. str5[qusp], array[dongle]]",
@@ -1032,7 +1034,7 @@ test "simple function calls" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     const file_slice = [_][]const u8{
         "superb(Brepus. 161, Canyon; Noynac, Candid)",
@@ -1069,7 +1071,7 @@ test "generic function calls" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     const file_slice = [_][]const u8{
         "fungus[type1: t_array[str7], type2, type3; i64](Life: 17, Cardio!, Fritz; foo_fritz)",
@@ -1115,11 +1117,12 @@ test "generic function calls" {
 }
 
 test "declarations with missing right expressions" {
+    common.debugPrint("\n\nstarting missing right exp\n\n", .{});
     {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Esper;"));
         try parser.tokenizer.file.lines.append(try SmallString.init("Jesper."));
@@ -1133,11 +1136,11 @@ test "declarations with missing right expressions" {
             Node{ .atomic_token = 1 }, // Esper
             Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 1 } },
             Node{ .statement = .{ .node = 5, .tab = 0 } },
-            Node{ .atomic_token = 6 }, // Jesper
+            Node{ .atomic_token = 5 }, // Jesper
             // [5]:
             Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 4 } },
             Node{ .statement = .{ .node = 8, .tab = 0 } },
-            Node{ .atomic_token = 11 }, // Esperk
+            Node{ .atomic_token = 9 }, // Esperk
             Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 7 } },
             .end,
         });
@@ -1157,7 +1160,7 @@ test "declarations with missing right expressions" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("(Jarok:)"));
         try parser.tokenizer.file.lines.append(try SmallString.init("[Turmeric;]"));
@@ -1199,7 +1202,7 @@ test "declarations with missing right expressions" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("funE1(F2., G3;, H4:):"));
 
@@ -1244,7 +1247,7 @@ test "declaring a variable with arguments and/or generics" {
     var parser: Parser = .{};
     defer parser.deinit();
     errdefer {
-        parser.tokenizer.file.print(common.debugStderr) catch {};
+        common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     const file_slice = [_][]const u8{
         "Set(543).",
@@ -1306,7 +1309,7 @@ test "simple parentheses, brackets, and braces" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("+(Wow, Great)"));
 
@@ -1331,7 +1334,7 @@ test "simple parentheses, brackets, and braces" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("[wow, jam, time]!"));
 
@@ -1362,7 +1365,7 @@ test "simple parentheses, brackets, and braces" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("{Boo: 33, hoo: 123 + 44}-57"));
 
@@ -1402,7 +1405,7 @@ test "trailing commas are ok" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("(C0, C1, C2,)"));
 
@@ -1429,7 +1432,7 @@ test "trailing commas are ok" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("[Bk0, Bk1,]-761"));
 
@@ -1456,7 +1459,7 @@ test "trailing commas are ok" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("{Bc0,}+Abcdef"));
 
@@ -1484,7 +1487,7 @@ test "parser declare" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Whatever: type1"));
 
@@ -1506,7 +1509,7 @@ test "parser declare" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Writable_whatever; type2"));
 
@@ -1531,7 +1534,7 @@ test "parser declare and assign" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Declassign: type_assign1 = 12345"));
 
@@ -1560,7 +1563,7 @@ test "parser declare and assign" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Oh_writable; type_assign2 = 7890"));
 
@@ -1592,7 +1595,7 @@ test "parser declare and nested assigns" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("D1: D2; D3"));
 
@@ -1617,7 +1620,7 @@ test "parser declare and nested assigns" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("X3 = Y4 = 750"));
 
@@ -1642,7 +1645,7 @@ test "parser declare and nested assigns" {
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
-            parser.tokenizer.file.print(common.debugStderr) catch {};
+            common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("VarQ; i32 = Qu16 = VarU: i16 = 750"));
 

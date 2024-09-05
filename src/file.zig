@@ -37,6 +37,10 @@ pub const File = struct {
         self.lines = lines;
     }
 
+    pub inline fn printLine(self: *const File, writer: anytype) !void {
+        return self.print(writer);
+    }
+
     pub fn print(self: *const File, writer: anytype) !void {
         for (self.lines.items()) |line| {
             writer.print("{s}\n", .{line.slice()}) catch {};
