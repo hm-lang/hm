@@ -267,7 +267,7 @@ pub const Token = union(TokenTag) {
             };
         }
 
-        pub fn fromTab(tabbed_open: Tab.Open): common.Error!Open {
+        pub fn fromTab(tabbed_open: Tab.Open) common.Error!Open {
             return switch (tabbed_open) {
                 .paren => .paren,
                 .bracket => .bracket,
@@ -276,14 +276,15 @@ pub const Token = union(TokenTag) {
             };
         }
 
-        pub fn toTab(self: Open): common.Error!Tab.Open {
+        pub fn toTab(self: Open) common.Error!Tab.Open {
             return switch (self) {
                 .paren => .paren,
                 .bracket => .bracket,
                 .brace => .brace,
                 .single_quote,
                 .double_quote,
-                .multiline_quote, => common.Error.invalid_argument,
+                .multiline_quote,
+                => common.Error.invalid_argument,
             };
         }
 

@@ -20,11 +20,11 @@ pub fn Tabbed(comptime T: type) type {
 
         pub fn print(self: Self, writer: anytype) !void {
             if (self.open == .none) {
-                try writer.print("Tab{{ .external = {d}, .internal = {d}, .data = ", .{self.external, self.internal });
+                try writer.print("Tab{{ .external = {d}, .internal = {d}, .data = ", .{ self.external, self.internal });
             } else {
                 try writer.print("Tab{{ .open = .", .{});
                 try open.print(writer);
-                try writer.print(", .external = {d}, .internal = {d}, .data = ", .{self.start, self.internal});
+                try writer.print(", .external = {d}, .internal = {d}, .data = ", .{ self.start, self.internal });
             }
             if (std.meta.hasMethod(T, "print")) {
                 try self.data.print(writer);
@@ -46,8 +46,8 @@ pub fn Tabbed(comptime T: type) type {
         pub const Close = TabOpen;
 
         const Self = @This();
-    }
-};
+    };
+}
 
 const TabOpen = enum {
     none,

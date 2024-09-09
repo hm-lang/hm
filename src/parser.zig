@@ -54,7 +54,7 @@ pub const Parser = struct {
 
     fn getNextBlock(self: *Self, starting_tab: u16) ParserError!Node.Block {
         var start_index: usize = 0;
-        var moving_index: usize = 0;
+        var previous_index: usize = 0;
         // TODO: simplify this.
         //      we don't need to check if some parentheses are a block before parsing them,
         //      just parse them as the next statement and if they are a block we'll handle
@@ -65,22 +65,29 @@ pub const Parser = struct {
         // TODO: if a file starts with an indent, we need to handle that specially?
         while (self.getNextStatementStartIndex(tab)) |token_index| {
             self.farthest_token_index = token_index;
+            // TODO: revert this and just append.  we're going to want to avoid
+            //      allocating a block as a statement + block if there's a previous statement
+            //      for the block to attach to.
             // To make nodes mostly go in order, append the node first.
             const next_index = try self.justAppendNode(.end);
             if (start_index == 0) {
                 start_index = next_index;
-            } else switch (self.nodes.inBounds(moving_index)) {
-                .statement => |*statement| {
-                    statement.next = next_index;
-                },
-                else => return ParserError.broken_invariant,
+            } else {
+                self.nodes.inBounds(previous_index).setStatementNext(next_index) catch {
+                    return ParserError.broken_invariant;
+                };
             }
-            moving_index = next_index;
-            self.nodes.set(moving_index, Node{
-                .statement = try self.getNextStatement(tab, Until.no_limit, .{
-                    .fail_with = "statement needs an expression",
-                }),
-            }) catch unreachable;
+            const next_statement = try self.getNextStatement(tab, Until.no_limit, .{
+                .fail_with = "statement needs an expression",
+            });
+            if (self.isBlock(next_statement) and previous_index != 0) {
+                self.nodes.inBounds(previous_index).setStatementBlock(next_statement.node);
+            } else {
+                self.nodes.set(next_index, Node{
+                    .statement = next_statement,
+                }) catch return ParserError.broken_invariant;
+            }
+            previous_index = next_index;
         }
         return .{ .tab = tab, .start = start_index };
     }

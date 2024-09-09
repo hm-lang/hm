@@ -76,6 +76,15 @@ pub const Node = union(NodeTag) {
         }
     }
 
+    pub fn setStatementNext(self: *Self, next_index: NodeIndex) NodeError!void {
+        switch (self.*) {
+            .statement => |*statement| {
+                statement.next = next_index;
+            },
+            else => return NodeError.not_allowed,
+        }
+    }
+
     pub fn printLine(self: Self, writer: anytype) !void {
         try self.print(writer);
         try writer.print("\n", .{});
@@ -87,7 +96,7 @@ pub const Node = union(NodeTag) {
                 try writer.print("Node{{ .block = .{{ .start = {d}, .tab = {d} }} }}", .{ block.start, block.tab });
             },
             .statement => |statement| {
-                try writer.print("Node{{ .statement = .{{ .node = {d}, .block = {d}, .next = {d} }} }}", .{ statement.node, statement.block, statement.next });
+                try writer.print("Node{{ .statement = .{{ .node = {d}, .next = {d} }} }}", .{ statement.node, statement.next });
             },
             .atomic_token => |token_index| {
                 try writer.print("Node{{ .atomic_token = {d} }}", .{token_index});
@@ -215,7 +224,6 @@ const BlockNode = struct {
 
 const StatementNode = struct {
     node: NodeIndex = 0,
-    block: NodeIndex = 0,
     next: NodeIndex = 0,
 
     pub fn operation(self: Self) operator_zig.Operation {
@@ -225,7 +233,7 @@ const StatementNode = struct {
     }
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.node == b.node and a.block == b.block and a.next == b.next;
+        return a.node == b.node and a.next == b.next;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
