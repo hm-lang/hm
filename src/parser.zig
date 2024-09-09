@@ -26,90 +26,78 @@ const ParserError = error{
     unimplemented,
 };
 
+// TODO: this is probably better as `Nodifier` (like `Token` -> `Tokenizer`).
+// we still need a `parser` after getting the nodes, to turn it into grammar.
+// and then `interpret` or `transpile` after getting those.
+// alternatively, we keep this and then for `complete` we pass in a `Grammar`
+// class that is an `anytype` and which has methods like `nestScope`,
+// `unnestScope`, `defineFunction`, `declareFunction`, etc.
 pub const Parser = struct {
     // The parser will free this at the end.
     tokenizer: Tokenizer = .{},
     nodes: OwnedNodes = OwnedNodes.init(),
-    statement_indices: OwnedNodeIndices = OwnedNodeIndices.init(),
-    valid_statement_count: usize = std.math.maxInt(usize),
     farthest_token_index: usize = 0,
 
     pub fn deinit(self: *Self) void {
         self.tokenizer.deinit();
-        self.statement_indices.deinit();
         self.nodes.deinit();
     }
 
-    pub fn at(self: *Self, statement_index: usize) ParserError!Node.Statement {
-        if (statement_index >= self.valid_statement_count) {
-            return ParserError.out_of_statements;
-        }
-        while (statement_index >= self.statement_indices.count()) {
-            try self.addNextStatement();
-            if (statement_index >= self.valid_statement_count) {
-                return ParserError.out_of_statements;
-            }
-        }
-        const node_index = self.statement_indices.at(statement_index) orelse {
-            return ParserError.broken_invariant;
-        };
-        return switch (self.nodes.inBounds(node_index)) {
-            .statement => |statement| statement,
-            else => ParserError.broken_invariant,
-        };
-    }
-
     pub fn complete(self: *Self) ParserError!void {
-        while (self.valid_statement_count > self.statement_indices.count()) {
-            self.addNextStatement() catch |err| {
-                if (err == ParserError.out_of_statements) {
-                    break;
-                }
-                return err;
-            };
-        }
-    }
-
-    fn addNextStatement(self: *Self) ParserError!void {
-        errdefer {
-            self.valid_statement_count = self.statement_indices.count();
-            // common.debugPrint("had problems getting next statement:\n", self.nodes);
-        }
         // So that `node == 0` appears to be invalid, append the
-        // statement first, then its child nodes.  Only update
-        // `statement_indices` after success.  Notice that this
-        // will make the first statement appear to be invalid,
-        // but only if it would be cross referenced in another
-        // node, which it shouldn't be since it's the first.
-        const statement_node_index = try self.justAppendNode(.end);
-        self.nodes.set(statement_node_index, Node{
-            .statement = try self.getNextStatement(),
+        // block first, then its child nodes.
+        const block_node_index = try self.justAppendNode(.end);
+        self.nodes.set(block_node_index, Node{
+            .block = try self.getNextBlock(0),
         }) catch unreachable;
-        self.statement_indices.append(statement_node_index) catch {
-            return ParserError.out_of_memory;
-        };
     }
 
-    fn getNextStatement(self: *Self) ParserError!Node.Statement {
-        const tab = switch (try self.peekToken()) {
-            .spacing => |spacing| spacing.getNewlineTab() orelse {
-                return ParserError.broken_invariant;
-            },
+    fn getNextBlock(self: *Self, starting_tab: u16) ParserError!Node.Block {
+        var start_index: usize = 0;
+        var moving_index: usize = 0;
+        // TODO: simplify this.
+        //      we don't need to check if some parentheses are a block before parsing them,
+        //      just parse them as the next statement and if they are a block we'll handle
+        //      that in a third pass.  maybe what we can do is return `enclosed` if there's
+        //      no internal indent (e.g., `[X, Y: 3]`) and `block` if there is one (e.g.,
+        //      `[   X, Y: 3]`).  some declarations will use blocks differently, e.g.,
+        //      functions vs. classes.
+        // TODO: if a file starts with an indent, we need to handle that specially?
+        while (self.getNextStatementStartIndex(tab)) |token_index| {
+            self.farthest_token_index = token_index;
+            // To make nodes mostly go in order, append the node first.
+            const next_index = try self.justAppendNode(.end);
+            if (start_index == 0) {
+                start_index = next_index;
+            } else switch (self.nodes.inBounds(moving_index)) {
+                .statement => |*statement| {
+                    statement.next = next_index;
+                },
+                else => return ParserError.broken_invariant,
+            }
+            moving_index = next_index;
+            self.nodes.set(moving_index, Node{
+                .statement = try self.getNextStatement(tab, Until.no_limit, .{
+                    .fail_with = "statement needs an expression",
+                }),
+            }) catch unreachable;
+        }
+        return .{ .tab = tab, .start = start_index };
+    }
+
+    fn getTab(self: *Self) ParserError!u16 {
+        const internal_tab = switch (try self.peekToken()) {
+            .spacing => |spacing| spacing.absolute,
             .file_end => return ParserError.out_of_statements,
             else => return ParserError.broken_invariant,
         };
         self.farthest_token_index += 1;
-
-        const node_index = try self.appendNextExpression(tab, Until.no_limit, .{
-            .fail_with = "statement needs an expression",
-        });
-
-        return .{ .tab = tab, .node = node_index };
+        return internal_tab;
     }
 
     /// Supports starting with spacing *or not* (e.g., for the start of a statement
     /// where we don't want to check the indent yet).
-    fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
+    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
         errdefer {
             if (or_else.be_noisy()) |error_message| {
                 self.addTokenizerError(error_message);
@@ -244,31 +232,16 @@ pub const Parser = struct {
                 });
                 self.farthest_token_index += 1;
 
-                // TODO: check for optional `[]` arguments for `starts_upper`.
-                // `starts_upper` can also get `()` arguments in case we're defining something,
-                // e.g., `MyExampleClass(X: 3, StartingY: 4);` is equivalent to
-                // `MyExampleClass; myExampleClass(X: 3, StartingY: 4)`.
-                // TODO: brackets may look like array indexing but we can distinguish based
-                // on whether the identifier is in scope or not??
                 hierarchy.append(atomic_index) catch return ParserError.out_of_memory;
                 return atomic_index;
             },
             .starts_lower => {
-                const callable_index = try self.justAppendNode(Node{ .callable = .{
-                    .name_token = self.farthest_token_index,
-                } });
+                const callable_index = try self.justAppendNode(Node{
+                    .callable_token = self.farthest_token_index,
+                });
                 self.farthest_token_index += 1;
 
                 hierarchy.append(callable_index) catch return ParserError.out_of_memory;
-
-                const additional_fields = self.maybeAppendCallableFields(tab) orelse return callable_index;
-                switch (self.nodes.items()[callable_index]) {
-                    .callable => |*callable| {
-                        callable.generics = additional_fields.generics;
-                        callable.arguments = additional_fields.arguments;
-                    },
-                    else => return ParserError.broken_invariant,
-                }
                 return callable_index;
             },
             .open => |open| {
@@ -276,7 +249,7 @@ pub const Parser = struct {
                     .open = open,
                 } });
                 self.farthest_token_index += 1;
-                const inner_index = try self.appendNextExpression(tab, Until.closing(open), or_else);
+                const inner_index = try self.appendNextStatement(tab, Until.closing(open), or_else);
                 switch (self.nodes.items()[enclosed_index]) {
                     // restore the invariant:
                     .enclosed => |*enclosed| {
@@ -304,7 +277,7 @@ pub const Parser = struct {
                     },
                 });
                 // We need every operation *stronger* than this prefix to be attached to this prefix.
-                const inner_index = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else);
+                const inner_index = try self.appendNextStatement(tab, Until.prefix_strength_wins(operator), or_else);
                 switch (self.nodes.items()[prefix_index]) {
                     // restore the invariant:
                     .prefix => |*prefix| {
@@ -336,7 +309,7 @@ pub const Parser = struct {
             .open => |open| switch (open) {
                 .bracket => {
                     self.farthest_token_index = non_spacing_token_index + 1;
-                    const generics_index = self.appendNextExpression(tab, Until.closing(Token.Open.bracket), .only_try) catch {
+                    const generics_index = self.appendNextStatement(tab, Until.closing(Token.Open.bracket), .only_try) catch {
                         self.farthest_token_index = restore_index;
                         return null;
                     };
@@ -348,7 +321,7 @@ pub const Parser = struct {
                 },
                 .paren => {
                     self.farthest_token_index = non_spacing_token_index + 1;
-                    const arguments_index = self.appendNextExpression(tab, Until.closing(Token.Open.paren), .only_try) catch {
+                    const arguments_index = self.appendNextStatement(tab, Until.closing(Token.Open.paren), .only_try) catch {
                         self.farthest_token_index = restore_index;
                         return null;
                     };
@@ -371,7 +344,7 @@ pub const Parser = struct {
                 }
                 const restore_index = self.farthest_token_index;
                 self.farthest_token_index = non_spacing_token_index + 1;
-                return self.appendNextExpression(tab, Until.closing(Token.Open.paren), .only_try) catch {
+                return self.appendNextStatement(tab, Until.closing(Token.Open.paren), .only_try) catch {
                     self.farthest_token_index = restore_index;
                     return null;
                 };
@@ -492,7 +465,32 @@ pub const Parser = struct {
         };
     }
 
+    fn getNextStatementStartIndex(self: *Self, tab: u16) ?TokenIndex {
+        // TODO: ignore comments as well
+        switch (self.peekToken() catch return null) {
+            .file_end => return null,
+            // TODO: think about how we want to handle prefix operators
+            //      should we do stuff like
+            //&|MyValue:
+            //&|       +SomeValue   # ignore all operators for tab
+            //&|    -   CoolStuff
+            // or
+            //&|MyValue:
+            //&|        +SomeValue  # ignore just infix
+            //&|    -   CoolStuff
+            .spacing => |spacing| if (spacing.absolute == tab) {
+                // TODO: ignore absolute spacing for operators.
+                return self.farthest_token_index + 1;
+            } else {
+                return null;
+            },
+            else => return null,
+        }
+    }
+
+    /// For inside a statement, the next index that we should continue with.
     fn peekNonSpacingTokenIndex(self: *Self, tab: u16) ?usize {
+        // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
             .spacing => |spacing| if (self.shouldContinueAfterSpacing(spacing, tab)) {
@@ -594,20 +592,6 @@ test "parser simple expressions" {
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 14 } },
         .end,
     });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-        2,
-        4,
-        7,
-        10,
-        13,
-    });
-    try std.testing.expectEqual(Node.Statement{ .node = 1, .tab = 0 }, try parser.at(0));
-    try std.testing.expectEqual(Node.Statement{ .node = 3, .tab = 4 }, try parser.at(1));
-    try std.testing.expectEqual(Node.Statement{ .node = 5, .tab = 0 }, try parser.at(2));
-    try std.testing.expectEqual(Node.Statement{ .node = 8, .tab = 2 }, try parser.at(3));
-    try std.testing.expectEqual(Node.Statement{ .node = 11, .tab = 4 }, try parser.at(4));
-    try std.testing.expectEqual(Node.Statement{ .node = 15, .tab = 8 }, try parser.at(5));
     // No tampering done with the file, i.e., no errors.
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
@@ -628,9 +612,6 @@ test "parser multiplication" {
         Node{ .atomic_token = 5 }, // 3.14
         Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
         .end,
-    });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
     });
 }
 
@@ -668,11 +649,6 @@ test "parser simple (and postfix) implicit member access" {
         // [15]:
         Node{ .postfix = .{ .operator = Operator.not, .node = 14 } },
         .end,
-    });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-        4,
-        9,
     });
 }
 
@@ -717,11 +693,6 @@ test "parser complicated (and prefix) implicit member access" {
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 18, .right = 19 } },
         Node{ .postfix = .{ .operator = Operator.not, .node = 20 } },
         .end,
-    });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-        7,
-        14,
     });
 }
 
@@ -769,12 +740,6 @@ test "simple prefix/postfix operators with multiplication" {
         // [20]:
         .end,
     });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-        5,
-        10,
-        15,
-    });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
@@ -817,10 +782,6 @@ test "complicated prefix/postfix operators with addition/multiplication" {
         // [20]:
         .end,
     });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-        10,
-    });
 }
 
 test "nested prefix/postfix operators" {
@@ -854,10 +815,6 @@ test "nested prefix/postfix operators" {
         Node{ .atomic_token = 15 }, // Uvw
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
         .end,
-    });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-        6,
     });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
@@ -896,10 +853,6 @@ test "deeply nested prefix/postfix operators" {
         Node{ .binary = .{ .operator = Operator.multiply, .left = 8, .right = 14 } },
         .end,
     });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-        7,
-    });
 }
 
 test "order of operations with addition and multiplication" {
@@ -929,10 +882,6 @@ test "order of operations with addition and multiplication" {
         Node{ .atomic_token = 19 }, // 1000
         Node{ .binary = .{ .operator = Operator.multiply, .left = 8, .right = 10 } },
         .end,
-    });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-        6,
     });
 }
 
@@ -968,9 +917,6 @@ test "generic types" {
         Node{ .binary = .{ .operator = Operator.comma, .left = 6, .right = 10 } },
         .end,
     });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-    });
     // No errors when parsing:
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
@@ -1004,9 +950,6 @@ test "simple function calls" {
         // [10]:
         Node{ .binary = .{ .operator = Operator.comma, .left = 6, .right = 9 } },
         .end,
-    });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
     });
     // No errors when parsing:
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
@@ -1055,9 +998,6 @@ test "generic function calls" {
         Node{ .binary = .{ .operator = Operator.declare_writable, .left = 18, .right = 20 } },
         .end,
     });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-    });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
@@ -1088,11 +1028,6 @@ test "declarations with missing right expressions" {
             Node{ .atomic_token = 9 }, // Esperk
             Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 7 } },
             .end,
-        });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
-            3,
-            6,
         });
         // No errors in attempts to parse a RHS expression for the infix operators.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
@@ -1131,11 +1066,6 @@ test "declarations with missing right expressions" {
             Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 10 } },
             .end,
         });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
-            4,
-            8,
-        });
         // No errors in attempts to parse a RHS expression for the infix operators.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "(Jarok:)",
@@ -1169,9 +1099,6 @@ test "declarations with missing right expressions" {
             // [10]:
             Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 1 } },
             .end,
-        });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
         });
         // No errors in attempts to parse a RHS expression for the infix operators.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
@@ -1241,11 +1168,6 @@ test "declaring a variable with arguments and/or generics" {
         Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 27 } },
         .end,
     });
-    try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-        0,
-        6,
-        19,
-    });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
@@ -1271,9 +1193,6 @@ test "simple parentheses, brackets, and braces" {
             Node{ .binary = .{ .operator = Operator.comma, .left = 3, .right = 4 } },
             .end,
         });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
-        });
     }
     {
         var parser: Parser = .{};
@@ -1297,9 +1216,6 @@ test "simple parentheses, brackets, and braces" {
             Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 5 } },
             Node{ .postfix = .{ .operator = Operator.not, .node = 1 } },
             .end,
-        });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
         });
         // No errors in attempts to parse `callable`.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
@@ -1335,9 +1251,6 @@ test "simple parentheses, brackets, and braces" {
             Node{ .binary = .{ .operator = Operator.minus, .left = 1, .right = 11 } },
             .end,
         });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
-        });
         // Attempts to parse generics or arguments for `callable` don't add errors:
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "{Boo: 33, hoo: 123 + 44}-57",
@@ -1369,9 +1282,6 @@ test "trailing commas are ok" {
             Node{ .postfix = .{ .operator = Operator.comma, .node = 6 } },
             .end,
         });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
-        });
     }
     {
         var parser: Parser = .{};
@@ -1396,9 +1306,6 @@ test "trailing commas are ok" {
             Node{ .binary = .{ .operator = Operator.minus, .left = 1, .right = 6 } },
             .end,
         });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
-        });
     }
     {
         var parser: Parser = .{};
@@ -1420,9 +1327,6 @@ test "trailing commas are ok" {
             // [5]:
             Node{ .binary = .{ .operator = Operator.plus, .left = 1, .right = 4 } },
             .end,
-        });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
         });
     }
 }
@@ -1446,9 +1350,6 @@ test "parser declare" {
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 2 } },
             .end,
         });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
-        });
     }
     {
         var parser: Parser = .{};
@@ -1467,9 +1368,6 @@ test "parser declare" {
             Node{ .callable = .{ .name_token = 5 } }, // type2
             Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
             .end,
-        });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
         });
     }
 }
@@ -1496,9 +1394,6 @@ test "parser declare and assign" {
             Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 4 } },
             .end,
         });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
-        });
         // No errors in attempts to parse `callable`.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "Declassign: type_assign1 = 12345",
@@ -1524,9 +1419,6 @@ test "parser declare and assign" {
             // [5]:
             Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 4 } },
             .end,
-        });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
         });
         // No errors in attempts to parse `callable`.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
@@ -1557,9 +1449,6 @@ test "parser declare and nested assigns" {
             Node{ .binary = .{ .operator = Operator.declare_writable, .left = 2, .right = 4 } },
             .end,
         });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
-        });
     }
     {
         var parser: Parser = .{};
@@ -1581,9 +1470,6 @@ test "parser declare and nested assigns" {
             // [5]:
             Node{ .binary = .{ .operator = Operator.assign, .left = 2, .right = 4 } },
             .end,
-        });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
         });
     }
     {
@@ -1613,9 +1499,6 @@ test "parser declare and nested assigns" {
             Node{ .atomic_token = 21 }, // 750
             Node{ .binary = .{ .operator = Operator.assign, .left = 9, .right = 10 } },
             .end,
-        });
-        try parser.statement_indices.expectEqualsSlice(&[_]NodeIndex{
-            0,
         });
     }
 }

@@ -47,6 +47,7 @@ pub const OrElse = union(OrElseTag) {
 
 pub const Error = error{
     unknown,
+    invalid_argument,
 };
 
 // TODO: ideally we wouldn't create these in non-test environments.

@@ -223,3 +223,6 @@ test "clear gets rid of everything" {
 
     try std.testing.expectEqual(0, list.count());
 }
+
+// TODO: add test for referencing an `at` and an `inBounds` and mutating
+// e.g., via a switch.

@@ -550,7 +550,7 @@ pub const Operation = struct {
         const rtl: u8 = @intFromEnum(compare);
         return switch (self.operator) {
             .none => 1,
-            .new_generic => 10,
+            .new_generic => 0,
             .increment, .decrement => 30,
             .equals,
             .less_than,
@@ -568,6 +568,7 @@ pub const Operation = struct {
             .remainder,
             => 60,
             .nullify => 20,
+            // TODO: should this drop in priority???
             .nullish_or => 20,
             .not, .not_not => 40 - rtl,
             .comma => 250,
@@ -609,7 +610,7 @@ pub const Operation = struct {
             .lambda6,
             .lambda7,
             .lambda8,
-            => 10,
+            => 0,
             .implicit_member_access,
             .readonly_member_access,
             .writable_member_access,
@@ -626,7 +627,7 @@ pub const Operation = struct {
             .wtr_member_access,
             .trw_member_access,
             .twr_member_access,
-            => 20,
+            => 10,
         };
     }
 

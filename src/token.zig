@@ -1,6 +1,7 @@
 const SmallString = @import("string.zig").Small;
 const Operator = @import("operator.zig").Operator;
 const common = @import("common.zig");
+const Tab = @import("tab.zig").Tab;
 
 const std = @import("std");
 
@@ -9,6 +10,7 @@ const TokenTag = enum {
     invalid,
     file_end,
     // includes newlines.
+    // TODO: i think i want to return to newlines as separate
     spacing,
     starts_upper,
     starts_lower,
@@ -262,6 +264,26 @@ pub const Token = union(TokenTag) {
                 .single_quote => "single_quote",
                 .double_quote => "double_quote",
                 .multiline_quote => "multiline_quote",
+            };
+        }
+
+        pub fn fromTab(tabbed_open: Tab.Open): common.Error!Open {
+            return switch (tabbed_open) {
+                .paren => .paren,
+                .bracket => .bracket,
+                .brace => .brace,
+                .none => common.Error.invalid_argument,
+            };
+        }
+
+        pub fn toTab(self: Open): common.Error!Tab.Open {
+            return switch (self) {
+                .paren => .paren,
+                .bracket => .bracket,
+                .brace => .brace,
+                .single_quote,
+                .double_quote,
+                .multiline_quote, => common.Error.invalid_argument,
             };
         }
 

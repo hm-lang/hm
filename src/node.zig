@@ -10,25 +10,28 @@ pub const TokenIndex = usize;
 pub const NodeIndex = usize;
 
 const NodeTag = enum {
-    // TODO: get rid of statement entirely (rely on `block` and `comma`)
-    statement,
-    atomic_token,
-    prefix,
-    postfix,
-    /// commas are separate because they are essentially lowest priority operators
+    block,
+    /// statements are essentially a singly-linked list of lines in a block.
+    /// they can optionally include an indented block that immediately follows.
+    /// since each newline corresponds to a comma operator, these used for commas
+    /// as well.  commas are special because they are essentially lowest priority operators
     /// that create new statements in the current block, and we want to make blocks
     /// not need a depth-first search to find the first statement.  (LTR operators
     /// essentially stack the left operand, so if it was an operator it'd be, e.g.,
     /// `[Op: ',', Left: [Op: ',', Left: [Statement1], Right: [Statement2]], Right: [Statement3]]`
     /// where we want to make it like this instead:
     /// `[Node: [Statement1], Next: [Node: [Statement2], Next: [Statement3]]]`.)
-    // TODO: rename to `statement`
-    comma,
+    statement,
+    // TODO: split into `identifier` and `number` nodes, probably...
+    atomic_token,
+    /// Might be a function, might be a type.
+    callable_token,
+    prefix,
+    postfix,
     binary,
-    // TODO: rename to `block` and add `tab` internally.
+    // TODO: add an `open` field into `block`.
     // the root block has `.tab = 0` and `open = .brace`.
     enclosed,
-    callable,
     // TODO: rename to `file_end` or something
     end,
 };
@@ -36,14 +39,14 @@ const NodeTag = enum {
 const NodeError = error{not_allowed};
 
 pub const Node = union(NodeTag) {
-    statement: Statement,
+    block: Block,
+    statement: StatementNode,
     atomic_token: TokenIndex,
+    callable_token: TokenIndex,
     prefix: PrefixNode,
     postfix: PostfixNode,
-    comma: CommaNode,
     binary: BinaryNode,
     enclosed: EnclosedNode,
-    callable: CallableNode,
     end: void,
 
     pub fn operation(self: Self) Operation {
@@ -80,11 +83,17 @@ pub const Node = union(NodeTag) {
 
     pub fn print(self: Self, writer: anytype) !void {
         switch (self) {
+            .block => |block| {
+                try writer.print("Node{{ .block = .{{ .start = {d}, .tab = {d} }} }}", .{ block.start, block.tab });
+            },
             .statement => |statement| {
-                try writer.print("Node{{ .statement = .{{ .node = {d}, .tab = {d} }} }}", .{ statement.node, statement.tab });
+                try writer.print("Node{{ .statement = .{{ .node = {d}, .block = {d}, .next = {d} }} }}", .{ statement.node, statement.block, statement.next });
             },
             .atomic_token => |token_index| {
                 try writer.print("Node{{ .atomic_token = {d} }}", .{token_index});
+            },
+            .callable_token => |token_index| {
+                try writer.print("Node{{ .callable_token = {d} }}", .{token_index});
             },
             .prefix => |prefix| {
                 try writer.print("Node{{ .prefix = .{{ .operator = ", .{});
@@ -108,13 +117,6 @@ pub const Node = union(NodeTag) {
                 try writer.print("Node{{ .enclosed = .{{ .open = .", .{});
                 try enclosed.open.print(writer);
                 try writer.print(", .root = {d} }} }}", .{enclosed.root});
-            },
-            .callable => |callable| {
-                try writer.print("Node{{ .callable = .{{ .name_token = {d}, .generics = {d}, .arguments = {d} }} }}", .{
-                    callable.name_token,
-                    callable.generics,
-                    callable.arguments,
-                });
             },
             .end => try writer.print(".end", .{}),
         }
@@ -184,25 +186,24 @@ pub const Node = union(NodeTag) {
     }
 
     pub const Tag = NodeTag;
+    pub const Block = BlockNode;
     pub const Statement = StatementNode;
-    pub const Comma = CommaNode;
     pub const Binary = BinaryNode;
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
     pub const Enclosed = EnclosedNode;
-    pub const Callable = CallableNode;
 
     pub const Operation = operator_zig.Operation;
     pub const Error = NodeError;
     const Self = @This();
 };
 
-const StatementNode = struct {
-    node: NodeIndex = 0,
+const BlockNode = struct {
+    start: NodeIndex = 0,
     tab: u16 = 0,
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.node == b.node and a.tab == b.tab;
+        return a.start == b.start and a.tab == b.tab;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
@@ -212,18 +213,19 @@ const StatementNode = struct {
     const Self = @This();
 };
 
-const CommaNode = struct {
+const StatementNode = struct {
     node: NodeIndex = 0,
+    block: NodeIndex = 0,
     next: NodeIndex = 0,
 
     pub fn operation(self: Self) operator_zig.Operation {
         _ = self;
-        // we should never ask for a `CommaNode`'s operation.
+        // we probably should never ask for a `StatementNode`'s operation.
         return .{ .type = .infix, .operator = .comma };
     }
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.node == b.node and a.next == b.next;
+        return a.node == b.node and a.block == b.block and a.next == b.next;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
@@ -297,27 +299,6 @@ const EnclosedNode = struct {
 
     pub fn equals(a: Self, b: Self) bool {
         return a.open == b.open and a.root == b.root;
-    }
-
-    pub fn expectEquals(a: Self, b: Self) !void {
-        try std.testing.expect(a.equals(b));
-    }
-
-    const Self = @This();
-};
-
-/// Might be a function, might be a type.
-const CallableNode = struct {
-    name_token: TokenIndex = 0,
-    generics: NodeIndex = 0,
-    arguments: NodeIndex = 0,
-
-    pub fn equals(a: Self, b: Self) bool {
-        return a.name_token == b.name_token and a.generics == b.generics and a.arguments == b.arguments;
-    }
-
-    pub fn couldBeAType(self: Self) bool {
-        return self.arguments == 0;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
