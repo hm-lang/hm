@@ -10,7 +10,10 @@ pub const TokenIndex = usize;
 pub const NodeIndex = usize;
 
 const NodeTag = enum {
-    block,
+    /// includes things like blocks which don't have an explicit `open`.
+    // TODO: add an `open` field into `block`.
+    // the root block has `.tab = 0` and `.open = .brace`.
+    enclosed,
     /// statements are essentially a singly-linked list of lines in a block.
     /// they can optionally include an indented block that immediately follows.
     /// since each newline corresponds to a comma operator, these used for commas
@@ -29,9 +32,7 @@ const NodeTag = enum {
     prefix,
     postfix,
     binary,
-    // TODO: add an `open` field into `block`.
-    // the root block has `.tab = 0` and `open = .brace`.
-    enclosed,
+    interpolation,
     // TODO: rename to `file_end` or something
     end,
 };
@@ -39,14 +40,14 @@ const NodeTag = enum {
 const NodeError = error{not_allowed};
 
 pub const Node = union(NodeTag) {
-    block: Block,
+    enclosed: EnclosedNode,
     statement: StatementNode,
     atomic_token: TokenIndex,
     callable_token: TokenIndex,
     prefix: PrefixNode,
     postfix: PostfixNode,
     binary: BinaryNode,
-    enclosed: EnclosedNode,
+    string_interpolation: StringInterpolationNode,
     end: void,
 
     pub fn operation(self: Self) Operation {
@@ -92,8 +93,14 @@ pub const Node = union(NodeTag) {
 
     pub fn print(self: Self, writer: anytype) !void {
         switch (self) {
-            .block => |block| {
-                try writer.print("Node{{ .block = .{{ .start = {d}, .tab = {d} }} }}", .{ block.start, block.tab });
+            .enclosed => |enclosed| {
+                try writer.print("Node{{ .enclosed = .{{ .open = .", .{});
+                try enclosed.open.print(writer);
+                try writer.print(", .inner_tab = {d}, .outer_tab = {d}, .start = {d} }} }}", .{
+                    enclosed.inner_tab,
+                    enclosed.outer_tab,
+                    enclosed.start,
+                });
             },
             .statement => |statement| {
                 try writer.print("Node{{ .statement = .{{ .node = {d}, .next = {d} }} }}", .{ statement.node, statement.next });
@@ -121,11 +128,6 @@ pub const Node = union(NodeTag) {
                 try writer.print("Node{{ .binary = .{{ .operator = ", .{});
                 try binary.operator.print(writer);
                 try writer.print(", .left = {d}, .right = {d} }} }}", .{ binary.left, binary.right });
-            },
-            .enclosed => |enclosed| {
-                try writer.print("Node{{ .enclosed = .{{ .open = .", .{});
-                try enclosed.open.print(writer);
-                try writer.print(", .root = {d} }} }}", .{enclosed.root});
             },
             .end => try writer.print(".end", .{}),
         }
@@ -195,24 +197,26 @@ pub const Node = union(NodeTag) {
     }
 
     pub const Tag = NodeTag;
-    pub const Block = BlockNode;
+    pub const Enclosed = EnclosedNode;
     pub const Statement = StatementNode;
-    pub const Binary = BinaryNode;
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
-    pub const Enclosed = EnclosedNode;
+    pub const Binary = BinaryNode;
+    pub const StringInterpolation = StringInterpolationNode;
 
     pub const Operation = operator_zig.Operation;
     pub const Error = NodeError;
     const Self = @This();
 };
 
-const BlockNode = struct {
+const EnclosedNode = struct {
+    open: Token.BlockOpen,
+    inner_tab: u16 = 0,
+    outer_tab: u16,
     start: NodeIndex = 0,
-    tab: u16 = 0,
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.start == b.start and a.tab == b.tab;
+        return a.open == b.open and a.inner_tab == b.inner_tab and a.outer_tab == b.outer_tab and a.start == b.start;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
@@ -245,6 +249,7 @@ const StatementNode = struct {
 
 const BinaryNode = struct {
     operator: Operator = .none,
+    tab: u16 = 0,
     left: NodeIndex = 0,
     right: NodeIndex = 0,
 
@@ -253,7 +258,7 @@ const BinaryNode = struct {
     }
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.operator == b.operator and a.left == b.left and a.right == b.right;
+        return a.operator == b.operator and a.tab == b.tab and a.left == b.left and a.right == b.right;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
@@ -265,6 +270,7 @@ const BinaryNode = struct {
 
 const PrefixNode = struct {
     operator: Operator = .none,
+    tab: u16 = 0,
     node: NodeIndex = 0,
 
     pub fn operation(self: Self) operator_zig.Operation {
@@ -272,7 +278,7 @@ const PrefixNode = struct {
     }
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.operator == b.operator and a.node == b.node;
+        return a.operator == b.operator and a.tab == b.tab and a.node == b.node;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
@@ -284,6 +290,7 @@ const PrefixNode = struct {
 
 const PostfixNode = struct {
     operator: Operator = .none,
+    tab: u16 = 0,
     node: NodeIndex = 0,
 
     pub fn operation(self: Self) operator_zig.Operation {
@@ -291,7 +298,7 @@ const PostfixNode = struct {
     }
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.operator == b.operator and a.node == b.node;
+        return a.operator == b.operator and a.tab == b.tab and a.node == b.node;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
@@ -301,8 +308,8 @@ const PostfixNode = struct {
     const Self = @This();
 };
 
-const EnclosedNode = struct {
-    open: Token.Open,
+const StringInterpolationNode = struct {
+    open: Token.StringOpen,
     root: NodeIndex = 0,
 
     pub fn equals(a: Self, b: Self) bool {

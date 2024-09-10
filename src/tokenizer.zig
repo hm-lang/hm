@@ -7,7 +7,7 @@ const Token = @import("token.zig").Token;
 
 const OwnedSmalls = OwnedList(SmallString);
 const OwnedTokens = OwnedList(Token);
-const OwnedOpens = OwnedList(Token.Open);
+const OwnedOpens = OwnedList(Token.AnyOpen);
 
 const std = @import("std");
 
@@ -95,7 +95,7 @@ pub const Tokenizer = struct {
         const line = self.file.lines.inBounds(self.farthest_line_index);
         const next = if (self.farthest_char_index >= line.count())
             self.getNextNewline()
-        else if (common.when(self.opens.at(-1), Token.Open.isQuote)) blk: {
+        else if (common.when(self.opens.at(-1), Open.isQuote)) blk: {
             // Inside quotes, we don't have hooks (besides those for `.file_end`).
             const token = try self.getNextInQuoteToken(line);
             if (token.isFileEnd()) {
@@ -199,9 +199,9 @@ pub const Tokenizer = struct {
                 '$' => if (is_escaped) {
                     is_escaped = false;
                 } else switch (line.at(self.farthest_char_index + 1) orelse 0) {
-                    '(' => return try self.maybeInterpolate(Token.Open.paren, line, initial_char_index),
-                    '[' => return try self.maybeInterpolate(Token.Open.bracket, line, initial_char_index),
-                    '{' => return try self.maybeInterpolate(Token.Open.brace, line, initial_char_index),
+                    '(' => return try self.maybeInterpolate(.paren, line, initial_char_index),
+                    '[' => return try self.maybeInterpolate(.bracket, line, initial_char_index),
+                    '{' => return try self.maybeInterpolate(.brace, line, initial_char_index),
                     else => {},
                 },
                 '\\' => {
@@ -233,7 +233,7 @@ pub const Tokenizer = struct {
         })) };
     }
 
-    fn maybeInterpolate(self: *Self, open: Token.Open, line: SmallString, initial_char_index: u16) TokenizerError!Token {
+    fn maybeInterpolate(self: *Self, block_open: Token.BlockOpen, line: SmallString, initial_char_index: u16) TokenizerError!Token {
         // There was a `$` and then a `{` (or whatever.  `}` for balance.)
         // First check to see if we had any slices to add.
         if (self.farthest_char_index > initial_char_index) {
@@ -243,8 +243,8 @@ pub const Tokenizer = struct {
             })) });
         }
         self.farthest_char_index += 2;
-        self.opens.append(open) catch return TokenizerError.out_of_memory;
-        return Token{ .interpolation_open = open };
+        self.opens.append(Open.fromBlockOpen(block_open)) catch return TokenizerError.out_of_memory;
+        return Token{ .interpolation_open = block_open };
     }
 
     /// This should only fail for memory issues (e.g., allocating a string
@@ -278,14 +278,14 @@ pub const Tokenizer = struct {
                 'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
                 '0'...'9' => return self.getNextNumber(line),
                 '@' => return Token{ .annotation = try self.getNextIdentifier(line) },
-                '\'' => return try self.getNextOpen(Token.Open.single_quote),
-                '"' => return try self.getNextOpen(Token.Open.double_quote),
-                '(' => return try self.getNextOpen(Token.Open.paren),
-                '[' => return try self.getNextOpen(Token.Open.bracket),
-                '{' => return try self.getNextOpen(Token.Open.brace),
-                ')' => return self.getNextClose(Token.Close.paren),
-                ']' => return self.getNextClose(Token.Close.bracket),
-                '}' => return self.getNextClose(Token.Close.brace),
+                '\'' => return try self.getNextStringOpen(.single_quote),
+                '"' => return try self.getNextStringOpen(.double_quote),
+                '(' => return try self.getNextBlockOpen(.paren),
+                '[' => return try self.getNextBlockOpen(.bracket),
+                '{' => return try self.getNextBlockOpen(.brace),
+                ')' => return self.getNextBlockClose(.paren),
+                ']' => return self.getNextBlockClose(.bracket),
+                '}' => return self.getNextBlockClose(.brace),
                 ',' => return self.getNextComma(line),
                 '!' => return self.getNextExclamationOperator(line),
                 '?' => return self.getNextQuestionOperator(line),
@@ -384,14 +384,19 @@ pub const Tokenizer = struct {
         return Token{ .number = try smallString(line.slice()[initial_char_index..self.farthest_char_index]) };
     }
 
-    fn getNextOpen(self: *Self, open: Token.Open) TokenizerError!Token {
+    fn getNextStringOpen(self: *Self, string_open: Token.StringOpen) TokenizerError!Token {
         self.farthest_char_index += 1;
-        self.opens.append(open) catch return TokenizerError.out_of_memory;
-        return Token{ .open = open };
+        self.opens.append(Open.fromStringOpen(string_open)) catch return TokenizerError.out_of_memory;
+        return Token{ .string_open = string_open };
     }
 
-    fn getNextClose(self: *Self, close: Token.Close) Token {
-        std.debug.assert(!close.isQuote());
+    fn getNextBlockOpen(self: *Self, open: Token.BlockOpen) TokenizerError!Token {
+        self.farthest_char_index += 1;
+        self.opens.append(Open.fromBlockOpen(block_open)) catch return TokenizerError.out_of_memory;
+        return Token{ .block_open = block_open };
+    }
+
+    fn getNextBlockClose(self: *Self, block_close: Token.BlockClose) Token {
         const initial_char_index = self.farthest_char_index;
         self.farthest_char_index += 1;
 
@@ -400,14 +405,14 @@ pub const Tokenizer = struct {
             .type = .unexpected_close,
         } };
 
-        if (last_open != close) {
+        if (last_open != Token.AnyOpen.fromBlockOpen(block_close)) {
             return Token{ .invalid = .{
                 .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
                 .type = Token.InvalidType.expected_close(last_open),
             } };
         }
 
-        return Token{ .close = close };
+        return Token{ .block_close = block_close };
     }
 
     fn getNextNewline(self: *Self) Token {
@@ -748,6 +753,7 @@ pub const Tokenizer = struct {
         return SmallString.init(buffer) catch TokenizerError.out_of_memory;
     }
 
+    const Open = Token.AnyOpen;
     const Self = @This();
 };
 

@@ -2,6 +2,9 @@ const common = @import("common.zig");
 const OrElse = common.OrElse;
 const OwnedList = @import("owned_list.zig").OwnedList;
 const SmallString = @import("string.zig").Small;
+const Tabbed = @import("tabbed.zig").Tabbed;
+const TabbedIndex = Tabbed(NodeIndex);
+const TabbedList = OwnedList(TabbedIndex);
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Token = @import("token.zig").Token;
 const node_zig = @import("node.zig");
@@ -47,12 +50,17 @@ pub const Parser = struct {
         // So that `node == 0` appears to be invalid, append the
         // block first, then its child nodes.
         const block_node_index = try self.justAppendNode(.end);
+        // List of tabs and their last `StatementNode` `NodeIndex`es.
+        // This is so we can keep track of where to add the next statement.
+        // Whenever we unindent, we should clear the list of tabs for more nested indents.
+        const tabbed_list = TabbedList.init();
+        tabbed_list.append(Tabbed{ .external = 0, .data = block_node_index });
         self.nodes.set(block_node_index, Node{
-            .block = try self.getNextBlock(0),
+            .block = try self.getNextBlock(),
         }) catch unreachable;
     }
 
-    fn getNextBlock(self: *Self, starting_tab: u16) ParserError!Node.Block {
+    fn getNextBlock(self: *Self, tabbed_list: *TabbedList) ParserError!Node.Block {
         var start_index: usize = 0;
         var previous_index: usize = 0;
         // TODO: simplify this.
@@ -62,12 +70,8 @@ pub const Parser = struct {
         //      no internal indent (e.g., `[X, Y: 3]`) and `block` if there is one (e.g.,
         //      `[   X, Y: 3]`).  some declarations will use blocks differently, e.g.,
         //      functions vs. classes.
-        // TODO: if a file starts with an indent, we need to handle that specially?
-        while (self.getNextStatementStartIndex(tab)) |token_index| {
-            self.farthest_token_index = token_index;
-            // TODO: revert this and just append.  we're going to want to avoid
-            //      allocating a block as a statement + block if there's a previous statement
-            //      for the block to attach to.
+        while (self.getNextTabbedStartIndex()) |tabbed| {
+            self.farthest_token_index = tabbed.data;
             // To make nodes mostly go in order, append the node first.
             const next_index = try self.justAppendNode(.end);
             if (start_index == 0) {
@@ -80,13 +84,9 @@ pub const Parser = struct {
             const next_statement = try self.getNextStatement(tab, Until.no_limit, .{
                 .fail_with = "statement needs an expression",
             });
-            if (self.isBlock(next_statement) and previous_index != 0) {
-                self.nodes.inBounds(previous_index).setStatementBlock(next_statement.node);
-            } else {
-                self.nodes.set(next_index, Node{
-                    .statement = next_statement,
-                }) catch return ParserError.broken_invariant;
-            }
+            self.nodes.set(next_index, Node{
+                .statement = next_statement,
+            }) catch return ParserError.broken_invariant;
             previous_index = next_index;
         }
         return .{ .tab = tab, .start = start_index };
@@ -236,6 +236,7 @@ pub const Parser = struct {
             .starts_upper, .number => {
                 const atomic_index = try self.justAppendNode(Node{
                     .atomic_token = self.farthest_token_index,
+                    .tab = try self.tabAt(self.farthest_token_index - 1),
                 });
                 self.farthest_token_index += 1;
 
@@ -245,6 +246,7 @@ pub const Parser = struct {
             .starts_lower => {
                 const callable_index = try self.justAppendNode(Node{
                     .callable_token = self.farthest_token_index,
+                    .tab = try self.tabAt(self.farthest_token_index - 1),
                 });
                 self.farthest_token_index += 1;
 
@@ -254,12 +256,16 @@ pub const Parser = struct {
             .open => |open| {
                 const enclosed_index = try self.justAppendNode(Node{ .enclosed = .{
                     .open = open,
+                    .outer_tab = try self.tabAt(self.farthest_token_index - 1),
                 } });
                 self.farthest_token_index += 1;
+                // TODO: this probably needs to be a Block, depending on next expression.
+                //      if the expression is indented, do a block
                 const inner_index = try self.appendNextStatement(tab, Until.closing(open), or_else);
                 switch (self.nodes.items()[enclosed_index]) {
                     // restore the invariant:
                     .enclosed => |*enclosed| {
+                        // TODO: enclosed.inner_tab = inner_index.tab; ???
                         enclosed.root = inner_index;
                     },
                     else => return ParserError.broken_invariant,
@@ -292,7 +298,7 @@ pub const Parser = struct {
                     },
                     else => return ParserError.broken_invariant,
                 }
-                // We don't need to append `inner_index` because we know it will reappear.
+                // We don't need to append `inner_index` because we know it will not reappear.
                 // It was stronger than `prefix_index` and so should never be split out.
                 hierarchy.append(prefix_index) catch return ParserError.out_of_memory;
                 return prefix_index;
@@ -472,7 +478,14 @@ pub const Parser = struct {
         };
     }
 
-    fn getNextStatementStartIndex(self: *Self, tab: u16) ?TokenIndex {
+    fn tabAt(self: *Self, at_index: usize) ParserError!Token {
+        return switch (try self.tokenAt(at_index)) {
+            .spacing => |spacing| spacing.absolute,
+            else => return ParserError.broken_invariant,
+        };
+    }
+
+    fn getNextTabbedStartIndex(self: *Self, tab: u16) ?TabbedIndex {
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,

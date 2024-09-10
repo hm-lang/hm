@@ -41,10 +41,13 @@ pub const Token = union(TokenTag) {
     /// We don't try to create a `dbl` or `int` here, just represent it faithfully for now.
     number: SmallString,
     operator: Operator,
-    open: Open,
-    close: Close,
-    /// Only paren, bracket, and brace are valid here.
-    interpolation_open: Open,
+    block_open: BlockOpen,
+    block_close: BlockClose,
+    string_open: StringOpen,
+    string_close: StringClose,
+    /// e.g., the ${ that goes inside a string with a corresponding }.
+    /// Note that the close is just considered a `block_close` here ^.
+    interpolation_open: BlockOpen,
     annotation: SmallString,
     comment: SmallString,
 
@@ -89,9 +92,11 @@ pub const Token = union(TokenTag) {
             .slice => |string| string.count(),
             .number => |string| string.count(),
             .operator => |operator| operator.string().count(),
-            .open => 1,
+            .block_open => 1,
+            .string_open => 1,
             .interpolation_open => 2,
-            .close => 1,
+            .block_close => 1,
+            .string_close => 1,
             .annotation => |string| string.count(),
             .comment => |string| string.count(),
         };
@@ -161,14 +166,20 @@ pub const Token = union(TokenTag) {
                 try operator.print(writer);
                 try writer.print(" }}", .{});
             },
-            .open => |open| {
-                try writer.print("Token{{ .open = Token.Open.{s} }}", .{open.slice()});
+            .block_open => |open| {
+                try writer.print("Token{{ .block_open = .{s} }}", .{open.slice()});
+            },
+            .string_open => |open| {
+                try writer.print("Token{{ .string_open = .{s} }}", .{open.slice()});
             },
             .interpolation_open => |open| {
-                try writer.print("Token{{ .interpolation_open = Token.Open.{s} }}", .{open.slice()});
+                try writer.print("Token{{ .interpolation_open = .{s} }}", .{open.slice()});
             },
-            .close => |close| {
-                try writer.print("Token{{ .close = Token.Close.{s} }}", .{close.slice()});
+            .block_close => |close| {
+                try writer.print("Token{{ .block_close = .{s} }}", .{close.slice()});
+            },
+            .string_close => |close| {
+                try writer.print("Token{{ .string_close = .{s} }}", .{close.slice()});
             },
             .annotation => |string| {
                 try writer.print("Token{{ .annotation = try SmallString.init(\"", .{});
@@ -248,7 +259,100 @@ pub const Token = union(TokenTag) {
 
     pub const comma = Self{ .operator = Operator.comma };
 
-    pub const Open = enum {
+    pub const BlockOpen = enum {
+        none,
+        paren,
+        bracket,
+        brace,
+
+        pub fn slice(self: Self) []const u8 {
+            return switch (self) {
+                .none => "none",
+                .paren => "paren",
+                .bracket => "bracket",
+                .brace => "brace",
+            };
+        }
+
+        pub fn printLine(self: Self, writer: anytype) !void {
+            try self.print(writer);
+            try writer.print("\n", .{});
+        }
+
+        pub fn print(self: Self, writer: anytype) !void {
+            try writer.print("{s}", .{self.slice()});
+        }
+
+        pub fn openChar(self: Self) u8 {
+            return switch (self) {
+                // We don't really want people printing `none` here
+                // but it can come from an indented block.
+                .none => '\t',
+                .paren => '(',
+                .bracket => '[',
+                .brace => '{',
+            };
+        }
+
+        pub fn closeChar(self: Self) u8 {
+            return switch (self) {
+                // This is not exactly right either, but it can
+                // come from an unindented block.
+                .none => 8, // backspace
+                .paren => ')',
+                .bracket => ']',
+                .brace => '}',
+            };
+        }
+
+        const Self = @This();
+    };
+    pub const BlockClose = BlockOpen;
+
+    pub const StringOpen = enum {
+        single_quote,
+        double_quote,
+        multiline_quote,
+
+        pub fn slice(self: Self) []const u8 {
+            return switch (self) {
+                .single_quote => "single_quote",
+                .double_quote => "double_quote",
+                .multiline_quote => "multiline_quote",
+            };
+        }
+
+        pub fn printLine(self: Self, writer: anytype) !void {
+            try self.print(writer);
+            try writer.print("\n", .{});
+        }
+
+        pub fn print(self: Self, writer: anytype) !void {
+            try writer.print("{s}", .{self.slice()});
+        }
+
+        pub fn openChars(self: Self) []const u8 {
+            return switch (self) {
+                .single_quote => "'",
+                .double_quote => "\"",
+                .multiline_quote => "&|",
+            };
+        }
+
+        pub fn closeChar(self: Self) u8 {
+            return switch (self) {
+                .single_quote => '\'',
+                .double_quote => '"',
+                .multiline_quote => '\n',
+            };
+        }
+
+        const Self = @This();
+    };
+    pub const StringClose = StringOpen;
+
+    pub const AnyOpen = enum {
+        none,
         paren,
         bracket,
         brace,
@@ -256,8 +360,36 @@ pub const Token = union(TokenTag) {
         double_quote,
         multiline_quote,
 
-        pub fn slice(self: Open) []const u8 {
+        pub fn isQuote(self: Self) bool {
+            return switch (open) {
+                .single_quote,
+                .double_quote,
+                .multiline_quote,
+                => true,
+                else => false,
+            };
+        }
+
+        pub fn fromBlockOpen(open: Token.BlockOpen) Self {
+            return switch (open) {
+                .none => .none,
+                .paren => .paren,
+                .bracket => .bracket,
+                .brace => .brace,
+            };
+        }
+
+        pub fn fromStringOpen(open: Token.StringOpen) Self {
+            return switch (open) {
+                .single_quote => .single_quote,
+                .double_quote => .double_quote,
+                .multiline_quote => .multiline_quote,
+            };
+        }
+
+        pub fn slice(self: Self) []const u8 {
             return switch (self) {
+                .paren => "none",
                 .paren => "paren",
                 .bracket => "bracket",
                 .brace => "brace",
@@ -267,67 +399,19 @@ pub const Token = union(TokenTag) {
             };
         }
 
-        pub fn fromTab(tabbed_open: Tab.Open) common.Error!Open {
-            return switch (tabbed_open) {
-                .paren => .paren,
-                .bracket => .bracket,
-                .brace => .brace,
-                .none => common.Error.invalid_argument,
-            };
-        }
-
-        pub fn toTab(self: Open) common.Error!Tab.Open {
-            return switch (self) {
-                .paren => .paren,
-                .bracket => .bracket,
-                .brace => .brace,
-                .single_quote,
-                .double_quote,
-                .multiline_quote,
-                => common.Error.invalid_argument,
-            };
-        }
-
-        pub fn printLine(self: Open, writer: anytype) !void {
+        pub fn printLine(self: Self, writer: anytype) !void {
             try self.print(writer);
             try writer.print("\n", .{});
         }
 
-        pub fn print(self: Open, writer: anytype) !void {
-            // TODO: consider doing separate `Open.paren` and `Close.brace` logic.
+        pub fn print(self: Self, writer: anytype) !void {
             try writer.print("{s}", .{self.slice()});
         }
 
-        pub fn isQuote(self: Open) bool {
-            return switch (self) {
-                .paren, .bracket, .brace => false,
-                .single_quote, .double_quote, .multiline_quote => true,
-            };
-        }
-
-        pub fn openChar(self: Open) u8 {
-            return switch (self) {
-                .paren => '(',
-                .bracket => '[',
-                .brace => '{',
-                .single_quote => '\'',
-                .double_quote => '"',
-                .multiline_quote => 0,
-            };
-        }
-
-        pub fn closeChar(self: Open) u8 {
-            return switch (self) {
-                .paren => ')',
-                .bracket => ']',
-                .brace => '}',
-                .single_quote => '\'',
-                .double_quote => '"',
-                .multiline_quote => 0,
-            };
-        }
+        const Self = @This();
     };
-    pub const Close = Open;
+    pub const AnyClose = AnyOpen;
+
     pub const InvalidType = InvalidTokenType;
 
     pub const Tag = TokenTag;
@@ -390,9 +474,11 @@ const InvalidTokenType = enum {
         };
     }
 
-    pub fn expected_close(for_open: Token.Open) Self {
-        std.debug.assert(for_open != Token.Open.multiline_quote);
-        return @enumFromInt(@intFromEnum(Self.expected_close_paren) + @intFromEnum(for_open));
+    pub fn expected_close(for_open: Token.AnyOpen) Self {
+        std.debug.assert(for_open != .none);
+        std.debug.assert(for_open != .multiline_quote);
+        // -1 is for the `.none` enum.
+        return @enumFromInt(@intFromEnum(Self.expected_close_paren) + @intFromEnum(for_open) - 1);
     }
 };
 
