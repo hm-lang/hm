@@ -11,8 +11,7 @@ pub const NodeIndex = usize;
 
 const NodeTag = enum {
     /// includes things like blocks which don't have an explicit `open`.
-    // TODO: add an `open` field into `block`.
-    // the root block has `.tab = 0` and `.open = .brace`.
+    // the root block has `.tab = 0` and `.open = .none`.
     enclosed,
     /// statements are essentially a singly-linked list of lines in a block.
     /// they can optionally include an indented block that immediately follows.
@@ -96,9 +95,9 @@ pub const Node = union(NodeTag) {
             .enclosed => |enclosed| {
                 try writer.print("Node{{ .enclosed = .{{ .open = .", .{});
                 try enclosed.open.print(writer);
-                try writer.print(", .inner_tab = {d}, .outer_tab = {d}, .start = {d} }} }}", .{
-                    enclosed.inner_tab,
+                try writer.print(", .outer_tab = {d}, .inner_tab = {d}, .start = {d} }} }}", .{
                     enclosed.outer_tab,
+                    enclosed.inner_tab,
                     enclosed.start,
                 });
             },
@@ -210,13 +209,13 @@ pub const Node = union(NodeTag) {
 };
 
 const EnclosedNode = struct {
-    open: Token.BlockOpen,
-    inner_tab: u16 = 0,
     outer_tab: u16,
+    open: Token.BlockOpen,
+    inner_tab: u16,
     start: NodeIndex = 0,
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.open == b.open and a.inner_tab == b.inner_tab and a.outer_tab == b.outer_tab and a.start == b.start;
+        return a.inner_tab == b.inner_tab and a.open == b.open and a.outer_tab == b.outer_tab and a.start == b.start;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {

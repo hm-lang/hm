@@ -21,8 +21,10 @@ const TokenTag = enum {
     slice,
     number,
     operator,
-    open,
-    close,
+    block_open,
+    block_close,
+    string_open,
+    string_close,
     // [10]:
     /// E.g., for "$(MyLogic)" inside a string, the opening paren.
     /// also ok for "$[MyLogic]" or '${MyLogic}'
@@ -370,7 +372,7 @@ pub const Token = union(TokenTag) {
             };
         }
 
-        pub fn fromBlockOpen(open: Token.BlockOpen) Self {
+        pub fn block(open: Token.BlockOpen) Self {
             return switch (open) {
                 .none => .none,
                 .paren => .paren,
@@ -379,7 +381,7 @@ pub const Token = union(TokenTag) {
             };
         }
 
-        pub fn fromStringOpen(open: Token.StringOpen) Self {
+        pub fn string(open: Token.StringOpen) Self {
             return switch (open) {
                 .single_quote => .single_quote,
                 .double_quote => .double_quote,

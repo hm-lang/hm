@@ -243,7 +243,7 @@ pub const Tokenizer = struct {
             })) });
         }
         self.farthest_char_index += 2;
-        self.opens.append(Open.fromBlockOpen(block_open)) catch return TokenizerError.out_of_memory;
+        self.opens.append(Open.block(block_open)) catch return TokenizerError.out_of_memory;
         return Token{ .interpolation_open = block_open };
     }
 
@@ -386,13 +386,13 @@ pub const Tokenizer = struct {
 
     fn getNextStringOpen(self: *Self, string_open: Token.StringOpen) TokenizerError!Token {
         self.farthest_char_index += 1;
-        self.opens.append(Open.fromStringOpen(string_open)) catch return TokenizerError.out_of_memory;
+        self.opens.append(Open.string(string_open)) catch return TokenizerError.out_of_memory;
         return Token{ .string_open = string_open };
     }
 
     fn getNextBlockOpen(self: *Self, open: Token.BlockOpen) TokenizerError!Token {
         self.farthest_char_index += 1;
-        self.opens.append(Open.fromBlockOpen(block_open)) catch return TokenizerError.out_of_memory;
+        self.opens.append(Open.block(block_open)) catch return TokenizerError.out_of_memory;
         return Token{ .block_open = block_open };
     }
 
@@ -405,7 +405,7 @@ pub const Tokenizer = struct {
             .type = .unexpected_close,
         } };
 
-        if (last_open != Token.AnyOpen.fromBlockOpen(block_close)) {
+        if (last_open != Token.AnyOpen.block(block_close)) {
             return Token{ .invalid = .{
                 .columns = .{ .start = initial_char_index, .end = self.farthest_char_index },
                 .type = Token.InvalidType.expected_close(last_open),

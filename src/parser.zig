@@ -2,9 +2,6 @@ const common = @import("common.zig");
 const OrElse = common.OrElse;
 const OwnedList = @import("owned_list.zig").OwnedList;
 const SmallString = @import("string.zig").Small;
-const Tabbed = @import("tabbed.zig").Tabbed;
-const TabbedIndex = Tabbed(NodeIndex);
-const TabbedList = OwnedList(TabbedIndex);
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Token = @import("token.zig").Token;
 const node_zig = @import("node.zig");
@@ -14,10 +11,10 @@ const NodeIndex = node_zig.NodeIndex;
 const operator_zig = @import("operator.zig");
 const Operator = operator_zig.Operator;
 const Operation = operator_zig.Operation;
-const Until = @import("until.zig").Until;
 
 const std = @import("std");
 
+const OwnedScopes = OwnedList(Scope);
 const OwnedNodes = OwnedList(Node);
 const OwnedNodeIndices = OwnedList(NodeIndex);
 
@@ -47,31 +44,28 @@ pub const Parser = struct {
     }
 
     pub fn complete(self: *Self) ParserError!void {
-        // So that `node == 0` appears to be invalid, append the
-        // block first, then its child nodes.
-        const block_node_index = try self.justAppendNode(.end);
-        // List of tabs and their last `StatementNode` `NodeIndex`es.
-        // This is so we can keep track of where to add the next statement.
-        // Whenever we unindent, we should clear the list of tabs for more nested indents.
-        const tabbed_list = TabbedList.init();
-        tabbed_list.append(Tabbed{ .external = 0, .data = block_node_index });
-        self.nodes.set(block_node_index, Node{
-            .block = try self.getNextBlock(),
-        }) catch unreachable;
+        if (self.nodes.count() > 0) {
+            return;
+        }
+        const root_node_index = try self.appendNextEnclosed(0, .none, 0);
+        // So that `nodejindex == 0` appears to be invalid, the
+        // root should be appended first, then its child nodes.
+        std.debug.assert(root_node_index == 0);
     }
 
-    fn getNextBlock(self: *Self, tabbed_list: *TabbedList) ParserError!Node.Block {
+    fn appendNextEnclosed(self: *Self, outer_tab: u16, open: Open, inner_tab: u16) ParserError!NodeIndex {
+        // So that we go roughly in order, append the enclosed first, then child nodes.
+        // but we don't know what it is yet, so just make a placeholder.
+        const enclosed_node_index = try self.justAppendNode(.end);
+
         var start_index: usize = 0;
         var previous_index: usize = 0;
-        // TODO: simplify this.
-        //      we don't need to check if some parentheses are a block before parsing them,
-        //      just parse them as the next statement and if they are a block we'll handle
-        //      that in a third pass.  maybe what we can do is return `enclosed` if there's
-        //      no internal indent (e.g., `[X, Y: 3]`) and `block` if there is one (e.g.,
-        //      `[   X, Y: 3]`).  some declarations will use blocks differently, e.g.,
-        //      functions vs. classes.
-        while (self.getNextTabbedStartIndex()) |tabbed| {
-            self.farthest_token_index = tabbed.data;
+        var tab = (self.scopes.at(-1) orelse return ParserError.broken_invariant).tab;
+        while (try self.getNextTabbed(inner_tab)) |tabbed| {
+            self.farthest_token_index = tabbed.start_parsing_index;
+            if (tabbed.tab > inner_tab) {
+                
+            }
             // To make nodes mostly go in order, append the node first.
             const next_index = try self.justAppendNode(.end);
             if (start_index == 0) {
@@ -81,7 +75,7 @@ pub const Parser = struct {
                     return ParserError.broken_invariant;
                 };
             }
-            const next_statement = try self.getNextStatement(tab, Until.no_limit, .{
+            const next_statement = try self.appendNextStatement(tab, .{
                 .fail_with = "statement needs an expression",
             });
             self.nodes.set(next_index, Node{
@@ -89,7 +83,13 @@ pub const Parser = struct {
             }) catch return ParserError.broken_invariant;
             previous_index = next_index;
         }
-        return .{ .tab = tab, .start = start_index };
+
+        self.nodes.set(enclosed_node_index, Node{ .enclosed = {
+            .outer_tab = outer_tab,
+            .open = open,
+            .inner_tab = inner_tab,
+            .start = start_index,
+        } }) catch unreachable;
     }
 
     fn getTab(self: *Self) ParserError!u16 {
@@ -104,7 +104,7 @@ pub const Parser = struct {
 
     /// Supports starting with spacing *or not* (e.g., for the start of a statement
     /// where we don't want to check the indent yet).
-    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
+    fn appendNextStatement(self: *Self, tab: u16, until_close: Close, or_else: OrElse) ParserError!NodeIndex {
         errdefer {
             if (or_else.be_noisy()) |error_message| {
                 self.addTokenizerError(error_message);
@@ -114,14 +114,14 @@ pub const Parser = struct {
         // is the last element of `hierarchy`, with nesting all the way up
         // to the "root node" (`hierarchy.inBounds(0)`) which should be returned.
         var hierarchy = OwnedNodeIndices.init();
-        // TODO: will we ever run into any malformed input where we need `until`
+        // TODO: will we ever run into any malformed input where we need `until_close`
         // inside the `appendNextStandaloneExpression`?  e.g., `(whatever, +)`?
         // i think that will be some other syntax error, though.
         _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else);
         defer hierarchy.deinit();
 
         while (true) {
-            const operation = try self.seekNextOperation(tab, until);
+            const operation = try self.seekNextOperation(tab, until_close);
             if (operation.operator == .none) {
                 return hierarchy.inBounds(0);
             }
@@ -148,15 +148,23 @@ pub const Parser = struct {
                 // needs to exist for declaring things like `Int;` in one line.
                 // TODO: maybe we need to restore `self.farthest_token_index` in `appendNextStandaloneExpression`.
                 switch (try self.peekToken()) {
-                    .close => |close| {
-                        if (until.shouldBreakAtClose(close)) {
+                    .block_close => |block_close| {
+                        if (until_close == Close.block(block_close)) {
+                            self.farthest_token_index += 1;
+                            return hierarchy.inBounds(0);
+                        }
+                        self.farthest_token_index -= 1;
+                    },
+                    .string_close => |string_close| {
+                        if (until_close == Close.string(string_close)) {
                             self.farthest_token_index += 1;
                             return hierarchy.inBounds(0);
                         }
                         self.farthest_token_index -= 1;
                     },
                     .spacing => {
-                        // The only way we can get here is if we newline'd it.
+                        // The only way we can get here is if we newline'd it;
+                        // keep the farthest_token_index steady.
                     },
                     .file_end => return hierarchy.inBounds(0),
                     else => {
@@ -169,7 +177,7 @@ pub const Parser = struct {
 
     // Returns the next postfix or infix operation.
     // Prefix operations are taken care of inside of `appendNextStandaloneExpression`.
-    fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!Operation {
+    fn seekNextOperation(self: *Self, tab: u16, until_close: Open) ParserError!Operation {
         const restore_index = self.farthest_token_index;
 
         self.farthest_token_index = self.peekNonSpacingTokenIndex(tab) orelse {
@@ -193,8 +201,17 @@ pub const Parser = struct {
                     break :blk .{ .operator = .implicit_member_access, .type = .infix };
                 }
             },
-            .close => |close| blk: {
-                if (until.shouldBreakAtClose(close)) {
+            .block_close => |block_close| blk: {
+                if (until_close == Close.block(block_close)) {
+                    self.farthest_token_index += 1;
+                    return .{ .operator = .none };
+                }
+                // Same as the `else` block below:
+                self.farthest_token_index -= 1;
+                break :blk .{ .operator = .implicit_member_access, .type = .infix };
+            },
+            .string_close => |string_close| blk: {
+                if (until_close == Close.string(string_close)) {
                     self.farthest_token_index += 1;
                     return .{ .operator = .none };
                 }
@@ -261,7 +278,7 @@ pub const Parser = struct {
                 self.farthest_token_index += 1;
                 // TODO: this probably needs to be a Block, depending on next expression.
                 //      if the expression is indented, do a block
-                const inner_index = try self.appendNextStatement(tab, Until.closing(open), or_else);
+                const inner_index = try self.appendNextStatement(tab, open), or_else);
                 switch (self.nodes.items()[enclosed_index]) {
                     // restore the invariant:
                     .enclosed => |*enclosed| {
@@ -485,7 +502,7 @@ pub const Parser = struct {
         };
     }
 
-    fn getNextTabbedStartIndex(self: *Self, tab: u16) ?TabbedIndex {
+    fn getNextTabbed(self: *Self, tab: u16) ParserError!?Tabbed {
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
@@ -498,13 +515,17 @@ pub const Parser = struct {
             //&|MyValue:
             //&|        +SomeValue  # ignore just infix
             //&|    -   CoolStuff
-            .spacing => |spacing| if (spacing.absolute == tab) {
-                // TODO: ignore absolute spacing for operators.
-                return self.farthest_token_index + 1;
+            .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
+                if (newline_tab % 4 != 0) {
+                    self.addTokenizerError("tabs should be 4-wide");
+                    return ParserError.syntax;
+                }
+                return .{ .tab = newline_tab, .start_parsing_index = self.farthest_token_index + 1 };
             } else {
-                return null;
+                // Not a newline, just continuing in the same statement
+                return .{ .tab = tab, .start_parsing_index = self.farthest_token_index + 1 };
             },
-            else => return null,
+            else => return ParserError.broken_invariant,
         }
     }
 
@@ -566,7 +587,14 @@ pub const Parser = struct {
         return &self.nodes.items()[index];
     }
 
+    const Open = Token.AnyOpen;
+    const Close = Token.AnyClose;
     const Self = @This();
+};
+
+const Tabbed = struct {
+    tab: u16,
+    start_parsing_index: NodeIndex = 0,
 };
 
 const expected_spacing = "expected spacing between each identifier";
