@@ -63,9 +63,7 @@ pub const Parser = struct {
         var tab = (self.scopes.at(-1) orelse return ParserError.broken_invariant).tab;
         while (try self.getNextTabbed(inner_tab)) |tabbed| {
             self.farthest_token_index = tabbed.start_parsing_index;
-            if (tabbed.tab > inner_tab) {
-                
-            }
+            if (tabbed.tab > inner_tab) {}
             // To make nodes mostly go in order, append the node first.
             const next_index = try self.justAppendNode(.end);
             if (start_index == 0) {
@@ -75,7 +73,7 @@ pub const Parser = struct {
                     return ParserError.broken_invariant;
                 };
             }
-            const next_statement = try self.appendNextStatement(tab, .{
+            const next_statement = try self.appendNextStatement(tab, Until.closing(open), .{
                 .fail_with = "statement needs an expression",
             });
             self.nodes.set(next_index, Node{
@@ -84,7 +82,7 @@ pub const Parser = struct {
             previous_index = next_index;
         }
 
-        self.nodes.set(enclosed_node_index, Node{ .enclosed = {
+        self.nodes.set(enclosed_node_index, Node{ .enclosed = .{
             .outer_tab = outer_tab,
             .open = open,
             .inner_tab = inner_tab,
@@ -104,7 +102,7 @@ pub const Parser = struct {
 
     /// Supports starting with spacing *or not* (e.g., for the start of a statement
     /// where we don't want to check the indent yet).
-    fn appendNextStatement(self: *Self, tab: u16, until_close: Close, or_else: OrElse) ParserError!NodeIndex {
+    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
         errdefer {
             if (or_else.be_noisy()) |error_message| {
                 self.addTokenizerError(error_message);
@@ -114,14 +112,14 @@ pub const Parser = struct {
         // is the last element of `hierarchy`, with nesting all the way up
         // to the "root node" (`hierarchy.inBounds(0)`) which should be returned.
         var hierarchy = OwnedNodeIndices.init();
-        // TODO: will we ever run into any malformed input where we need `until_close`
+        // TODO: will we ever run into any malformed input where we need `until`
         // inside the `appendNextStandaloneExpression`?  e.g., `(whatever, +)`?
         // i think that will be some other syntax error, though.
         _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else);
         defer hierarchy.deinit();
 
         while (true) {
-            const operation = try self.seekNextOperation(tab, until_close);
+            const operation = try self.seekNextOperation(tab, until);
             if (operation.operator == .none) {
                 return hierarchy.inBounds(0);
             }
@@ -148,15 +146,8 @@ pub const Parser = struct {
                 // needs to exist for declaring things like `Int;` in one line.
                 // TODO: maybe we need to restore `self.farthest_token_index` in `appendNextStandaloneExpression`.
                 switch (try self.peekToken()) {
-                    .block_close => |block_close| {
-                        if (until_close == Close.block(block_close)) {
-                            self.farthest_token_index += 1;
-                            return hierarchy.inBounds(0);
-                        }
-                        self.farthest_token_index -= 1;
-                    },
-                    .string_close => |string_close| {
-                        if (until_close == Close.string(string_close)) {
+                    .close => |close| {
+                        if (until.shouldBreakAtClose(close)) {
                             self.farthest_token_index += 1;
                             return hierarchy.inBounds(0);
                         }
@@ -177,7 +168,7 @@ pub const Parser = struct {
 
     // Returns the next postfix or infix operation.
     // Prefix operations are taken care of inside of `appendNextStandaloneExpression`.
-    fn seekNextOperation(self: *Self, tab: u16, until_close: Open) ParserError!Operation {
+    fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!Operation {
         const restore_index = self.farthest_token_index;
 
         self.farthest_token_index = self.peekNonSpacingTokenIndex(tab) orelse {
@@ -201,17 +192,8 @@ pub const Parser = struct {
                     break :blk .{ .operator = .implicit_member_access, .type = .infix };
                 }
             },
-            .block_close => |block_close| blk: {
-                if (until_close == Close.block(block_close)) {
-                    self.farthest_token_index += 1;
-                    return .{ .operator = .none };
-                }
-                // Same as the `else` block below:
-                self.farthest_token_index -= 1;
-                break :blk .{ .operator = .implicit_member_access, .type = .infix };
-            },
-            .string_close => |string_close| blk: {
-                if (until_close == Close.string(string_close)) {
+            .close => |close| blk: {
+                if (until.shouldBreakAtClose(close)) {
                     self.farthest_token_index += 1;
                     return .{ .operator = .none };
                 }
@@ -278,7 +260,7 @@ pub const Parser = struct {
                 self.farthest_token_index += 1;
                 // TODO: this probably needs to be a Block, depending on next expression.
                 //      if the expression is indented, do a block
-                const inner_index = try self.appendNextStatement(tab, open), or_else);
+                const inner_index = try self.appendNextStatement(tab, Until.closing(open), or_else);
                 switch (self.nodes.items()[enclosed_index]) {
                     // restore the invariant:
                     .enclosed => |*enclosed| {
@@ -331,6 +313,7 @@ pub const Parser = struct {
 
     /// Only the `arguments` and `generics` fields are populated on the return value.
     /// Returns null if there were no generic or argument fields to parse.
+    // TODO: delete this and let a third pass try to get these.
     fn maybeAppendCallableFields(self: *Self, tab: u16) ?Node.Callable {
         const restore_index = self.farthest_token_index;
         const non_spacing_token_index = self.peekNonSpacingTokenIndex(tab) orelse return null;
@@ -339,7 +322,7 @@ pub const Parser = struct {
             .open => |open| switch (open) {
                 .bracket => {
                     self.farthest_token_index = non_spacing_token_index + 1;
-                    const generics_index = self.appendNextStatement(tab, Until.closing(Token.Open.bracket), .only_try) catch {
+                    const generics_index = self.appendNextStatement(tab, Until.closing(Open.bracket), .only_try) catch {
                         self.farthest_token_index = restore_index;
                         return null;
                     };
@@ -364,6 +347,7 @@ pub const Parser = struct {
         }
     }
 
+    // TODO: delete this and let a third pass try to get these.
     fn maybeAppendNextParen(self: *Self, tab: u16) ?NodeIndex {
         const non_spacing_token_index = self.peekNonSpacingTokenIndex(tab) orelse return null;
 

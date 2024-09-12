@@ -15,8 +15,7 @@ pub const Until = union(UntilTag) {
     precedence: u8,
     close: Token.Close,
 
-    // TODO: this should probably be `file_end`
-    pub const no_limit: Self = .{ .precedence = 255 };
+    pub const file_end: Self = .{ .close = Token.Close.none };
 
     /// Will keep going until this prefix operator should win.
     pub fn prefix_strength_wins(operator: Operator) Self {
