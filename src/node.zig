@@ -95,9 +95,8 @@ pub const Node = union(NodeTag) {
             .enclosed => |enclosed| {
                 try writer.print("Node{{ .enclosed = .{{ .open = .", .{});
                 try enclosed.open.print(writer);
-                try writer.print(", .outer_tab = {d}, .inner_tab = {d}, .start = {d} }} }}", .{
-                    enclosed.outer_tab,
-                    enclosed.inner_tab,
+                try writer.print(", .tab = {d}, .start = {d} }} }}", .{
+                    enclosed.tab,
                     enclosed.start,
                 });
             },
@@ -209,13 +208,12 @@ pub const Node = union(NodeTag) {
 };
 
 const EnclosedNode = struct {
-    outer_tab: u16,
+    tab: u16,
     open: Token.BlockOpen,
-    inner_tab: u16,
     start: NodeIndex = 0,
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.inner_tab == b.inner_tab and a.open == b.open and a.outer_tab == b.outer_tab and a.start == b.start;
+        return a.tab == b.tab and a.open == b.open and a.start == b.start;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
