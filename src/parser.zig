@@ -51,6 +51,7 @@ pub const Parser = struct {
         // So that `nodejindex == 0` appears to be invalid, the
         // root should be appended first, then its child nodes.
         std.debug.assert(root_node_index == 0);
+        _ = try self.justAppendNode(.end);
     }
 
     fn appendNextEnclosed(self: *Self, tab: u16, open: Open) ParserError!NodeIndex {
@@ -1446,13 +1447,14 @@ test "parser declare and nested assigns" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 3 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 4, .next = 0 } },
             Node{ .atomic_token = 1 }, // D1
             Node{ .atomic_token = 5 }, // D2
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 5 } },
-            Node{ .atomic_token = 9 }, // D3
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 6 } },
             // [5]:
-            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 2, .right = 4 } },
+            Node{ .atomic_token = 9 }, // D3
+            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 3, .right = 5 } },
             .end,
         });
     }
@@ -1468,13 +1470,14 @@ test "parser declare and nested assigns" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 3 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 4, .next = 0 } },
             Node{ .atomic_token = 1 }, // X3
             Node{ .atomic_token = 5 }, // Y4
-            Node{ .binary = .{ .operator = Operator.assign, .left = 1, .right = 5 } },
-            Node{ .atomic_token = 9 }, // 750
+            Node{ .binary = .{ .operator = Operator.assign, .left = 2, .right = 6 } },
             // [5]:
-            Node{ .binary = .{ .operator = Operator.assign, .left = 2, .right = 4 } },
+            Node{ .atomic_token = 9 }, // 750
+            Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 5 } },
             .end,
         });
     }
@@ -1490,20 +1493,21 @@ test "parser declare and nested assigns" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 5 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } },
             Node{ .atomic_token = 1 }, // VarQ
-            Node{ .callable_token = 123 }, // i32
-            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
-            Node{ .atomic_token = 9 }, // Qu16
+            Node{ .callable_token = 5 }, // i32
+            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 2, .right = 3 } },
             // [5]:
-            Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 7 } },
+            Node{ .atomic_token = 9 }, // Qu16
+            Node{ .binary = .{ .operator = Operator.assign, .left = 4, .right = 8 } },
             Node{ .atomic_token = 13 }, // VarU
-            Node{ .binary = .{ .operator = Operator.assign, .left = 4, .right = 11 } },
-            Node{ .callable_token = 123 }, // i16
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 6, .right = 8 } },
+            Node{ .binary = .{ .operator = Operator.assign, .left = 5, .right = 12 } },
+            Node{ .callable_token = 17 }, // i16
             // [10]:
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 7, .right = 9 } },
             Node{ .atomic_token = 21 }, // 750
-            Node{ .binary = .{ .operator = Operator.assign, .left = 9, .right = 10 } },
+            Node{ .binary = .{ .operator = Operator.assign, .left = 10, .right = 11 } },
             .end,
         });
     }
