@@ -11,6 +11,7 @@ const NodeIndex = node_zig.NodeIndex;
 const operator_zig = @import("operator.zig");
 const Operator = operator_zig.Operator;
 const Operation = operator_zig.Operation;
+const Until = @import("until.zig").Until;
 
 const std = @import("std");
 
@@ -46,7 +47,7 @@ pub const Parser = struct {
         if (self.nodes.count() > 0) {
             return;
         }
-        const root_node_index = try self.appendNextEnclosed(0, .none, 0);
+        const root_node_index = try self.appendNextEnclosed(0, .none);
         // So that `nodejindex == 0` appears to be invalid, the
         // root should be appended first, then its child nodes.
         std.debug.assert(root_node_index == 0);
@@ -61,19 +62,19 @@ pub const Parser = struct {
         var previous_statement_index: usize = 0;
         // TODO: return a `Tabbed` struct that gives the `tab` and a `start_parsing_index`
         //      if the tab is indented, append another Open.none enclosed block.
-        while (try self.getSameBlockNextNonSpacingTokenIndex(tab)) |start_parsing_index| {
+        while (self.getSameBlockNextNonSpacingTokenIndex(tab)) |start_parsing_index| {
             self.farthest_token_index = start_parsing_index;
-            const next_statement_index = try self.appendNextStatement(tab, Until.closing(open), .{
+            const current_statement_index = try self.appendNextStatement(tab, Until.closing(open), .{
                 .fail_with = "statement needs an expression",
             });
             if (enclosed_start_index == 0) {
-                enclosed_start_index = next_index;
+                enclosed_start_index = current_statement_index;
             } else {
-                self.nodes.inBounds(previous_statement_index).setStatementNext(next_index) catch {
+                self.nodes.inBounds(previous_statement_index).setStatementNext(current_statement_index) catch {
                     return ParserError.broken_invariant;
                 };
             }
-            previous_statement_index = next_statement_index;
+            previous_statement_index = current_statement_index;
         }
 
         // TODO: enclosed.inner_tab = inner_index.tab; ???
@@ -435,7 +436,7 @@ pub const Parser = struct {
             .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
                 if (newline_tab % 4 != 0) {
                     self.addTokenizerError("tabs should be 4-wide");
-                    return ParserError.syntax;
+                    return null;
                 }
                 if (newline_tab < tab) {
                     return null;
@@ -507,8 +508,8 @@ pub const Parser = struct {
         return &self.nodes.items()[index];
     }
 
-    const Open = Token.AnyOpen;
-    const Close = Token.AnyClose;
+    const Open = Token.Open;
+    const Close = Token.Close;
     const Self = @This();
 };
 

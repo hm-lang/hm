@@ -7,7 +7,7 @@ const Token = @import("token.zig").Token;
 
 const OwnedSmalls = OwnedList(SmallString);
 const OwnedTokens = OwnedList(Token);
-const OwnedOpens = OwnedList(Token.AnyOpen);
+const OwnedOpens = OwnedList(Token.Open);
 
 const std = @import("std");
 
@@ -95,7 +95,7 @@ pub const Tokenizer = struct {
         const line = self.file.lines.inBounds(self.farthest_line_index);
         const next = if (self.farthest_char_index >= line.count())
             self.getNextNewline()
-        else if (common.when(self.opens.at(-1), Open.isQuote)) blk: {
+        else if (common.when(self.opens.at(-1), Token.Open.isQuote)) blk: {
             // Inside quotes, we don't have hooks (besides those for `.file_end`).
             const token = try self.getNextInQuoteToken(line);
             if (token.isFileEnd()) {
@@ -279,8 +279,8 @@ pub const Tokenizer = struct {
                 'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
                 '0'...'9' => return self.getNextNumber(line),
                 '@' => return Token{ .annotation = try self.getNextIdentifier(line) },
-                '\'' => return try self.getNextgOpen(.single_quote),
-                '"' => return try self.getNextgOpen(.double_quote),
+                '\'' => return try self.getNextOpen(.single_quote),
+                '"' => return try self.getNextOpen(.double_quote),
                 '(' => return try self.getNextOpen(.paren),
                 '[' => return try self.getNextOpen(.bracket),
                 '{' => return try self.getNextOpen(.brace),
@@ -978,21 +978,21 @@ test "tokenizer tokenizing" {
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 5 } },
         Token{ .annotation = SmallString.noAlloc("@") },
         Token{ .spacing = .{ .absolute = 1, .relative = 0, .line = 5 } },
-        Token{ .open = Token.Open.bracket },
+        Token{ .open = .bracket },
         Token{ .spacing = .{ .absolute = 2, .relative = 0, .line = 5 } },
-        Token{ .close = Token.Close.bracket },
+        Token{ .close = .bracket },
         Token{ .spacing = .{ .absolute = 4, .relative = 1, .line = 5 } },
         Token{ .annotation = SmallString.noAlloc("@") },
         Token{ .spacing = .{ .absolute = 5, .relative = 0, .line = 5 } },
-        Token{ .open = Token.Open.brace },
+        Token{ .open = .brace },
         Token{ .spacing = .{ .absolute = 6, .relative = 0, .line = 5 } },
-        Token{ .close = Token.Close.brace },
+        Token{ .close = .brace },
         Token{ .spacing = .{ .absolute = 8, .relative = 1, .line = 5 } },
         Token{ .annotation = SmallString.noAlloc("@") },
         Token{ .spacing = .{ .absolute = 9, .relative = 0, .line = 5 } },
-        Token{ .open = Token.Open.paren },
+        Token{ .open = .paren },
         Token{ .spacing = .{ .absolute = 10, .relative = 0, .line = 5 } },
-        Token{ .close = Token.Close.paren },
+        Token{ .close = .paren },
         Token{ .spacing = .{ .absolute = 12, .relative = 1, .line = 5 } },
         Token{ .annotation = SmallString.noAlloc("@") },
         Token{ .spacing = .{ .absolute = 14, .relative = 1, .line = 5 } },
@@ -1127,8 +1127,8 @@ test "tokenizer ampersand operators" {
         Token{ .spacing = .{ .absolute = 6, .relative = 1, .line = 0 } },
         Token{ .operator = .logical_and_assign },
         Token{ .spacing = .{ .absolute = 10, .relative = 1, .line = 0 } },
-        Token{ .open = Token.Open.multiline_quote },
-        Token{ .close = Token.Close.multiline_quote },
+        Token{ .open = .multiline_quote },
+        Token{ .close = .multiline_quote },
         .file_end,
     });
 }
@@ -1143,41 +1143,41 @@ test "tokenizer parentheses ok" {
 
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-        Token{ .open = Token.Open.paren },
+        Token{ .open = .paren },
         Token{ .spacing = .{ .absolute = 1, .relative = 0, .line = 0 } },
-        Token{ .open = Token.Open.bracket },
+        Token{ .open = .bracket },
         Token{ .spacing = .{ .absolute = 2, .relative = 0, .line = 0 } },
-        Token{ .open = Token.Open.brace },
+        Token{ .open = .brace },
         Token{ .spacing = .{ .absolute = 4, .relative = 4, .line = 1 } },
-        Token{ .close = Token.Close.brace },
+        Token{ .close = .brace },
         Token{ .spacing = .{ .absolute = 7, .relative = 2, .line = 1 } },
-        Token{ .open = Token.Open.paren },
+        Token{ .open = .paren },
         Token{ .spacing = .{ .absolute = 8, .relative = 0, .line = 1 } },
-        Token{ .close = Token.Close.paren },
+        Token{ .close = .paren },
         Token{ .spacing = .{ .absolute = 9, .relative = 0, .line = 1 } },
-        Token{ .open = Token.Open.bracket },
+        Token{ .open = .bracket },
         Token{ .spacing = .{ .absolute = 10, .relative = 0, .line = 1 } },
-        Token{ .close = Token.Close.bracket },
+        Token{ .close = .bracket },
         Token{ .spacing = .{ .absolute = 11, .relative = 0, .line = 1 } },
-        Token{ .open = Token.Open.brace },
+        Token{ .open = .brace },
         Token{ .spacing = .{ .absolute = 12, .relative = 0, .line = 1 } },
-        Token{ .open = Token.Open.bracket },
+        Token{ .open = .bracket },
         Token{ .spacing = .{ .absolute = 13, .relative = 0, .line = 1 } },
-        Token{ .open = Token.Open.bracket },
+        Token{ .open = .bracket },
         Token{ .spacing = .{ .absolute = 14, .relative = 0, .line = 1 } },
-        Token{ .close = Token.Close.bracket },
+        Token{ .close = .bracket },
         Token{ .spacing = .{ .absolute = 15, .relative = 0, .line = 1 } },
-        Token{ .open = Token.Open.paren },
+        Token{ .open = .paren },
         Token{ .spacing = .{ .absolute = 17, .relative = 1, .line = 1 } },
-        Token{ .close = Token.Close.paren },
+        Token{ .close = .paren },
         Token{ .spacing = .{ .absolute = 18, .relative = 0, .line = 1 } },
-        Token{ .close = Token.Close.bracket },
+        Token{ .close = .bracket },
         Token{ .spacing = .{ .absolute = 19, .relative = 0, .line = 1 } },
-        Token{ .close = Token.Close.brace },
+        Token{ .close = .brace },
         Token{ .spacing = .{ .absolute = 21, .relative = 1, .line = 1 } },
-        Token{ .close = Token.Close.bracket },
+        Token{ .close = .bracket },
         Token{ .spacing = .{ .absolute = 25, .relative = 3, .line = 1 } },
-        Token{ .close = Token.Close.paren },
+        Token{ .close = .paren },
         .file_end,
     });
 }
@@ -1193,7 +1193,7 @@ test "tokenizer parentheses failure" {
         var count: usize = 0;
         try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } });
         count += 1;
-        try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.paren });
+        try (try tokenizer.at(count)).expectEquals(Token{ .open = .paren });
 
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 5, .relative = 4, .line = 0 } });
@@ -1215,7 +1215,7 @@ test "tokenizer parentheses failure" {
         var count: usize = 0;
         try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 2, .relative = 2, .line = 0 } });
         count += 1;
-        try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.bracket });
+        try (try tokenizer.at(count)).expectEquals(Token{ .open = .bracket });
 
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 3, .relative = 0, .line = 0 } });
@@ -1237,7 +1237,7 @@ test "tokenizer parentheses failure" {
         var count: usize = 0;
         try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 4, .relative = 4, .line = 0 } });
         count += 1;
-        try (try tokenizer.at(count)).expectEquals(Token{ .open = Token.Open.brace });
+        try (try tokenizer.at(count)).expectEquals(Token{ .open = .brace });
 
         count += 1;
         try (try tokenizer.at(count)).expectEquals(Token{ .spacing = .{ .absolute = 17, .relative = 12, .line = 0 } });
@@ -1286,22 +1286,22 @@ test "tokenizer multiline quote parsing" {
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         // [0]:
         Token{ .spacing = .{ .absolute = 2, .relative = 2, .line = 0 } },
-        Token{ .open = Token.Open.multiline_quote },
-        Token{ .close = Token.Close.multiline_quote },
+        Token{ .open = .multiline_quote },
+        Token{ .close = .multiline_quote },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 1 } },
-        Token{ .open = Token.Open.multiline_quote },
+        Token{ .open = .multiline_quote },
         // [5]:
         Token{ .slice = SmallString.noAlloc(" ") },
-        Token{ .close = Token.Close.multiline_quote },
+        Token{ .close = .multiline_quote },
         Token{ .spacing = .{ .absolute = 4, .relative = 4, .line = 2 } },
-        Token{ .open = Token.Open.multiline_quote },
+        Token{ .open = .multiline_quote },
         Token{ .slice = SmallString.noAlloc("$&|*'\"()[]{}`") },
         // [10]:
-        Token{ .close = Token.Close.multiline_quote },
+        Token{ .close = .multiline_quote },
         Token{ .spacing = .{ .absolute = 4, .relative = 4, .line = 3 } },
-        Token{ .open = Token.Open.multiline_quote },
+        Token{ .open = .multiline_quote },
         Token{ .slice = SmallString.noAlloc("#asdf1#[asdf2`") },
-        Token{ .close = Token.Close.multiline_quote },
+        Token{ .close = .multiline_quote },
         // [15]:
         .file_end,
     });
@@ -1352,35 +1352,35 @@ test "tokenizer simple quote parsing" {
 
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-        Token{ .open = Token.Open.single_quote },
-        Token{ .close = Token.Close.single_quote },
+        Token{ .open = .single_quote },
+        Token{ .close = .single_quote },
         Token{ .spacing = .{ .absolute = 5, .relative = 3, .line = 0 } },
-        Token{ .open = Token.Open.double_quote },
-        Token{ .close = Token.Close.double_quote },
+        Token{ .open = .double_quote },
+        Token{ .close = .double_quote },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 1 } },
-        Token{ .open = Token.Open.single_quote },
+        Token{ .open = .single_quote },
         Token{ .slice = SmallString.noAlloc(" ") },
-        Token{ .close = Token.Close.single_quote },
+        Token{ .close = .single_quote },
         Token{ .spacing = .{ .absolute = 4, .relative = 1, .line = 1 } },
-        Token{ .open = Token.Open.double_quote },
+        Token{ .open = .double_quote },
         Token{ .slice = SmallString.noAlloc(" ") },
-        Token{ .close = Token.Close.double_quote },
+        Token{ .close = .double_quote },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 2 } },
-        Token{ .open = Token.Open.single_quote },
+        Token{ .open = .single_quote },
         Token{ .slice = SmallString.noAlloc("\"") },
-        Token{ .close = Token.Close.single_quote },
+        Token{ .close = .single_quote },
         Token{ .spacing = .{ .absolute = 4, .relative = 1, .line = 2 } },
-        Token{ .open = Token.Open.double_quote },
+        Token{ .open = .double_quote },
         Token{ .slice = SmallString.noAlloc("'") },
-        Token{ .close = Token.Close.double_quote },
+        Token{ .close = .double_quote },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 3 } },
-        Token{ .open = Token.Open.single_quote },
+        Token{ .open = .single_quote },
         Token{ .slice = SmallString.noAlloc("abc") },
-        Token{ .close = Token.Close.single_quote },
+        Token{ .close = .single_quote },
         Token{ .spacing = .{ .absolute = 5, .relative = 0, .line = 3 } },
-        Token{ .open = Token.Open.double_quote },
+        Token{ .open = .double_quote },
         Token{ .slice = SmallString.noAlloc("defgh") },
-        Token{ .close = Token.Close.double_quote },
+        Token{ .close = .double_quote },
         .file_end,
     });
     try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
@@ -1398,15 +1398,15 @@ test "tokenizer interpolation parsing" {
 
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
             Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-            Token{ .open = Token.Open.single_quote },
+            Token{ .open = .single_quote },
             Token{ .slice = SmallString.noAlloc("hello, ") },
-            Token{ .interpolation_open = Token.Open.paren },
+            Token{ .interpolation_open = .paren },
             Token{ .spacing = .{ .absolute = 10, .relative = 0, .line = 0 } },
             Token{ .starts_upper = SmallString.noAlloc("Name") },
             Token{ .spacing = .{ .absolute = 14, .relative = 0, .line = 0 } },
-            Token{ .close = Token.Close.paren },
+            Token{ .close = .paren },
             Token{ .slice = SmallString.noAlloc("!") },
-            Token{ .close = Token.Close.single_quote },
+            Token{ .close = .single_quote },
             .file_end,
         });
         try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
@@ -1422,8 +1422,8 @@ test "tokenizer interpolation parsing" {
 
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
             Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-            Token{ .open = Token.Open.double_quote },
-            Token{ .interpolation_open = Token.Open.bracket },
+            Token{ .open = .double_quote },
+            Token{ .interpolation_open = .bracket },
             Token{ .spacing = .{ .absolute = 3, .relative = 0, .line = 0 } },
             Token{ .starts_upper = SmallString.noAlloc("Wow") },
             Token{ .spacing = .{ .absolute = 6, .relative = 0, .line = 0 } },
@@ -1431,8 +1431,8 @@ test "tokenizer interpolation parsing" {
             Token{ .spacing = .{ .absolute = 8, .relative = 1, .line = 0 } },
             Token{ .starts_lower = SmallString.noAlloc("hi") },
             Token{ .spacing = .{ .absolute = 10, .relative = 0, .line = 0 } },
-            Token{ .close = Token.Close.bracket },
-            Token{ .close = Token.Close.double_quote },
+            Token{ .close = .bracket },
+            Token{ .close = .double_quote },
             .file_end,
         });
         try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
@@ -1448,23 +1448,23 @@ test "tokenizer interpolation parsing" {
 
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
             Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-            Token{ .open = Token.Open.double_quote },
-            Token{ .interpolation_open = Token.Open.brace },
+            Token{ .open = .double_quote },
+            Token{ .interpolation_open = .brace },
             Token{ .spacing = .{ .absolute = 4, .relative = 1, .line = 0 } },
             Token{ .starts_lower = SmallString.noAlloc("frankly") },
             Token{ .spacing = .{ .absolute = 11, .relative = 0, .line = 0 } },
-            Token{ .open = Token.Open.paren },
+            Token{ .open = .paren },
             Token{ .spacing = .{ .absolute = 12, .relative = 0, .line = 0 } },
-            Token{ .close = Token.Close.paren },
+            Token{ .close = .paren },
             Token{ .spacing = .{ .absolute = 13, .relative = 0, .line = 0 } },
             Token{ .operator = .comma },
             Token{ .spacing = .{ .absolute = 16, .relative = 2, .line = 0 } },
-            Token{ .open = Token.Open.single_quote },
+            Token{ .open = .single_quote },
             Token{ .slice = SmallString.noAlloc("Idgad") },
-            Token{ .close = Token.Open.single_quote },
+            Token{ .close = .single_quote },
             Token{ .spacing = .{ .absolute = 24, .relative = 1, .line = 0 } },
-            Token{ .close = Token.Close.brace },
-            Token{ .close = Token.Close.double_quote },
+            Token{ .close = .brace },
+            Token{ .close = .double_quote },
             .file_end,
         });
         try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
@@ -1479,26 +1479,26 @@ test "tokenizer interpolation parsing" {
 
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
             Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-            Token{ .open = Token.Open.multiline_quote },
+            Token{ .open = .multiline_quote },
             Token{ .slice = SmallString.noAlloc("wow ") },
-            Token{ .interpolation_open = Token.Open.paren },
+            Token{ .interpolation_open = .paren },
             Token{ .spacing = .{ .absolute = 8, .relative = 0, .line = 0 } },
             Token{ .starts_upper = SmallString.noAlloc("Name") },
             Token{ .spacing = .{ .absolute = 12, .relative = 0, .line = 0 } },
-            Token{ .close = Token.Close.paren },
+            Token{ .close = .paren },
             Token{ .slice = SmallString.noAlloc("-") },
-            Token{ .interpolation_open = Token.Open.bracket },
+            Token{ .interpolation_open = .bracket },
             Token{ .spacing = .{ .absolute = 16, .relative = 0, .line = 0 } },
             Token{ .starts_lower = SmallString.noAlloc("hi") },
             Token{ .spacing = .{ .absolute = 18, .relative = 0, .line = 0 } },
-            Token{ .close = Token.Close.bracket },
+            Token{ .close = .bracket },
             Token{ .slice = SmallString.noAlloc("=") },
-            Token{ .interpolation_open = Token.Open.brace },
+            Token{ .interpolation_open = .brace },
             Token{ .spacing = .{ .absolute = 22, .relative = 0, .line = 0 } },
             Token{ .operator = .multiply },
             Token{ .spacing = .{ .absolute = 23, .relative = 0, .line = 0 } },
-            Token{ .close = Token.Close.brace },
-            Token{ .close = Token.Close.multiline_quote },
+            Token{ .close = .brace },
+            Token{ .close = .multiline_quote },
             .file_end,
         });
         try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
@@ -1516,25 +1516,25 @@ test "tokenizer nested interpolations" {
 
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-        Token{ .open = Token.Open.double_quote },
+        Token{ .open = .double_quote },
         Token{ .slice = SmallString.noAlloc("a") },
-        Token{ .interpolation_open = Token.Open.brace },
+        Token{ .interpolation_open = .brace },
         Token{ .spacing = .{ .absolute = 4, .relative = 0, .line = 0 } },
-        Token{ .open = Token.Open.single_quote },
+        Token{ .open = .single_quote },
         Token{ .slice = SmallString.noAlloc("very") },
-        Token{ .interpolation_open = Token.Open.paren },
+        Token{ .interpolation_open = .paren },
         Token{ .spacing = .{ .absolute = 11, .relative = 0, .line = 0 } },
         Token{ .starts_lower = SmallString.noAlloc("nice") },
         Token{ .spacing = .{ .absolute = 15, .relative = 0, .line = 0 } },
         Token{ .operator = .multiply },
         Token{ .spacing = .{ .absolute = 17, .relative = 1, .line = 0 } },
-        Token{ .close = Token.Close.paren },
+        Token{ .close = .paren },
         Token{ .slice = SmallString.noAlloc(" q") },
-        Token{ .close = Token.Close.single_quote },
+        Token{ .close = .single_quote },
         Token{ .spacing = .{ .absolute = 22, .relative = 1, .line = 0 } },
-        Token{ .open = Token.Open.double_quote },
+        Token{ .open = .double_quote },
         Token{ .slice = SmallString.noAlloc("wow") },
-        Token{ .interpolation_open = Token.Open.bracket },
+        Token{ .interpolation_open = .bracket },
         Token{ .spacing = .{ .absolute = 29, .relative = 1, .line = 0 } },
         Token{ .starts_upper = SmallString.noAlloc("Hi") },
         Token{ .spacing = .{ .absolute = 31, .relative = 0, .line = 0 } },
@@ -1548,24 +1548,24 @@ test "tokenizer nested interpolations" {
         Token{ .spacing = .{ .absolute = 12, .relative = 1, .line = 1 } },
         Token{ .operator = .comma },
         Token{ .spacing = .{ .absolute = 14, .relative = 1, .line = 1 } },
-        Token{ .open = Token.Open.single_quote },
+        Token{ .open = .single_quote },
         Token{ .slice = SmallString.noAlloc("Super") },
-        Token{ .interpolation_open = Token.Open.paren },
+        Token{ .interpolation_open = .paren },
         Token{ .spacing = .{ .absolute = 23, .relative = 1, .line = 1 } },
         Token{ .operator = .minus },
         Token{ .spacing = .{ .absolute = 24, .relative = 0, .line = 1 } },
         Token{ .starts_upper = SmallString.noAlloc("Nested") },
         Token{ .spacing = .{ .absolute = 30, .relative = 0, .line = 1 } },
-        Token{ .close = Token.Close.paren },
+        Token{ .close = .paren },
         Token{ .slice = SmallString.noAlloc("Bros") },
-        Token{ .close = Token.Close.single_quote },
+        Token{ .close = .single_quote },
         Token{ .spacing = .{ .absolute = 37, .relative = 1, .line = 1 } },
-        Token{ .close = Token.Close.bracket },
-        Token{ .close = Token.Close.double_quote },
+        Token{ .close = .bracket },
+        Token{ .close = .double_quote },
         Token{ .spacing = .{ .absolute = 39, .relative = 0, .line = 1 } },
-        Token{ .close = Token.Close.brace },
+        Token{ .close = .brace },
         Token{ .slice = SmallString.noAlloc("z") },
-        Token{ .close = Token.Close.double_quote },
+        Token{ .close = .double_quote },
         .file_end,
     });
     try tokenizer.opens.expectEqualsSlice(&[_]Token.Open{});
@@ -1584,7 +1584,7 @@ test "tokenizer quote failures" {
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
             // [0]:
             Token{ .spacing = .{ .absolute = 4, .relative = 4, .line = 0 } },
-            Token{ .open = Token.Open.single_quote },
+            Token{ .open = .single_quote },
             Token{ .slice = SmallString.noAlloc(" ") },
             .file_end,
         });
@@ -1606,7 +1606,7 @@ test "tokenizer quote failures" {
 
         try tokenizer.tokens.expectEqualsSlice(&[_]Token{
             Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-            Token{ .open = Token.Open.double_quote },
+            Token{ .open = .double_quote },
             Token{ .slice = SmallString.noAlloc("abc") },
             .file_end,
         });

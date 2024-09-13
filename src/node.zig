@@ -31,7 +31,6 @@ const NodeTag = enum {
     prefix,
     postfix,
     binary,
-    interpolation,
     // TODO: rename to `file_end` or something
     end,
 };
@@ -46,7 +45,6 @@ pub const Node = union(NodeTag) {
     prefix: PrefixNode,
     postfix: PostfixNode,
     binary: BinaryNode,
-    string_interpolation: StringInterpolationNode,
     end: void,
 
     pub fn operation(self: Self) Operation {
@@ -118,9 +116,6 @@ pub const Node = union(NodeTag) {
                 try writer.print("Node{{ .postfix = .{{ .operator = ", .{});
                 try postfix.operator.print(writer);
                 try writer.print(", .node = {d} }} }}", .{postfix.node});
-            },
-            .comma => |comma| {
-                try writer.print("Node{{ .comma = .{{ .node = {d}, .next = {d} }} }}", .{ comma.node, comma.next });
             },
             .binary => |binary| {
                 try writer.print("Node{{ .binary = .{{ .operator = ", .{});
@@ -200,7 +195,6 @@ pub const Node = union(NodeTag) {
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
     pub const Binary = BinaryNode;
-    pub const StringInterpolation = StringInterpolationNode;
 
     pub const Operation = operator_zig.Operation;
     pub const Error = NodeError;
@@ -209,7 +203,7 @@ pub const Node = union(NodeTag) {
 
 const EnclosedNode = struct {
     tab: u16,
-    open: Token.BlockOpen,
+    open: Open,
     start: NodeIndex = 0,
 
     pub fn equals(a: Self, b: Self) bool {
@@ -220,6 +214,7 @@ const EnclosedNode = struct {
         try std.testing.expect(a.equals(b));
     }
 
+    pub const Open = Token.Open;
     const Self = @This();
 };
 
@@ -296,21 +291,6 @@ const PostfixNode = struct {
 
     pub fn equals(a: Self, b: Self) bool {
         return a.operator == b.operator and a.tab == b.tab and a.node == b.node;
-    }
-
-    pub fn expectEquals(a: Self, b: Self) !void {
-        try std.testing.expect(a.equals(b));
-    }
-
-    const Self = @This();
-};
-
-const StringInterpolationNode = struct {
-    open: Token.StringOpen,
-    root: NodeIndex = 0,
-
-    pub fn equals(a: Self, b: Self) bool {
-        return a.open == b.open and a.root == b.root;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
