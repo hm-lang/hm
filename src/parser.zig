@@ -87,7 +87,6 @@ pub const Parser = struct {
             previous_statement_index = current_statement_index;
             if (statement_result.until_triggered) {
                 common.debugPrint("in block {d}, statement result Until was triggered\n", .{enclosed_node_index});
-                self.farthest_token_index += 1;
                 common.debugPrint("next token is ", self.peekToken() catch .file_end);
                 break;
             }
@@ -1091,17 +1090,18 @@ test "declarations with missing right expressions" {
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .statement = .{ .node = 2 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 3, .next = 4 } },
             Node{ .atomic_token = 1 }, // Esper
-            Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 1 } },
-            Node{ .statement = .{ .node = 5 } },
-            Node{ .atomic_token = 5 }, // Jesper
+            Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 2 } },
+            Node{ .statement = .{ .node = 6, .next = 7 } },
             // [5]:
-            Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 4 } },
-            Node{ .statement = .{ .node = 8 } },
+            Node{ .atomic_token = 5 }, // Jesper
+            Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 5 } },
+            Node{ .statement = .{ .node = 9, .next = 0 } },
             Node{ .atomic_token = 9 }, // Esperk
-            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 7 } },
+            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 8 } },
+            // [10]:
             .end,
         });
         // No errors in attempts to parse a RHS expression for the infix operators.
@@ -1125,20 +1125,25 @@ test "declarations with missing right expressions" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 1 } },
-            Node{ .enclosed = .{ .open = .paren, .start = 3, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 2, .next = 6 } },
+            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 3 } },
+            Node{ .statement = .{ .node = 5, .next = 0 } },
             Node{ .atomic_token = 3 }, // Jarok
-            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 2 } },
-            Node{ .statement = .{ .node = 5 } },
             // [5]:
-            Node{ .enclosed = .{ .open = .bracket, .start = 7, .tab = 0 } },
+            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 4 } },
+            Node{ .statement = .{ .node = 7, .next = 11 } },
+            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 8 } },
+            Node{ .statement = .{ .node = 10, .next = 0 } },
             Node{ .atomic_token = 11 }, // Turmeric
-            Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 6 } },
-            Node{ .statement = .{ .node = 9 } },
-            Node{ .enclosed = .{ .open = .brace, .start = 11, .tab = 0 } },
             // [10]:
+            Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 9 } },
+            Node{ .statement = .{ .node = 12, .next = 0 } },
+            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 13 } },
+            Node{ .statement = .{ .node = 15, .next = 0 } },
             Node{ .atomic_token = 19 }, // Quinine
-            Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 10 } },
+            // [15]:
+            Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 14 } },
             .end,
         });
         // No errors in attempts to parse a RHS expression for the infix operators.
@@ -1154,30 +1159,35 @@ test "declarations with missing right expressions" {
         errdefer {
             common.debugPrint("# file:\n", parser.tokenizer.file);
         }
-        try parser.tokenizer.file.lines.append(try SmallString.init("funE1(F2., G3;, H4:):"));
+        try parser.tokenizer.file.lines.append(try SmallString.init("funE1(F2.,G3;,H4:):"));
 
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 10 } },
-            Node{ .callable_token = 3 }, // funE1
-            Node{ .atomic_token = 5 }, // F2
-            Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 2 } },
-            Node{ .atomic_token = 11 }, // G3
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 14, .next = 0 } },
+            Node{ .callable_token = 1 }, // funE1
+            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
+            Node{ .statement = .{ .node = 6, .next = 7 } },
             // [5]:
-            Node{ .binary = .{ .operator = Operator.comma, .left = 3, .right = 6 } },
-            Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 4 } },
-            Node{ .atomic_token = 17 }, // H4
-            Node{ .binary = .{ .operator = Operator.comma, .left = 5, .right = 9 } },
-            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 7 } },
+            Node{ .atomic_token = 5 }, // F2
+            Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 5 } },
+            Node{ .statement = .{ .node = 9, .next = 10 } },
+            Node{ .atomic_token = 11 }, // G3
+            Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 8 } },
             // [10]:
-            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 1 } },
+            Node{ .statement = .{ .node = 12, .next = 0 } },
+            Node{ .atomic_token = 17 }, // H4
+            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 11 } },
+            Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+            Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 13 } },
+            // [15]:
             .end,
         });
         // No errors in attempts to parse a RHS expression for the infix operators.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
-            "funE1(F2., G3;, H4:):",
+            "funE1(F2.,G3;,H4:):",
         });
     }
 }
