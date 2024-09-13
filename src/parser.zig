@@ -1207,40 +1207,46 @@ test "declaring a variable with arguments and/or generics" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 5 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 7, .next = 8 } },
         Node{ .atomic_token = 1 }, // Set
-        Node{ .enclosed = .{ .open = .paren, .start = 3, .tab = 0 } },
-        Node{ .atomic_token = 5 }, // 543
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
+        Node{ .statement = .{ .node = 5, .next = 0 } },
         // [5]:
-        Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 4 } },
-        Node{ .statement = .{ .node = 18 } },
+        Node{ .atomic_token = 5 }, // 543
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 6 } },
+        Node{ .statement = .{ .node = 22, .next = 23 } },
         Node{ .atomic_token = 11 }, // Array
-        Node{ .enclosed = .{ .open = .bracket, .start = 9, .tab = 0 } },
-        Node{ .callable_token = 123 }, // element_type
         // [10]:
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 7, .right = 8 } },
-        Node{ .enclosed = .{ .open = .paren, .start = 16, .tab = 0 } },
-        Node{ .atomic_token = 21 }, // 1
-        Node{ .atomic_token = 25 }, // 2
-        Node{ .binary = .{ .operator = Operator.comma, .left = 12, .right = 13 } },
+        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 11 } },
+        Node{ .statement = .{ .node = 12, .next = 0 } },
+        Node{ .callable_token = 15 }, // element_type
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 15 } },
         // [15]:
-        Node{ .atomic_token = 29 }, // 3
-        Node{ .binary = .{ .operator = Operator.comma, .left = 14, .right = 15 } },
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 11 } },
-        Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 17 } },
-        Node{ .statement = .{ .node = 28 } },
+        Node{ .statement = .{ .node = 16, .next = 17 } },
+        Node{ .atomic_token = 21 }, // 1
+        Node{ .statement = .{ .node = 18, .next = 19 } },
+        Node{ .atomic_token = 25 }, // 2
+        Node{ .statement = .{ .node = 20, .next = 0 } },
         // [20]:
+        Node{ .atomic_token = 29 }, // 3
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 13, .right = 14 } },
+        Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 21 } },
+        Node{ .statement = .{ .node = 33, .next = 0 } },
         Node{ .atomic_token = 35 }, // Lot
-        Node{ .enclosed = .{ .open = .bracket, .start = 24, .tab = 0 } },
-        Node{ .callable_token = 123 }, // inner_type
-        Node{ .callable_token = 123 }, // at
-        Node{ .binary = .{ .operator = Operator.comma, .left = 22, .right = 26 } },
         // [25]:
-        Node{ .callable_token = 123 }, // index4
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 23, .right = 25 } },
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 20, .right = 21 } },
-        Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 27 } },
+        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 26 } },
+        Node{ .statement = .{ .node = 27, .next = 28 } },
+        Node{ .callable_token = 39 }, // inner_type
+        Node{ .statement = .{ .node = 31, .next = 0 } },
+        Node{ .callable_token = 43 }, // at
+        // [30]:
+        Node{ .callable_token = 47 }, // index4
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 29, .right = 30 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 24, .right = 25 } },
+        Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 32 } },
         .end,
     });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
