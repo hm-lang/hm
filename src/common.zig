@@ -27,6 +27,11 @@ pub const OrElse = union(OrElseTag) {
     fail_with: []const u8, // error message
     only_try: void,
 
+    pub fn isOnlyTry(self: Self) bool {
+        return std.meta.activeTag(self) == .only_try;
+    }
+
+    // TODO: rename to `beNoisy`
     pub fn be_noisy(self: Self) ?[]const u8 {
         return switch (self) {
             .fail_with => |fail_with| fail_with,

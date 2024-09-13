@@ -65,10 +65,17 @@ pub const Parser = struct {
         //      if the tab is indented, append another Open.none enclosed block.
         while (self.getSameBlockNextNonSpacingTokenIndex(tab)) |start_parsing_index| {
             self.farthest_token_index = start_parsing_index;
-            common.debugPrint("in block, next non-spacing token at ", self.peekToken() catch .file_end);
+            common.debugPrint("in block {d}", .{enclosed_node_index});
+            common.debugPrint(", next non-spacing token at ", self.peekToken() catch .file_end);
             const statement_result = self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
+                common.debugPrint("in block {d}", .{enclosed_node_index});
+                common.debugPrint(", breaking after finding Until ", self.peekToken() catch .file_end);
+                self.farthest_token_index += 1;
+                common.debugPrint("next token is ", self.peekToken() catch .file_end);
                 break;
             };
+            common.debugPrint("in block {d}", .{enclosed_node_index});
+            common.debugPrint(", after statement ", self.peekToken() catch .file_end);
             const current_statement_index = statement_result.node;
             if (enclosed_start_index == 0) {
                 enclosed_start_index = current_statement_index;
@@ -79,6 +86,9 @@ pub const Parser = struct {
             }
             previous_statement_index = current_statement_index;
             if (statement_result.until_triggered) {
+                common.debugPrint("in block {d}, statement result Until was triggered\n", .{enclosed_node_index});
+                self.farthest_token_index += 1;
+                common.debugPrint("next token is ", self.peekToken() catch .file_end);
                 break;
             }
         }
@@ -95,6 +105,13 @@ pub const Parser = struct {
     fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
         // To make nodes mostly go in order, append the node first.
         const statement_index = try self.justAppendNode(.end);
+        errdefer {
+            // A downside of going in order is that we need a bit of cleanup.
+            // Only clean up if we don't think it'll wreck any other nodes.
+            if (self.nodes.count() == statement_index + 1) {
+                _ = self.nodes.remove(statement_index);
+            }
+        }
 
         const result = try self.appendNextExpression(tab, until, or_else);
 
@@ -1334,8 +1351,6 @@ test "trailing commas are ok" {
             Node{ .statement = .{ .node = 8, .next = 0 } },
             Node{ .atomic_token = 11 }, // C2
             .end,
-            // [10]:
-            .end,
         });
     }
     {
@@ -1350,15 +1365,16 @@ test "trailing commas are ok" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 7 } },
-            Node{ .enclosed = .{ .open = .bracket, .start = 5, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 8, .next = 0 } },
+            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 3 } },
+            Node{ .statement = .{ .node = 4, .next = 5 } },
             Node{ .atomic_token = 3 }, // Bk0
-            Node{ .atomic_token = 7 }, // Bk1
-            Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
             // [5]:
-            Node{ .postfix = .{ .operator = Operator.comma, .node = 4 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } },
+            Node{ .atomic_token = 7 }, // Bk1
             Node{ .atomic_token = 15 }, // 761
-            Node{ .binary = .{ .operator = Operator.minus, .left = 1, .right = 6 } },
+            Node{ .binary = .{ .operator = Operator.minus, .left = 2, .right = 7 } },
             .end,
         });
     }
@@ -1374,13 +1390,14 @@ test "trailing commas are ok" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 5 } },
-            Node{ .enclosed = .{ .open = .brace, .start = 3, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } },
+            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 3 } },
+            Node{ .statement = .{ .node = 4, .next = 0 } },
             Node{ .atomic_token = 3 }, // Bc0
-            Node{ .postfix = .{ .operator = Operator.comma, .node = 2 } },
-            Node{ .atomic_token = 11 }, // Abcdef
             // [5]:
-            Node{ .binary = .{ .operator = Operator.plus, .left = 1, .right = 4 } },
+            Node{ .atomic_token = 11 }, // Abcdef
+            Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 5 } },
             .end,
         });
     }
