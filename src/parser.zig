@@ -65,9 +65,11 @@ pub const Parser = struct {
         //      if the tab is indented, append another Open.none enclosed block.
         while (self.getSameBlockNextNonSpacingTokenIndex(tab)) |start_parsing_index| {
             self.farthest_token_index = start_parsing_index;
-            const current_statement_index = try self.appendNextStatement(tab, Until.closing(open), .{
-                .fail_with = "statement needs an expression",
-            });
+            common.debugPrint("in block, next non-spacing token at ", self.peekToken() catch .file_end);
+            const statement_result = self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
+                break;
+            };
+            const current_statement_index = statement_result.node;
             if (enclosed_start_index == 0) {
                 enclosed_start_index = current_statement_index;
             } else {
@@ -76,6 +78,9 @@ pub const Parser = struct {
                 };
             }
             previous_statement_index = current_statement_index;
+            if (statement_result.until_triggered) {
+                break;
+            }
         }
 
         // TODO: enclosed.inner_tab = inner_index.tab; ???
@@ -87,22 +92,22 @@ pub const Parser = struct {
         return enclosed_node_index;
     }
 
-    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
+    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
         // To make nodes mostly go in order, append the node first.
         const statement_index = try self.justAppendNode(.end);
 
-        const expression_index = try self.appendNextExpression(tab, until, or_else);
+        const result = try self.appendNextExpression(tab, until, or_else);
 
         self.nodes.set(statement_index, Node{ .statement = .{
-            .node = expression_index,
+            .node = result.node,
         } }) catch unreachable;
 
-        return statement_index;
+        return result.withNode(statement_index);
     }
 
     /// Supports starting with spacing *or not* (e.g., for the start of a statement
     /// where we don't want to check the indent yet).
-    fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
+    fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
         errdefer {
             if (or_else.be_noisy()) |error_message| {
                 self.addTokenizerError(error_message);
@@ -120,15 +125,15 @@ pub const Parser = struct {
         defer hierarchy.deinit();
 
         while (true) {
-            const operation = try self.seekNextOperation(tab, until);
+            const result = try self.seekNextOperation(tab, until);
+            const operation = result.operation;
             switch (operation.operator) {
-                .none => return hierarchy.inBounds(0),
+                .none => return result.toNode(hierarchy.inBounds(0)),
                 .comma => {
                     // Commas are so low in priority that we split off statements
                     // so that we can go roughly in left-to-right order without
                     // depth-first-searching for the first left node.
-                    self.farthest_token_index += 1;
-                    return hierarchy.inBounds(0);
+                    return result.toNode(hierarchy.inBounds(0));
                 },
                 else => {},
             }
@@ -158,7 +163,7 @@ pub const Parser = struct {
                     .close => |close| {
                         if (until.shouldBreakAtClose(close)) {
                             self.farthest_token_index += 1;
-                            return hierarchy.inBounds(0);
+                            return NodeResult.triggered(hierarchy.inBounds(0));
                         }
                         self.farthest_token_index -= 1;
                     },
@@ -166,7 +171,7 @@ pub const Parser = struct {
                         // The only way we can get here is if we newline'd it;
                         // keep the farthest_token_index steady.
                     },
-                    .file_end => return hierarchy.inBounds(0),
+                    .file_end => return NodeResult.notTriggered(hierarchy.inBounds(0)),
                     else => {
                         self.farthest_token_index -= 1;
                     },
@@ -177,11 +182,11 @@ pub const Parser = struct {
 
     // Returns the next postfix or infix operation.
     // Prefix operations are taken care of inside of `appendNextStandaloneExpression`.
-    fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!Operation {
+    fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!OperationResult {
         const restore_index = self.farthest_token_index;
 
         self.farthest_token_index = self.getSameStatementNextNonSpacingTokenIndex(tab) orelse {
-            return .{ .operator = .none };
+            return OperationResult.notTriggered(.{ .operator = .none });
         };
         const operation: Operation = switch (try self.peekToken()) {
             .operator => |operator| blk: {
@@ -204,7 +209,7 @@ pub const Parser = struct {
             .close => |close| blk: {
                 if (until.shouldBreakAtClose(close)) {
                     self.farthest_token_index += 1;
-                    return .{ .operator = .none };
+                    return OperationResult.triggered(.{ .operator = .none });
                 }
                 // Same as the `else` block below:
                 self.farthest_token_index -= 1;
@@ -220,9 +225,9 @@ pub const Parser = struct {
 
         if (until.shouldBreakBeforeOperation(operation)) {
             self.farthest_token_index = restore_index;
-            return .{ .operator = .none };
+            return OperationResult.triggered(.{ .operator = .none });
         }
-        return operation;
+        return OperationResult.notTriggered(operation);
     }
 
     /// Adds an atom with possible prefix (but NOT postfix) operators.
@@ -283,13 +288,14 @@ pub const Parser = struct {
                         .node = 0, // break the invariant here
                     },
                 });
+                // We're assuming that prefix operators should not break at an operator using an `Until` here.
                 // We need every operation *stronger* than this prefix to be attached to this prefix.
                 // TODO: add `tab` to the StatementNode so we can see if it's been indented
-                const inner_index = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else);
+                const inner_result = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else);
                 switch (self.nodes.items()[prefix_index]) {
                     // restore the invariant:
                     .prefix => |*prefix| {
-                        prefix.node = inner_index;
+                        prefix.node = inner_result.node;
                     },
                     else => return ParserError.broken_invariant,
                 }
@@ -464,6 +470,7 @@ pub const Parser = struct {
 
     /// For inside a block, the next statement index to continue with
     fn getSameBlockNextNonSpacingTokenIndex(self: *Self, tab: u16) ?TokenIndex {
+        common.debugPrint("getting same block next non-spacing token checking ", self.peekToken() catch .file_end);
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
@@ -548,6 +555,44 @@ pub const Parser = struct {
 
     const Open = Token.Open;
     const Close = Token.Close;
+    const Self = @This();
+};
+
+const NodeResult = struct {
+    node: NodeIndex,
+    until_triggered: bool,
+
+    fn triggered(node: NodeIndex) Self {
+        return .{ .node = node, .until_triggered = true };
+    }
+
+    fn notTriggered(node: NodeIndex) Self {
+        return .{ .node = node, .until_triggered = false };
+    }
+
+    fn withNode(self: Self, new_node: NodeIndex) Self {
+        return .{ .node = new_node, .until_triggered = self.until_triggered };
+    }
+
+    const Self = @This();
+};
+
+const OperationResult = struct {
+    operation: Operation,
+    until_triggered: bool,
+
+    fn triggered(operation: Operation) Self {
+        return .{ .operation = operation, .until_triggered = true };
+    }
+
+    fn notTriggered(operation: Operation) Self {
+        return .{ .operation = operation, .until_triggered = false };
+    }
+
+    fn toNode(self: Self, node: NodeIndex) NodeResult {
+        return .{ .node = node, .until_triggered = self.until_triggered };
+    }
+
     const Self = @This();
 };
 
@@ -1278,15 +1323,18 @@ test "trailing commas are ok" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 1 } },
-            Node{ .enclosed = .{ .open = .paren, .start = 7, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 2, .next = 0 } },
+            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 3 } },
+            Node{ .statement = .{ .node = 4, .next = 5 } },
             Node{ .atomic_token = 3 }, // C0
-            Node{ .atomic_token = 7 }, // C1
-            Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
             // [5]:
+            Node{ .statement = .{ .node = 6, .next = 7 } },
+            Node{ .atomic_token = 7 }, // C1
+            Node{ .statement = .{ .node = 8, .next = 0 } },
             Node{ .atomic_token = 11 }, // C2
-            Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 5 } },
-            Node{ .postfix = .{ .operator = Operator.comma, .node = 6 } },
+            .end,
+            // [10]:
             .end,
         });
     }
