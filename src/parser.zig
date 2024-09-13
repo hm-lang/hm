@@ -1044,32 +1044,44 @@ test "generic function calls" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 1 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 31, .next = 0 } },
         Node{ .callable_token = 1 }, // fungus
-        Node{ .callable_token = 123 }, // type1
-        Node{ .callable_token = 5 }, // t_array
-        Node{ .callable_token = 123 }, // str7
+        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
+        Node{ .statement = .{ .node = 7, .next = 12 } },
         // [5]:
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
-        Node{ .callable_token = 123 }, // type2
-        Node{ .binary = .{ .operator = Operator.comma, .left = 5, .right = 6 } },
-        Node{ .callable_token = 123 }, // type3
-        Node{ .binary = .{ .operator = Operator.comma, .left = 7, .right = 11 } },
+        Node{ .callable_token = 5 }, // type1
+        Node{ .callable_token = 9 }, // t_array
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 5, .right = 11 } },
+        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 9 } },
+        Node{ .statement = .{ .node = 10, .next = 0 } },
         // [10]:
-        Node{ .callable_token = 123 }, // i64
-        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 8, .right = 10 } },
+        Node{ .callable_token = 13 }, // str7
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 6, .right = 8 } },
+        Node{ .statement = .{ .node = 13, .next = 14 } },
+        Node{ .callable_token = 19 }, // type2
+        Node{ .statement = .{ .node = 17, .next = 0 } },
+        // [15]:
+        Node{ .callable_token = 23 }, // type3
+        Node{ .callable_token = 27 }, // i64
+        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 15, .right = 16 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 20 } },
+        // [20]:
+        Node{ .statement = .{ .node = 23, .next = 24 } },
         Node{ .atomic_token = 33 }, // Life
         Node{ .atomic_token = 37 }, // 17
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 12, .right = 13 } },
-        // [15]:
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 21, .right = 22 } },
+        Node{ .statement = .{ .node = 26, .next = 27 } },
+        // [25]:
         Node{ .atomic_token = 41 }, // Cardio
-        Node{ .binary = .{ .operator = Operator.comma, .left = 14, .right = 17 } },
-        Node{ .postfix = .{ .operator = Operator.not, .node = 15 } },
+        Node{ .postfix = .{ .operator = Operator.not, .node = 25 } },
+        Node{ .statement = .{ .node = 30, .next = 0 } },
         Node{ .atomic_token = 47 }, // Fritz
-        Node{ .binary = .{ .operator = Operator.comma, .left = 16, .right = 21 } },
-        // [20]:
-        Node{ .callable_token = 123 }, // foo_fritz
-        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 18, .right = 20 } },
+        Node{ .callable_token = 51 }, // foo_fritz
+        // [30]:
+        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 28, .right = 29 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 18, .right = 19 } },
         .end,
     });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
