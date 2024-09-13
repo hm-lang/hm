@@ -830,30 +830,31 @@ test "complicated prefix/postfix operators with addition/multiplication" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 9 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 10, .next = 11 } },
         Node{ .atomic_token = 1 }, // Apple
-        Node{ .prefix = .{ .operator = Operator.not, .node = 6 } },
+        Node{ .prefix = .{ .operator = Operator.not, .node = 7 } },
         Node{ .atomic_token = 7 }, // Berry
-        Node{ .atomic_token = 9 }, // Cantaloupe
         // [5]:
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 3, .right = 4 } },
-        Node{ .postfix = .{ .operator = Operator.decrement, .node = 5 } },
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
+        Node{ .atomic_token = 9 }, // Cantaloupe
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 4, .right = 5 } },
+        Node{ .postfix = .{ .operator = Operator.decrement, .node = 6 } },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 2, .right = 3 } },
         Node{ .atomic_token = 15 }, // 500
-        Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 8 } },
         // [10]:
-        Node{ .statement = .{ .node = 17 } },
-        Node{ .prefix = .{ .operator = Operator.decrement, .node = 14 } },
+        Node{ .binary = .{ .operator = Operator.plus, .left = 8, .right = 9 } },
+        Node{ .statement = .{ .node = 18, .next = 0 } },
+        Node{ .prefix = .{ .operator = Operator.decrement, .node = 15 } },
         Node{ .atomic_token = 19 }, // Xeno
         Node{ .atomic_token = 21 }, // Yak
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 12, .right = 13 } },
         // [15]:
-        Node{ .postfix = .{ .operator = Operator.not, .node = 11 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 13, .right = 14 } },
+        Node{ .postfix = .{ .operator = Operator.not, .node = 12 } },
         Node{ .atomic_token = 27 }, // 3000
-        Node{ .binary = .{ .operator = Operator.minus, .left = 15, .right = 19 } },
+        Node{ .binary = .{ .operator = Operator.minus, .left = 16, .right = 20 } },
         Node{ .atomic_token = 31 }, // Zelda
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 16, .right = 18 } },
         // [20]:
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 17, .right = 19 } },
         .end,
     });
 }
@@ -874,20 +875,21 @@ test "nested prefix/postfix operators" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 5 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 6, .next = 7 } },
         Node{ .atomic_token = 1 }, // Abc
         Node{ .atomic_token = 3 }, // Xyz
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
-        Node{ .postfix = .{ .operator = Operator.decrement, .node = 3 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
         // [5]:
-        Node{ .postfix = .{ .operator = Operator.not, .node = 4 } },
-        Node{ .statement = .{ .node = 7 } },
-        Node{ .prefix = .{ .operator = Operator.not, .node = 8 } },
-        Node{ .prefix = .{ .operator = Operator.increment, .node = 11 } },
-        Node{ .atomic_token = 13 }, // Def
+        Node{ .postfix = .{ .operator = Operator.decrement, .node = 4 } },
+        Node{ .postfix = .{ .operator = Operator.not, .node = 5 } },
+        Node{ .statement = .{ .node = 8, .next = 0 } },
+        Node{ .prefix = .{ .operator = Operator.not, .node = 9 } },
+        Node{ .prefix = .{ .operator = Operator.increment, .node = 12 } },
         // [10]:
+        Node{ .atomic_token = 13 }, // Def
         Node{ .atomic_token = 15 }, // Uvw
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 11 } },
         .end,
     });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
