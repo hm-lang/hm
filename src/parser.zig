@@ -70,7 +70,7 @@ pub const Parser = struct {
             if (enclosed_start_index == 0) {
                 enclosed_start_index = current_statement_index;
             } else {
-                self.nodes.inBounds(previous_statement_index).setStatementNext(current_statement_index) catch {
+                self.nodes.items()[previous_statement_index].setStatementNext(current_statement_index) catch {
                     return ParserError.broken_invariant;
                 };
             }
@@ -421,7 +421,7 @@ pub const Parser = struct {
     fn tokenizerTab(self: *Self) ParserError!u16 {
         var token_index: i64 = @intCast(self.farthest_token_index);
         while (token_index >= 0) {
-            const token = self.tokenizers.inBounds(@intCast(token_index));
+            const token = try self.tokenAt(@intCast(token_index));
             switch (token) {
                 .spacing => |spacing| if (spacing.getNewlineTab()) |tab| {
                     return tab;
@@ -577,22 +577,22 @@ test "parser simple expressions" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 1, .tab = 0 } },
+        Node{ .statement = .{ .node = 1 } },
         Node{ .atomic_token = 1 }, // 3.456
-        Node{ .statement = .{ .node = 3, .tab = 4 } },
-        Node{ .callable = .{ .name_token = 3 } }, // hello_you
-        Node{ .statement = .{ .node = 5, .tab = 0 } },
+        Node{ .statement = .{ .node = 3 } },
+        Node{ .callable_token = 123 }, // hello_you
+        Node{ .statement = .{ .node = 5 } },
         // [5]:
         Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
         Node{ .atomic_token = 7 }, // 1.234
-        Node{ .statement = .{ .node = 8, .tab = 2 } },
+        Node{ .statement = .{ .node = 8 } },
         Node{ .prefix = .{ .operator = Operator.minus, .node = 9 } },
         Node{ .atomic_token = 11 }, // 5.678
         // [10]:
-        Node{ .statement = .{ .node = 11, .tab = 4 } },
+        Node{ .statement = .{ .node = 11 } },
         Node{ .prefix = .{ .operator = Operator.lambda3, .node = 12 } },
         Node{ .atomic_token = 15 }, // Foe
-        Node{ .statement = .{ .node = 15, .tab = 8 } },
+        Node{ .statement = .{ .node = 15 } },
         Node{ .atomic_token = 17 }, // Fum
         // [15]:
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 14 } },
@@ -613,7 +613,7 @@ test "parser multiplication" {
     try parser.complete();
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
-        Node{ .statement = .{ .node = 3, .tab = 0 } },
+        Node{ .statement = .{ .node = 3 } },
         Node{ .atomic_token = 1 }, // Wompus
         Node{ .atomic_token = 5 }, // 3.14
         Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
@@ -635,17 +635,17 @@ test "parser simple (and postfix) implicit member access" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 3, .tab = 0 } },
+        Node{ .statement = .{ .node = 3 } },
         Node{ .atomic_token = 1 }, // Pi
         Node{ .atomic_token = 3 }, // Sky
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
-        Node{ .statement = .{ .node = 8, .tab = 0 } },
+        Node{ .statement = .{ .node = 8 } },
         // [5]:
         Node{ .atomic_token = 5 }, // Sci
         Node{ .atomic_token = 7 }, // Fi
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 5, .right = 6 } },
         Node{ .postfix = .{ .operator = Operator.increment, .node = 7 } },
-        Node{ .statement = .{ .node = 15, .tab = 0 } },
+        Node{ .statement = .{ .node = 15 } },
         // [10]:
         Node{ .atomic_token = 11 }, // Kite
         Node{ .atomic_token = 13 }, // Sty
@@ -672,7 +672,7 @@ test "parser complicated (and prefix) implicit member access" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 1, .tab = 0 } },
+        Node{ .statement = .{ .node = 1 } },
         Node{ .prefix = .{ .operator = Operator.decrement, .node = 6 } },
         Node{ .atomic_token = 3 }, // Why
         Node{ .atomic_token = 5 }, // Shy
@@ -680,7 +680,7 @@ test "parser complicated (and prefix) implicit member access" {
         // [5]:
         Node{ .atomic_token = 7 }, // Spy
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 4, .right = 5 } },
-        Node{ .statement = .{ .node = 8, .tab = 0 } },
+        Node{ .statement = .{ .node = 8 } },
         Node{ .prefix = .{ .operator = Operator.not, .node = 13 } },
         Node{ .atomic_token = 11 }, // Chai
         // [10]:
@@ -688,7 +688,7 @@ test "parser complicated (and prefix) implicit member access" {
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
         Node{ .atomic_token = 15 }, // Fry
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 11, .right = 12 } },
-        Node{ .statement = .{ .node = 15, .tab = 0 } },
+        Node{ .statement = .{ .node = 15 } },
         // [15]:
         Node{ .prefix = .{ .operator = Operator.not, .node = 21 } },
         Node{ .atomic_token = 19 }, // Knife
@@ -720,25 +720,25 @@ test "simple prefix/postfix operators with multiplication" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 4, .tab = 0 } },
+        Node{ .statement = .{ .node = 4 } },
         Node{ .prefix = .{ .operator = Operator.increment, .node = 2 } },
         Node{ .atomic_token = 3 }, // Theta
         Node{ .atomic_token = 7 }, // Beta
         Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 3 } },
         // [5]:
-        Node{ .statement = .{ .node = 9, .tab = 0 } },
+        Node{ .statement = .{ .node = 9 } },
         Node{ .atomic_token = 9 }, // Zeta
         Node{ .prefix = .{ .operator = Operator.increment, .node = 8 } },
         Node{ .atomic_token = 15 }, // Woga
         Node{ .binary = .{ .operator = Operator.multiply, .left = 6, .right = 7 } },
         // [10]:
-        Node{ .statement = .{ .node = 14, .tab = 0 } },
+        Node{ .statement = .{ .node = 14 } },
         Node{ .atomic_token = 17 }, // Yodus
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 11 } },
         Node{ .atomic_token = 23 }, // Spatula
         Node{ .binary = .{ .operator = Operator.multiply, .left = 12, .right = 13 } },
         // [15]:
-        Node{ .statement = .{ .node = 18, .tab = 0 } },
+        Node{ .statement = .{ .node = 18 } },
         Node{ .atomic_token = 25 }, // Wobdash
         Node{ .atomic_token = 29 }, // Flobsmash
         Node{ .binary = .{ .operator = Operator.multiply, .left = 16, .right = 19 } },
@@ -762,7 +762,7 @@ test "complicated prefix/postfix operators with addition/multiplication" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 9, .tab = 0 } },
+        Node{ .statement = .{ .node = 9 } },
         Node{ .atomic_token = 1 }, // Apple
         Node{ .prefix = .{ .operator = Operator.not, .node = 6 } },
         Node{ .atomic_token = 7 }, // Berry
@@ -774,7 +774,7 @@ test "complicated prefix/postfix operators with addition/multiplication" {
         Node{ .atomic_token = 15 }, // 500
         Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 8 } },
         // [10]:
-        Node{ .statement = .{ .node = 17, .tab = 0 } },
+        Node{ .statement = .{ .node = 17 } },
         Node{ .prefix = .{ .operator = Operator.decrement, .node = 14 } },
         Node{ .atomic_token = 19 }, // Xeno
         Node{ .atomic_token = 21 }, // Yak
@@ -806,14 +806,14 @@ test "nested prefix/postfix operators" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 5, .tab = 0 } },
+        Node{ .statement = .{ .node = 5 } },
         Node{ .atomic_token = 1 }, // Abc
         Node{ .atomic_token = 3 }, // Xyz
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 3 } },
         // [5]:
         Node{ .postfix = .{ .operator = Operator.not, .node = 4 } },
-        Node{ .statement = .{ .node = 7, .tab = 0 } },
+        Node{ .statement = .{ .node = 7 } },
         Node{ .prefix = .{ .operator = Operator.not, .node = 8 } },
         Node{ .prefix = .{ .operator = Operator.increment, .node = 11 } },
         Node{ .atomic_token = 13 }, // Def
@@ -838,7 +838,7 @@ test "deeply nested prefix/postfix operators" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 4, .tab = 0 } },
+        Node{ .statement = .{ .node = 4 } },
         Node{ .prefix = .{ .operator = Operator.lambda2, .node = 2 } },
         Node{ .atomic_token = 3 }, // Yammer
         Node{ .atomic_token = 7 }, // Zen
@@ -846,7 +846,7 @@ test "deeply nested prefix/postfix operators" {
         // [5]:
         Node{ .postfix = .{ .operator = Operator.increment, .node = 3 } },
         Node{ .postfix = .{ .operator = Operator.not, .node = 5 } },
-        Node{ .statement = .{ .node = 15, .tab = 0 } },
+        Node{ .statement = .{ .node = 15 } },
         Node{ .prefix = .{ .operator = Operator.not, .node = 9 } },
         Node{ .prefix = .{ .operator = Operator.decrement, .node = 13 } },
         // [10]:
@@ -873,14 +873,14 @@ test "order of operations with addition and multiplication" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 5, .tab = 0 } },
+        Node{ .statement = .{ .node = 5 } },
         Node{ .atomic_token = 1 }, // Alpha
         Node{ .atomic_token = 5 }, // Gamma
         Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
         Node{ .atomic_token = 9 }, // Epsilon
         // [5]:
         Node{ .binary = .{ .operator = Operator.plus, .left = 3, .right = 4 } },
-        Node{ .statement = .{ .node = 9, .tab = 0 } },
+        Node{ .statement = .{ .node = 9 } },
         Node{ .atomic_token = 11 }, // Panko
         Node{ .atomic_token = 15 }, // K_panko
         Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 11 } },
@@ -906,20 +906,20 @@ test "generic types" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 1, .tab = 0 } },
-        Node{ .callable = .{ .name_token = 1, .generics = 12 } }, // container54
-        Node{ .callable = .{ .name_token = 5 } }, // of
-        Node{ .callable = .{ .name_token = 9 } }, // i1234
+        Node{ .statement = .{ .node = 1 } },
+        Node{ .callable_token = 1 }, // container54
+        Node{ .callable_token = 123 }, // of
+        Node{ .callable_token = 123 }, // i1234
         Node{ .binary = .{ .operator = Operator.declare_writable, .left = 2, .right = 3 } },
         // [5]:
-        Node{ .callable = .{ .name_token = 13 } }, // at
+        Node{ .callable_token = 123 }, // at
         Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 9 } },
-        Node{ .callable = .{ .name_token = 17, .generics = 8 } }, // str5
-        Node{ .callable = .{ .name_token = 21 } }, // qusp
+        Node{ .callable_token = 17 }, // str5
+        Node{ .callable_token = 123 }, // qusp
         Node{ .binary = .{ .operator = Operator.declare_temporary, .left = 5, .right = 7 } },
         // [10]:
-        Node{ .callable = .{ .name_token = 27, .generics = 11 } }, // array
-        Node{ .callable = .{ .name_token = 31 } }, // dongle
+        Node{ .callable_token = 27 }, // array
+        Node{ .callable_token = 123 }, // dongle
         Node{ .binary = .{ .operator = Operator.comma, .left = 6, .right = 10 } },
         .end,
     });
@@ -942,8 +942,8 @@ test "simple function calls" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 1, .tab = 0 } },
-        Node{ .callable = .{ .name_token = 1, .arguments = 10 } }, // superb
+        Node{ .statement = .{ .node = 1 } },
+        Node{ .callable_token = 5 }, // superb
         Node{ .atomic_token = 5 }, // Brepus
         Node{ .atomic_token = 9 }, // 161
         Node{ .binary = .{ .operator = Operator.declare_temporary, .left = 2, .right = 3 } },
@@ -976,19 +976,19 @@ test "generic function calls" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 1, .tab = 0 } },
-        Node{ .callable = .{ .name_token = 1, .generics = 9, .arguments = 19 } }, // fungus
-        Node{ .callable = .{ .name_token = 5 } }, // type1
-        Node{ .callable = .{ .name_token = 9, .generics = 4 } }, // t_array
-        Node{ .callable = .{ .name_token = 13 } }, // str7
+        Node{ .statement = .{ .node = 1 } },
+        Node{ .callable_token = 1 }, // fungus
+        Node{ .callable_token = 123 }, // type1
+        Node{ .callable_token = 5 }, // t_array
+        Node{ .callable_token = 123 }, // str7
         // [5]:
         Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
-        Node{ .callable = .{ .name_token = 19 } }, // type2
+        Node{ .callable_token = 123 }, // type2
         Node{ .binary = .{ .operator = Operator.comma, .left = 5, .right = 6 } },
-        Node{ .callable = .{ .name_token = 23 } }, // type3
+        Node{ .callable_token = 123 }, // type3
         Node{ .binary = .{ .operator = Operator.comma, .left = 7, .right = 11 } },
         // [10]:
-        Node{ .callable = .{ .name_token = 27 } }, // i64
+        Node{ .callable_token = 123 }, // i64
         Node{ .binary = .{ .operator = Operator.declare_writable, .left = 8, .right = 10 } },
         Node{ .atomic_token = 33 }, // Life
         Node{ .atomic_token = 37 }, // 17
@@ -1000,7 +1000,7 @@ test "generic function calls" {
         Node{ .atomic_token = 47 }, // Fritz
         Node{ .binary = .{ .operator = Operator.comma, .left = 16, .right = 21 } },
         // [20]:
-        Node{ .callable = .{ .name_token = 51 } }, // foo_fritz
+        Node{ .callable_token = 123 }, // foo_fritz
         Node{ .binary = .{ .operator = Operator.declare_writable, .left = 18, .right = 20 } },
         .end,
     });
@@ -1023,14 +1023,14 @@ test "declarations with missing right expressions" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 2, .tab = 0 } },
+            Node{ .statement = .{ .node = 2 } },
             Node{ .atomic_token = 1 }, // Esper
             Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 1 } },
-            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            Node{ .statement = .{ .node = 5 } },
             Node{ .atomic_token = 5 }, // Jesper
             // [5]:
             Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 4 } },
-            Node{ .statement = .{ .node = 8, .tab = 0 } },
+            Node{ .statement = .{ .node = 8 } },
             Node{ .atomic_token = 9 }, // Esperk
             Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 7 } },
             .end,
@@ -1056,17 +1056,17 @@ test "declarations with missing right expressions" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 1, .tab = 0 } },
-            Node{ .enclosed = .{ .open = .paren, .root = 3 } },
+            Node{ .statement = .{ .node = 1 } },
+            Node{ .enclosed = .{ .open = .paren, .start = 3, .tab = 0 } },
             Node{ .atomic_token = 3 }, // Jarok
             Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 2 } },
-            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            Node{ .statement = .{ .node = 5 } },
             // [5]:
-            Node{ .enclosed = .{ .open = .bracket, .root = 7 } },
+            Node{ .enclosed = .{ .open = .bracket, .start = 7, .tab = 0 } },
             Node{ .atomic_token = 11 }, // Turmeric
             Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 6 } },
-            Node{ .statement = .{ .node = 9, .tab = 0 } },
-            Node{ .enclosed = .{ .open = .brace, .root = 11 } },
+            Node{ .statement = .{ .node = 9 } },
+            Node{ .enclosed = .{ .open = .brace, .start = 11, .tab = 0 } },
             // [10]:
             Node{ .atomic_token = 19 }, // Quinine
             Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 10 } },
@@ -1091,8 +1091,8 @@ test "declarations with missing right expressions" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 10, .tab = 0 } },
-            Node{ .callable = .{ .name_token = 1, .arguments = 8 } }, // funE1
+            Node{ .statement = .{ .node = 10 } },
+            Node{ .callable_token = 3 }, // funE1
             Node{ .atomic_token = 5 }, // F2
             Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 2 } },
             Node{ .atomic_token = 11 }, // G3
@@ -1138,20 +1138,20 @@ test "declaring a variable with arguments and/or generics" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 5, .tab = 0 } },
+        Node{ .statement = .{ .node = 5 } },
         Node{ .atomic_token = 1 }, // Set
-        Node{ .enclosed = .{ .open = .paren, .root = 3 } },
+        Node{ .enclosed = .{ .open = .paren, .start = 3, .tab = 0 } },
         Node{ .atomic_token = 5 }, // 543
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 1, .right = 2 } },
         // [5]:
         Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 4 } },
-        Node{ .statement = .{ .node = 18, .tab = 0 } },
+        Node{ .statement = .{ .node = 18 } },
         Node{ .atomic_token = 11 }, // Array
-        Node{ .enclosed = .{ .open = .bracket, .root = 9 } },
-        Node{ .callable = .{ .name_token = 15 } }, // element_type
+        Node{ .enclosed = .{ .open = .bracket, .start = 9, .tab = 0 } },
+        Node{ .callable_token = 123 }, // element_type
         // [10]:
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 7, .right = 8 } },
-        Node{ .enclosed = .{ .open = .paren, .root = 16 } },
+        Node{ .enclosed = .{ .open = .paren, .start = 16, .tab = 0 } },
         Node{ .atomic_token = 21 }, // 1
         Node{ .atomic_token = 25 }, // 2
         Node{ .binary = .{ .operator = Operator.comma, .left = 12, .right = 13 } },
@@ -1160,15 +1160,15 @@ test "declaring a variable with arguments and/or generics" {
         Node{ .binary = .{ .operator = Operator.comma, .left = 14, .right = 15 } },
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 11 } },
         Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 17 } },
-        Node{ .statement = .{ .node = 28, .tab = 0 } },
+        Node{ .statement = .{ .node = 28 } },
         // [20]:
         Node{ .atomic_token = 35 }, // Lot
-        Node{ .enclosed = .{ .open = .bracket, .root = 24 } },
-        Node{ .callable = .{ .name_token = 39 } }, // inner_type
-        Node{ .callable = .{ .name_token = 43 } }, // at
+        Node{ .enclosed = .{ .open = .bracket, .start = 24, .tab = 0 } },
+        Node{ .callable_token = 123 }, // inner_type
+        Node{ .callable_token = 123 }, // at
         Node{ .binary = .{ .operator = Operator.comma, .left = 22, .right = 26 } },
         // [25]:
-        Node{ .callable = .{ .name_token = 47 } }, // index4
+        Node{ .callable_token = 123 }, // index4
         Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 23, .right = 25 } },
         Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 20, .right = 21 } },
         Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 27 } },
@@ -1190,9 +1190,9 @@ test "simple parentheses, brackets, and braces" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 1, .tab = 0 } },
+            Node{ .statement = .{ .node = 1 } },
             Node{ .prefix = .{ .operator = Operator.plus, .node = 2 } },
-            Node{ .enclosed = .{ .open = .paren, .root = 5 } },
+            Node{ .enclosed = .{ .open = .paren, .start = 5, .tab = 0 } },
             Node{ .atomic_token = 5 }, // Wow
             Node{ .atomic_token = 9 }, // Great
             // [5]:
@@ -1212,13 +1212,13 @@ test "simple parentheses, brackets, and braces" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 7, .tab = 0 } },
-            Node{ .enclosed = .{ .open = .bracket, .root = 6 } },
-            Node{ .callable = .{ .name_token = 3 } }, // wow
-            Node{ .callable = .{ .name_token = 7 } }, // jam
+            Node{ .statement = .{ .node = 7 } },
+            Node{ .enclosed = .{ .open = .bracket, .start = 6, .tab = 0 } },
+            Node{ .callable_token = 123 }, // wow
+            Node{ .callable_token = 123 }, // jam
             Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
             // [5]:
-            Node{ .callable = .{ .name_token = 11 } }, // time
+            Node{ .callable_token = 123 }, // time
             Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 5 } },
             Node{ .postfix = .{ .operator = Operator.not, .node = 1 } },
             .end,
@@ -1240,13 +1240,13 @@ test "simple parentheses, brackets, and braces" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 12, .tab = 0 } },
-            Node{ .enclosed = .{ .open = .brace, .root = 6 } },
+            Node{ .statement = .{ .node = 12 } },
+            Node{ .enclosed = .{ .open = .brace, .start = 6, .tab = 0 } },
             Node{ .atomic_token = 3 }, // Boo
             Node{ .atomic_token = 7 }, // 33
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
             // [5]:
-            Node{ .callable = .{ .name_token = 11 } }, // hoo
+            Node{ .callable_token = 123 }, // hoo
             Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 8 } },
             Node{ .atomic_token = 15 }, // 123
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 5, .right = 10 } },
@@ -1277,8 +1277,8 @@ test "trailing commas are ok" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 1, .tab = 0 } },
-            Node{ .enclosed = .{ .open = .paren, .root = 7 } },
+            Node{ .statement = .{ .node = 1 } },
+            Node{ .enclosed = .{ .open = .paren, .start = 7, .tab = 0 } },
             Node{ .atomic_token = 3 }, // C0
             Node{ .atomic_token = 7 }, // C1
             Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
@@ -1301,8 +1301,8 @@ test "trailing commas are ok" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 7, .tab = 0 } },
-            Node{ .enclosed = .{ .open = .bracket, .root = 5 } },
+            Node{ .statement = .{ .node = 7 } },
+            Node{ .enclosed = .{ .open = .bracket, .start = 5, .tab = 0 } },
             Node{ .atomic_token = 3 }, // Bk0
             Node{ .atomic_token = 7 }, // Bk1
             Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
@@ -1325,8 +1325,8 @@ test "trailing commas are ok" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 5, .tab = 0 } },
-            Node{ .enclosed = .{ .open = .brace, .root = 3 } },
+            Node{ .statement = .{ .node = 5 } },
+            Node{ .enclosed = .{ .open = .brace, .start = 3, .tab = 0 } },
             Node{ .atomic_token = 3 }, // Bc0
             Node{ .postfix = .{ .operator = Operator.comma, .node = 2 } },
             Node{ .atomic_token = 11 }, // Abcdef
@@ -1350,9 +1350,9 @@ test "parser declare" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 3, .tab = 0 } },
+            Node{ .statement = .{ .node = 3 } },
             Node{ .atomic_token = 1 }, // Whatever
-            Node{ .callable = .{ .name_token = 5 } }, // type1
+            Node{ .callable_token = 123 }, // type1
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 2 } },
             .end,
         });
@@ -1369,9 +1369,9 @@ test "parser declare" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 3, .tab = 0 } },
+            Node{ .statement = .{ .node = 3 } },
             Node{ .atomic_token = 1 }, // Writable_whatever
-            Node{ .callable = .{ .name_token = 5 } }, // type2
+            Node{ .callable_token = 123 }, // type2
             Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
             .end,
         });
@@ -1391,9 +1391,9 @@ test "parser declare and assign" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            Node{ .statement = .{ .node = 5 } },
             Node{ .atomic_token = 1 }, // Declassign
-            Node{ .callable = .{ .name_token = 5 } }, // type_assign1
+            Node{ .callable_token = 123 }, // type_assign1
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 2 } },
             Node{ .atomic_token = 9 }, // 12345
             // [5]:
@@ -1417,9 +1417,9 @@ test "parser declare and assign" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            Node{ .statement = .{ .node = 5 } },
             Node{ .atomic_token = 1 }, // Declassign
-            Node{ .callable = .{ .name_token = 5 } }, // type_assign2
+            Node{ .callable_token = 123 }, // type_assign2
             Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
             Node{ .atomic_token = 9 }, // 7890
             // [5]:
@@ -1492,14 +1492,14 @@ test "parser declare and nested assigns" {
             // [0]:
             Node{ .statement = .{ .node = 5 } },
             Node{ .atomic_token = 1 }, // VarQ
-            Node{ .callable = .{ .name_token = 5 } }, // i32
+            Node{ .callable_token = 123 }, // i32
             Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
             Node{ .atomic_token = 9 }, // Qu16
             // [5]:
             Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 7 } },
             Node{ .atomic_token = 13 }, // VarU
             Node{ .binary = .{ .operator = Operator.assign, .left = 4, .right = 11 } },
-            Node{ .callable = .{ .name_token = 17 } }, // i16
+            Node{ .callable_token = 123 }, // i16
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 6, .right = 8 } },
             // [10]:
             Node{ .atomic_token = 21 }, // 750
