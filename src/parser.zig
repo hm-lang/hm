@@ -14,7 +14,6 @@ const Operation = operator_zig.Operation;
 
 const std = @import("std");
 
-const OwnedScopes = OwnedList(Scope);
 const OwnedNodes = OwnedList(Node);
 const OwnedNodeIndices = OwnedList(NodeIndex);
 
@@ -58,51 +57,50 @@ pub const Parser = struct {
         // but we don't know what it is yet, so just make a placeholder.
         const enclosed_node_index = try self.justAppendNode(.end);
 
-        var start_index: usize = 0;
-        var previous_index: usize = 0;
-        var tab = (self.scopes.at(-1) orelse return ParserError.broken_invariant).tab;
-        while (try self.getSameBlockNextNonSpacingTokenIndex(tab)) |tabbed| {
-            self.farthest_token_index = tabbed.start_parsing_index;
-            if (tabbed.tab > tab) {}
-            // To make nodes mostly go in order, append the node first.
-            const next_index = try self.justAppendNode(.end);
-            if (start_index == 0) {
-                start_index = next_index;
+        var enclosed_start_index: usize = 0;
+        var previous_statement_index: usize = 0;
+        // TODO: return a `Tabbed` struct that gives the `tab` and a `start_parsing_index`
+        //      if the tab is indented, append another Open.none enclosed block.
+        while (try self.getSameBlockNextNonSpacingTokenIndex(tab)) |start_parsing_index| {
+            self.farthest_token_index = start_parsing_index;
+            const next_statement_index = try self.appendNextStatement(tab, Until.closing(open), .{
+                .fail_with = "statement needs an expression",
+            });
+            if (enclosed_start_index == 0) {
+                enclosed_start_index = next_index;
             } else {
-                self.nodes.inBounds(previous_index).setStatementNext(next_index) catch {
+                self.nodes.inBounds(previous_statement_index).setStatementNext(next_index) catch {
                     return ParserError.broken_invariant;
                 };
             }
-            const next_statement = try self.appendNextStatement(tab, Until.closing(open), .{
-                .fail_with = "statement needs an expression",
-            });
-            self.nodes.set(next_index, Node{
-                .statement = next_statement,
-            }) catch return ParserError.broken_invariant;
-            previous_index = next_index;
+            previous_statement_index = next_statement_index;
         }
 
         // TODO: enclosed.inner_tab = inner_index.tab; ???
         self.nodes.set(enclosed_node_index, Node{ .enclosed = .{
             .tab = tab,
             .open = open,
-            .start = start_index,
+            .start = enclosed_start_index,
         } }) catch unreachable;
+        return enclosed_node_index;
     }
 
-    fn getTab(self: *Self) ParserError!u16 {
-        const internal_tab = switch (try self.peekToken()) {
-            .spacing => |spacing| spacing.absolute,
-            .file_end => return ParserError.out_of_statements,
-            else => return ParserError.broken_invariant,
-        };
-        self.farthest_token_index += 1;
-        return internal_tab;
+    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
+        // To make nodes mostly go in order, append the node first.
+        const statement_index = try self.justAppendNode(.end);
+
+        const expression_index = try self.appendNextExpression(tab, until, or_else);
+
+        self.nodes.set(statement_index, Node{ .statement = .{
+            .node = expression_index,
+        } }) catch unreachable;
+
+        return statement_index;
     }
 
     /// Supports starting with spacing *or not* (e.g., for the start of a statement
     /// where we don't want to check the indent yet).
-    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
+    fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeIndex {
         errdefer {
             if (or_else.be_noisy()) |error_message| {
                 self.addTokenizerError(error_message);
@@ -121,10 +119,12 @@ pub const Parser = struct {
 
         while (true) {
             const operation = try self.seekNextOperation(tab, until);
-            // TODO: if a comma, bail early.  we probably can make that happen by returning .none
-            // but incrementing farthest_token_index
-            if (operation.operator == .none) {
-                return hierarchy.inBounds(0);
+            switch (operation.operator) {
+                .none => return hierarchy.inBounds(0),
+                .comma => {
+                    self.farthest_token_index += 1;
+                    return hierarchy.inBounds(0);
+                },
             }
             if (operation.type == .postfix) {
                 try self.appendPostfixOperation(&hierarchy, operation);
@@ -282,7 +282,7 @@ pub const Parser = struct {
                 });
                 // We need every operation *stronger* than this prefix to be attached to this prefix.
                 // TODO: add `tab` to the StatementNode so we can see if it's been indented
-                const inner_index = try self.appendNextStatement(tab, Until.prefix_strength_wins(operator), or_else);
+                const inner_index = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else);
                 switch (self.nodes.items()[prefix_index]) {
                     // restore the invariant:
                     .prefix => |*prefix| {
@@ -301,62 +301,6 @@ pub const Parser = struct {
                 }
                 return ParserError.syntax;
             },
-        }
-    }
-
-    /// Only the `arguments` and `generics` fields are populated on the return value.
-    /// Returns null if there were no generic or argument fields to parse.
-    // TODO: delete this and let a third pass try to get these.
-    fn maybeAppendCallableFields(self: *Self, tab: u16) ?Node.Callable {
-        const restore_index = self.farthest_token_index;
-        const non_spacing_token_index = self.getSameStatementNextNonSpacingTokenIndex(tab) orelse return null;
-
-        switch (self.tokenAt(non_spacing_token_index) catch return null) {
-            .open => |open| switch (open) {
-                .bracket => {
-                    self.farthest_token_index = non_spacing_token_index + 1;
-                    const generics_index = self.appendNextStatement(tab, Until.closing(Open.bracket), .only_try) catch {
-                        self.farthest_token_index = restore_index;
-                        return null;
-                    };
-                    const arguments_index = self.maybeAppendNextParen(tab) orelse {
-                        // We had an issue getting the arguments but that's ok, return only generics.
-                        return Node.Callable{ .generics = generics_index };
-                    };
-                    return Node.Callable{ .generics = generics_index, .arguments = arguments_index };
-                },
-                .paren => {
-                    self.farthest_token_index = non_spacing_token_index + 1;
-                    const arguments_index = self.appendNextStatement(tab, Until.closing(Token.Open.paren), .only_try) catch {
-                        self.farthest_token_index = restore_index;
-                        return null;
-                    };
-                    return Node.Callable{ .arguments = arguments_index };
-                },
-                // Probably a syntax error but who knows!
-                else => return null,
-            },
-            else => return null,
-        }
-    }
-
-    // TODO: delete this and let a third pass try to get these.
-    fn maybeAppendNextParen(self: *Self, tab: u16) ?NodeIndex {
-        const non_spacing_token_index = self.getSameStatementNextNonSpacingTokenIndex(tab) orelse return null;
-
-        switch (self.tokenAt(non_spacing_token_index) catch return null) {
-            .open => |open| {
-                if (open != Token.Open.paren) {
-                    return null;
-                }
-                const restore_index = self.farthest_token_index;
-                self.farthest_token_index = non_spacing_token_index + 1;
-                return self.appendNextStatement(tab, Until.closing(Token.Open.paren), .only_try) catch {
-                    self.farthest_token_index = restore_index;
-                    return null;
-                };
-            },
-            else => return null,
         }
     }
 
@@ -480,35 +424,33 @@ pub const Parser = struct {
     }
 
     /// For inside a block, the next statement index to continue with
-    fn getSameBlockNextNonSpacingTokenIndex(self: *Self, tab: u16) ParserError!?Tabbed {
+    fn getSameBlockNextNonSpacingTokenIndex(self: *Self, tab: u16) ?TokenIndex {
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
-            // TODO: think about how we want to handle prefix operators
-            //      should we do stuff like
+            // TODO: ignore infix operators for indent level:
             //&|MyValue:
-            //&|       +SomeValue   # ignore all operators for tab
-            //&|    -   CoolStuff
-            // or
-            //&|MyValue:
-            //&|        +SomeValue  # ignore just infix
-            //&|    -   CoolStuff
+            //&|        +SomeValue  # keep prefix operators at tab indent
+            //&|    -   CoolStuff   # infix operator should be ignored
             .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
                 if (newline_tab % 4 != 0) {
                     self.addTokenizerError("tabs should be 4-wide");
                     return ParserError.syntax;
                 }
-                return .{ .tab = newline_tab, .start_parsing_index = self.farthest_token_index + 1 };
+                if (newline_tab < tab) {
+                    return null;
+                }
+                return self.farthest_token_index + 1;
             } else {
                 // Not a newline, just continuing in the same statement
-                return .{ .tab = tab, .start_parsing_index = self.farthest_token_index + 1 };
+                return self.farthest_token_index + 1;
             },
-            else => return ParserError.broken_invariant,
+            else => return null,
         }
     }
 
     /// For inside a statement, the next index that we should continue with.
-    fn getSameStatementNextNonSpacingTokenIndex(self: *Self, tab: u16) ?usize {
+    fn getSameStatementNextNonSpacingTokenIndex(self: *Self, tab: u16) ?TokenIndex {
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
