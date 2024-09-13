@@ -123,9 +123,13 @@ pub const Parser = struct {
             switch (operation.operator) {
                 .none => return hierarchy.inBounds(0),
                 .comma => {
+                    // Commas are so low in priority that we split off statements
+                    // so that we can go roughly in left-to-right order without
+                    // depth-first-searching for the first left node.
                     self.farthest_token_index += 1;
                     return hierarchy.inBounds(0);
                 },
+                else => {},
             }
             if (operation.type == .postfix) {
                 try self.appendPostfixOperation(&hierarchy, operation);
@@ -239,7 +243,7 @@ pub const Parser = struct {
             .starts_upper, .number => {
                 const atomic_index = try self.justAppendNode(Node{
                     .atomic_token = self.farthest_token_index,
-                    .tab = try self.tabAt(self.farthest_token_index - 1),
+                    // TODO: .tab = try self.tokenizerTab(),
                 });
                 self.farthest_token_index += 1;
 
@@ -249,7 +253,7 @@ pub const Parser = struct {
             .starts_lower => {
                 const callable_index = try self.justAppendNode(Node{
                     .callable_token = self.farthest_token_index,
-                    .tab = try self.tabAt(self.farthest_token_index - 1),
+                    // TODO: .tab = try self.tokenizerTab(),
                 });
                 self.farthest_token_index += 1;
 
@@ -258,10 +262,7 @@ pub const Parser = struct {
             },
             .open => |open| {
                 self.farthest_token_index += 1;
-                const enclosed_index = try self.appendNextEnclosed(Node{ .enclosed = .{
-                    .open = open,
-                    .outer_tab = try self.tabAt(self.farthest_token_index - 1),
-                } });
+                const enclosed_index = try self.appendNextEnclosed(try self.tokenizerTab(), open);
                 hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
                 return enclosed_index;
             },
@@ -417,11 +418,47 @@ pub const Parser = struct {
         };
     }
 
-    fn tabAt(self: *Self, at_index: usize) ParserError!Token {
-        return switch (try self.tokenAt(at_index)) {
-            .spacing => |spacing| spacing.absolute,
+    fn tokenizerTab(self: *Self) ParserError!u16 {
+        var token_index: i64 = @intCast(self.farthest_token_index);
+        while (token_index >= 0) {
+            const token = self.tokenizers.inBounds(@intCast(token_index));
+            switch (token) {
+                .spacing => |spacing| if (spacing.getNewlineTab()) |tab| {
+                    return tab;
+                },
+                .open => |open| if (try self.getOpenTab(@intCast(token_index), open)) |tab| {
+                    return tab;
+                },
+                else => {},
+            }
+            token_index -= 1;
+        }
+        return 0;
+    }
+
+    /// Returns non-null if this open was the first non-whitespace element on a line
+    /// and the space following it signifies an indent.
+    fn getOpenTab(self: *Self, token_index: usize, open: Token.Open) ParserError!?u16 {
+        if (!open.mirrorsClose()) {
+            return null;
+        }
+        // Check if we're at the start of the line:
+        switch (try self.tokenAt(token_index - 1)) {
+            .spacing => |spacing| if (spacing.isNewline()) {
+                // continue
+            } else {
+                return null;
+            },
             else => return ParserError.broken_invariant,
-        };
+        }
+        // Check if we're indenting after this:
+        switch (try self.tokenAt(token_index + 1)) {
+            .spacing => |spacing| if (spacing.relative > 1 and spacing.absolute % 4 == 0) {
+                return spacing.absolute;
+            },
+            else => return ParserError.broken_invariant,
+        }
+        return null;
     }
 
     /// For inside a block, the next statement index to continue with
@@ -1409,7 +1446,7 @@ test "parser declare and nested assigns" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 3, .tab = 0 } },
+            Node{ .statement = .{ .node = 3 } },
             Node{ .atomic_token = 1 }, // D1
             Node{ .atomic_token = 5 }, // D2
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 5 } },
@@ -1431,7 +1468,7 @@ test "parser declare and nested assigns" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 3, .tab = 0 } },
+            Node{ .statement = .{ .node = 3 } },
             Node{ .atomic_token = 1 }, // X3
             Node{ .atomic_token = 5 }, // Y4
             Node{ .binary = .{ .operator = Operator.assign, .left = 1, .right = 5 } },
@@ -1453,7 +1490,7 @@ test "parser declare and nested assigns" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 5, .tab = 0 } },
+            Node{ .statement = .{ .node = 5 } },
             Node{ .atomic_token = 1 }, // VarQ
             Node{ .callable = .{ .name_token = 5 } }, // i32
             Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
