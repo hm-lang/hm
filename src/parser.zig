@@ -906,25 +906,26 @@ test "deeply nested prefix/postfix operators" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 4 } },
-        Node{ .prefix = .{ .operator = Operator.lambda2, .node = 2 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 5, .next = 8 } },
+        Node{ .prefix = .{ .operator = Operator.lambda2, .node = 3 } },
         Node{ .atomic_token = 3 }, // Yammer
         Node{ .atomic_token = 7 }, // Zen
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 6 } },
         // [5]:
-        Node{ .postfix = .{ .operator = Operator.increment, .node = 3 } },
-        Node{ .postfix = .{ .operator = Operator.not, .node = 5 } },
-        Node{ .statement = .{ .node = 15 } },
-        Node{ .prefix = .{ .operator = Operator.not, .node = 9 } },
-        Node{ .prefix = .{ .operator = Operator.decrement, .node = 13 } },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 2, .right = 7 } },
+        Node{ .postfix = .{ .operator = Operator.increment, .node = 4 } },
+        Node{ .postfix = .{ .operator = Operator.not, .node = 6 } },
+        Node{ .statement = .{ .node = 16, .next = 0 } },
+        Node{ .prefix = .{ .operator = Operator.not, .node = 10 } },
         // [10]:
-        Node{ .prefix = .{ .operator = Operator.lambda1, .node = 11 } },
+        Node{ .prefix = .{ .operator = Operator.decrement, .node = 14 } },
+        Node{ .prefix = .{ .operator = Operator.lambda1, .node = 12 } },
         Node{ .atomic_token = 19 }, // Oh
         Node{ .atomic_token = 21 }, // Great
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 12 } },
-        Node{ .atomic_token = 25 }, // Hessian
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 11, .right = 13 } },
         // [15]:
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 8, .right = 14 } },
+        Node{ .atomic_token = 25 }, // Hessian
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 9, .right = 15 } },
         .end,
     });
 }
@@ -935,28 +936,35 @@ test "order of operations with addition and multiplication" {
     errdefer {
         common.debugPrint("# file:\n", parser.tokenizer.file);
     }
-    try parser.tokenizer.file.lines.append(try SmallString.init("Alpha * Gamma + Epsilon"));
-    try parser.tokenizer.file.lines.append(try SmallString.init("Panko + K_panko * 1000"));
+    const file_slice = [_][]const u8{
+        "Alpha * Gamma + Epsilon",
+        "Panko + K_panko * 1000",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
     try parser.complete();
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 5 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 6, .next = 7 } },
         Node{ .atomic_token = 1 }, // Alpha
         Node{ .atomic_token = 5 }, // Gamma
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 1, .right = 2 } },
-        Node{ .atomic_token = 9 }, // Epsilon
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 2, .right = 3 } },
         // [5]:
-        Node{ .binary = .{ .operator = Operator.plus, .left = 3, .right = 4 } },
-        Node{ .statement = .{ .node = 9 } },
+        Node{ .atomic_token = 9 }, // Epsilon
+        Node{ .binary = .{ .operator = Operator.plus, .left = 4, .right = 5 } },
+        Node{ .statement = .{ .node = 10, .next = 0 } },
         Node{ .atomic_token = 11 }, // Panko
         Node{ .atomic_token = 15 }, // K_panko
-        Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 11 } },
         // [10]:
+        Node{ .binary = .{ .operator = Operator.plus, .left = 8, .right = 12 } },
         Node{ .atomic_token = 19 }, // 1000
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 8, .right = 10 } },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 9, .right = 11 } },
         .end,
     });
+
+    // No tampering done with the file, i.e., no errors.
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
 test "generic types" {
