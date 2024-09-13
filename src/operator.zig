@@ -65,8 +65,7 @@ pub const Operator = enum {
     lambda6,
     lambda7,
     lambda8,
-    // TODO: does implicit indexing (Array[3][4]) need its own or
-    //      is it ok to lump with `implicit_member_access`?
+    // TODO: rename to something like `access`
     implicit_member_access,
     readonly_member_access,
     writable_member_access,

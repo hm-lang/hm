@@ -974,21 +974,33 @@ test "generic types" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 1 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 22, .next = 0 } },
         Node{ .callable_token = 1 }, // container54
-        Node{ .callable_token = 123 }, // of
-        Node{ .callable_token = 123 }, // i1234
-        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 2, .right = 3 } },
+        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
+        Node{ .statement = .{ .node = 7, .next = 8 } },
         // [5]:
-        Node{ .callable_token = 123 }, // at
-        Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 9 } },
-        Node{ .callable_token = 17 }, // str5
-        Node{ .callable_token = 123 }, // qusp
-        Node{ .binary = .{ .operator = Operator.declare_temporary, .left = 5, .right = 7 } },
+        Node{ .callable_token = 5 }, // of
+        Node{ .callable_token = 9 }, // i1234
+        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 5, .right = 6 } },
+        Node{ .statement = .{ .node = 11, .next = 16 } },
+        Node{ .callable_token = 13 }, // at
         // [10]:
+        Node{ .callable_token = 17 }, // str5
+        Node{ .binary = .{ .operator = Operator.declare_temporary, .left = 9, .right = 15 } },
+        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 13 } },
+        Node{ .statement = .{ .node = 14, .next = 0 } },
+        Node{ .callable_token = 21 }, // qusp
+        // [15]:
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 12 } },
+        Node{ .statement = .{ .node = 21, .next = 0 } },
         Node{ .callable_token = 27 }, // array
-        Node{ .callable_token = 123 }, // dongle
-        Node{ .binary = .{ .operator = Operator.comma, .left = 6, .right = 10 } },
+        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 19 } },
+        Node{ .statement = .{ .node = 20, .next = 0 } },
+        // [20]:
+        Node{ .callable_token = 31 }, // dongle
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 17, .right = 18 } },
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
         .end,
     });
     // No errors when parsing:
@@ -1010,19 +1022,24 @@ test "simple function calls" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 1 } },
-        Node{ .callable_token = 5 }, // superb
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 14, .next = 0 } },
+        Node{ .callable_token = 1 }, // superb
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
+        Node{ .statement = .{ .node = 7, .next = 8 } },
+        // [5]:
         Node{ .atomic_token = 5 }, // Brepus
         Node{ .atomic_token = 9 }, // 161
-        Node{ .binary = .{ .operator = Operator.declare_temporary, .left = 2, .right = 3 } },
-        // [5]:
+        Node{ .binary = .{ .operator = Operator.declare_temporary, .left = 5, .right = 6 } },
+        Node{ .statement = .{ .node = 11, .next = 12 } },
         Node{ .atomic_token = 13 }, // Canyon
-        Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 8 } },
-        Node{ .atomic_token = 17 }, // Noynac
-        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 5, .right = 7 } },
-        Node{ .atomic_token = 21 }, // Candid
         // [10]:
-        Node{ .binary = .{ .operator = Operator.comma, .left = 6, .right = 9 } },
+        Node{ .atomic_token = 17 }, // Noynac
+        Node{ .binary = .{ .operator = Operator.declare_writable, .left = 9, .right = 10 } },
+        Node{ .statement = .{ .node = 13, .next = 0 } },
+        Node{ .atomic_token = 21 }, // Candid
+        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        // [15]:
         .end,
     });
     // No errors when parsing:
