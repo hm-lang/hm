@@ -138,12 +138,16 @@ pub const Parser = struct {
         // inside the `appendNextStandaloneExpression`?  e.g., `(whatever, +)`?
         // i think that will be some other syntax error, though.
         // TODO: add `tab` to the StatementNode so we can see if it's been indented
+        common.debugPrint("before next standalone expression, next token is ", self.peekToken() catch .file_end);
         _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else);
+        common.debugPrint("after next standalone expression, next token is ", self.peekToken() catch .file_end);
         defer hierarchy.deinit();
 
         while (true) {
             const result = try self.seekNextOperation(tab, until);
             const operation = result.operation;
+            common.debugPrint("after getting next op: ", operation);
+            common.debugPrint("after getting next op, next token is ", self.peekToken() catch .file_end);
             switch (operation.operator) {
                 .none => return result.toNode(hierarchy.inBounds(0)),
                 .comma => {
@@ -286,6 +290,7 @@ pub const Parser = struct {
             .open => |open| {
                 self.farthest_token_index += 1;
                 const enclosed_index = try self.appendNextEnclosed(try self.tokenizerTab(), open);
+                common.debugPrint("after appending enclosed, next token is ", self.peekToken() catch .file_end);
                 hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
                 return enclosed_index;
             },
@@ -514,6 +519,7 @@ pub const Parser = struct {
 
     /// For inside a statement, the next index that we should continue with.
     fn getSameStatementNextNonSpacingTokenIndex(self: *Self, tab: u16) ?TokenIndex {
+        common.debugPrint("looking for non-spacing, same statement next is at token ", self.peekToken() catch .file_end);
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
@@ -522,7 +528,7 @@ pub const Parser = struct {
             } else {
                 return null;
             },
-            else => return null,
+            else => return self.farthest_token_index,
         }
     }
 
@@ -1252,14 +1258,15 @@ test "simple parentheses, brackets, and braces" {
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .statement = .{ .node = 1 } },
-            Node{ .prefix = .{ .operator = Operator.plus, .node = 2 } },
-            Node{ .enclosed = .{ .open = .paren, .start = 5, .tab = 0 } },
-            Node{ .atomic_token = 5 }, // Wow
-            Node{ .atomic_token = 9 }, // Great
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 2, .next = 0 } },
+            Node{ .prefix = .{ .operator = Operator.plus, .node = 3 } },
+            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 6 } },
             // [5]:
-            Node{ .binary = .{ .operator = Operator.comma, .left = 3, .right = 4 } },
+            Node{ .atomic_token = 5 }, // Wow
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .atomic_token = 9 }, // Great
             .end,
         });
     }
@@ -1274,16 +1281,18 @@ test "simple parentheses, brackets, and braces" {
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .statement = .{ .node = 7 } },
-            Node{ .enclosed = .{ .open = .bracket, .start = 6, .tab = 0 } },
-            Node{ .callable_token = 123 }, // wow
-            Node{ .callable_token = 123 }, // jam
-            Node{ .binary = .{ .operator = Operator.comma, .left = 2, .right = 3 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 9, .next = 0 } },
+            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 3 } },
+            Node{ .statement = .{ .node = 4, .next = 5 } },
+            Node{ .callable_token = 3 }, // wow
             // [5]:
-            Node{ .callable_token = 123 }, // time
-            Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 5 } },
-            Node{ .postfix = .{ .operator = Operator.not, .node = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 7 } },
+            Node{ .callable_token = 7 }, // jam
+            Node{ .statement = .{ .node = 8, .next = 0 } },
+            Node{ .callable_token = 11 }, // time
+            Node{ .postfix = .{ .operator = Operator.not, .node = 2 } },
+            // [10]:
             .end,
         });
         // No errors in attempts to parse `callable`.
@@ -1303,21 +1312,24 @@ test "simple parentheses, brackets, and braces" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 12 } },
-            Node{ .enclosed = .{ .open = .brace, .start = 6, .tab = 0 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 14, .next = 0 } },
+            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 3 } },
+            Node{ .statement = .{ .node = 6, .next = 7 } },
             Node{ .atomic_token = 3 }, // Boo
-            Node{ .atomic_token = 7 }, // 33
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
             // [5]:
-            Node{ .callable_token = 123 }, // hoo
-            Node{ .binary = .{ .operator = Operator.comma, .left = 4, .right = 8 } },
+            Node{ .atomic_token = 7 }, //33
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
+            Node{ .statement = .{ .node = 10, .next = 0 } },
+            Node{ .callable_token = 11 }, // hoo
             Node{ .atomic_token = 15 }, // 123
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 5, .right = 10 } },
-            Node{ .atomic_token = 19 }, // 44
             // [10]:
-            Node{ .binary = .{ .operator = Operator.plus, .left = 7, .right = 9 } },
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 8, .right = 12 } },
+            Node{ .atomic_token = 19 }, // 44
+            Node{ .binary = .{ .operator = Operator.plus, .left = 9, .right = 11 } },
             Node{ .atomic_token = 25 }, // 57
-            Node{ .binary = .{ .operator = Operator.minus, .left = 1, .right = 11 } },
+            Node{ .binary = .{ .operator = Operator.minus, .left = 2, .right = 13 } },
+            // [15]:
             .end,
         });
         // Attempts to parse generics or arguments for `callable` don't add errors:
