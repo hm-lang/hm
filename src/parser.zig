@@ -1351,10 +1351,12 @@ test "parser declare" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 3 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 4, .next = 0 } },
             Node{ .atomic_token = 1 }, // Whatever
-            Node{ .callable_token = 123 }, // type1
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 2 } },
+            Node{ .callable_token = 5 }, // type1
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
+            // [5]:
             .end,
         });
     }
@@ -1370,10 +1372,12 @@ test "parser declare" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 3 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 4, .next = 0 } },
             Node{ .atomic_token = 1 }, // Writable_whatever
-            Node{ .callable_token = 123 }, // type2
-            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
+            Node{ .callable_token = 5 }, // type2
+            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 2, .right = 3 } },
+            // [5]:
             .end,
         });
     }
@@ -1392,13 +1396,14 @@ test "parser declare and assign" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 5 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } },
             Node{ .atomic_token = 1 }, // Declassign
-            Node{ .callable_token = 123 }, // type_assign1
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 1, .right = 2 } },
-            Node{ .atomic_token = 9 }, // 12345
+            Node{ .callable_token = 5 }, // type_assign1
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
             // [5]:
-            Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 4 } },
+            Node{ .atomic_token = 9 }, // 12345
+            Node{ .binary = .{ .operator = Operator.assign, .left = 4, .right = 5 } },
             .end,
         });
         // No errors in attempts to parse `callable`.
@@ -1418,13 +1423,14 @@ test "parser declare and assign" {
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
-            Node{ .statement = .{ .node = 5 } },
-            Node{ .atomic_token = 1 }, // Declassign
-            Node{ .callable_token = 123 }, // type_assign2
-            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 1, .right = 2 } },
-            Node{ .atomic_token = 9 }, // 7890
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Oh_writable
+            Node{ .callable_token = 5 }, // type_assign2
+            Node{ .binary = .{ .operator = Operator.declare_writable, .left = 2, .right = 3 } },
             // [5]:
-            Node{ .binary = .{ .operator = Operator.assign, .left = 3, .right = 4 } },
+            Node{ .atomic_token = 9 },
+            Node{ .binary = .{ .operator = Operator.assign, .left = 4, .right = 5 } },
             .end,
         });
         // No errors in attempts to parse `callable`.
