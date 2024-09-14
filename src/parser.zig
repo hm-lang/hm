@@ -88,10 +88,9 @@ pub const Parser = struct {
                 } }) catch unreachable;
                 break :indented_blk .{ .node = statement_index, .until_triggered = false };
             } else self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
+                // There wasn't another statement here.
                 common.debugPrint("tab {d} in block {d}, couldn't find another statement\n", .{ tab, enclosed_node_index });
                 self.debugTokens();
-                // There wasn't another statement here.
-                self.farthest_token_index += 1;
                 common.debugPrint("advancing to ", self.peekToken() catch .file_end);
                 // We don't update any previous statements here because we didn't successfully add one here.
                 // This can be for multiple reasons, including good ones (e.g., trailing commas or declarations).
@@ -113,12 +112,11 @@ pub const Parser = struct {
                 break;
             }
         }
-        //if (open.mirrorsClose() and !until_triggered) {
-        //    if (tab < 4) {
-        //        self.addTokenizerError(Token.InvalidType.expected_close(open));
-        //        return ParserError.syntax;
-        //    }
-        //}
+        if (!until_triggered and open != .none) {
+            common.debugPrint("\n\noh no, didn't finish indent tab {d} in block {d} for {s}\n", .{ tab, enclosed_node_index, open.slice() });
+            self.debugTokens();
+            try self.consumeCloseMatching(open);
+        }
 
         // TODO: add tab to `Node.Statement` so that we can tell if it's an indented block
         //      by looking at the first statement's tab.
@@ -126,6 +124,24 @@ pub const Parser = struct {
             .tab = tab,
             .open = open,
             .start = enclosed_start_index,
+        };
+    }
+
+    fn consumeCloseMatching(self: *Self, open: Open) ParserError!void {
+        errdefer {
+            self.addTokenizerError(Token.InvalidType.expected_close(open).error_message());
+        }
+        while (true) switch (try self.peekToken()) {
+            .spacing => self.farthest_token_index += 1,
+            .close => |close| {
+                if (close == open) {
+                    self.farthest_token_index += 1;
+                    return;
+                } else {
+                    return ParserError.syntax;
+                }
+            },
+            else => return ParserError.syntax,
         };
     }
 
@@ -587,7 +603,7 @@ pub const Parser = struct {
         const start = common.back(self.farthest_token_index, 5) orelse 0;
         for (start..self.farthest_token_index + 1) |token_index| {
             common.debugPrint(" [{d}]:", .{token_index});
-            common.debugPrint(" ", self.tokenAt(token_index) catch unreachable);
+            common.debugPrint(" ", self.tokenAt(token_index) catch .file_end);
         }
         common.debugPrint("]\n", .{});
     }
@@ -651,6 +667,7 @@ test "parser one-true-brace nesting" {
     defer parser.deinit();
     errdefer {
         common.debugPrint("# file:\n", parser.tokenizer.file);
+        common.debugPrint("# nodes:\n", parser.nodes);
     }
     const file_slice = [_][]const u8{
         "greet_thee(): {",
@@ -669,40 +686,37 @@ test "parser one-true-brace nesting" {
     try parser.complete();
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
-        // TODO: see if this is right
         // [0]:
         Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-        Node{ .statement = .{ .node = 14, .next = 15 } },
-        Node{ .callable_token = 1 },
-        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } },
-        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+        Node{ .statement = .{ .node = 24, .next = 0 } },
+        Node{ .callable_token = 1 }, // greet_thee
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // greet_thee()
         // [5]:
-        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 6 } },
-        Node{ .statement = .{ .node = 13, .next = 0 } },
-        Node{ .callable_token = 11 },
-        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 9 } },
-        Node{ .statement = .{ .node = 10, .next = 11 } },
+        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 6 } }, // {...}
+        Node{ .statement = .{ .node = 13, .next = 14 } }, // first statement in {...}
+        Node{ .callable_token = 11 }, // print
+        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 9 } }, // (...) in print
+        Node{ .statement = .{ .node = 10, .next = 11 } }, // first statement in print
         // [10]:
-        Node{ .atomic_token = 15 },
-        Node{ .statement = .{ .node = 12, .next = 0 } },
-        Node{ .atomic_token = 17 },
-        Node{ .binary = .{ .operator = Operator.access, .left = 7, .right = 8 } },
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
+        Node{ .atomic_token = 15 }, // 99731
+        Node{ .statement = .{ .node = 12, .next = 0 } }, // second statement in print
+        Node{ .atomic_token = 17 }, // World
+        Node{ .binary = .{ .operator = Operator.access, .left = 7, .right = 8 } }, // print(...)
+        Node{ .statement = .{ .node = 23, .next = 0 } }, // second statement in {...}
         // [15]:
-        Node{ .statement = .{ .node = 16, .next = 0 } },
-        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 0 } },
-        .end,
-        Node{ .callable_token = 21 },
-        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 20 } },
+        Node{ .callable_token = 21 }, // wow54
+        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 17 } }, // (...) in wow54
+        Node{ .statement = .{ .node = 18, .next = 0 } }, // first statement in wow54
+        Node{ .enclosed = .{ .open = .bracket, .tab = 8, .start = 19 } }, // [...]
+        Node{ .statement = .{ .node = 20, .next = 21 } }, // first statement in [...]
         // [20]:
-        Node{ .statement = .{ .node = 21, .next = 0 } },
-        Node{ .enclosed = .{ .open = .bracket, .tab = 8, .start = 22 } },
-        Node{ .statement = .{ .node = 23, .next = 24 } },
-        Node{ .atomic_token = 27 },
-        Node{ .statement = .{ .node = 25, .next = 0 } },
+        Node{ .atomic_token = 27 }, // 57973
+        Node{ .statement = .{ .node = 22, .next = 0 } }, // second statement in [...]
+        Node{ .atomic_token = 29 }, // 67974
+        Node{ .binary = .{ .operator = Operator.access, .left = 15, .right = 16 } }, // wow54(...)
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
         // [25]:
-        Node{ .atomic_token = 29 },
-        Node{ .binary = .{ .operator = Operator.access, .left = 18, .right = 19 } },
         .end,
     });
     // No tampering done with the file, i.e., no errors.
