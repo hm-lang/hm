@@ -59,26 +59,48 @@ pub const Parser = struct {
         // but we don't know what it is yet, so just make a placeholder.
         const enclosed_node_index = try self.justAppendNode(.end);
 
+        const enclosed_node = try if (open.isQuote())
+            self.getNextEnclosedQuote(tab, open, enclosed_node_index)
+        else
+            self.getNextEnclosedBlock(tab, open, enclosed_node_index);
+
+        self.nodes.set(enclosed_node_index, .{ .enclosed = enclosed_node }) catch unreachable;
+
+        return enclosed_node_index;
+    }
+
+    fn getNextEnclosedBlock(self: *Self, tab: u16, open: Open, enclosed_node_index: NodeIndex) ParserError!Node.Enclosed {
         var enclosed_start_index: usize = 0;
         var previous_statement_index: usize = 0;
+        var until_triggered = false;
         while (self.getSameBlockNextTabbed(tab)) |next_tabbed| {
+            common.debugPrint("tab {d} in block {d}\n", .{ tab, enclosed_node_index });
+            self.debugTokens();
             self.farthest_token_index = next_tabbed.start_parsing_index;
             const statement_result: NodeResult = if (next_tabbed.tab > tab) indented_blk: {
                 // TODO: do we need an errdefer to pop/remove this `justAppendNode` if enclosing fails?
                 const statement_index = try self.justAppendNode(.end);
+                common.debugPrint("in block {d} found ennesting indent {d} -> {d}\n", .{ enclosed_node_index, tab, next_tabbed.tab });
                 const nested_enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
+                common.debugPrint("in block {d} found denesting indent {d} -> {d}\n", .{ enclosed_node_index, next_tabbed.tab, tab });
                 self.nodes.set(statement_index, Node{ .statement = .{
                     .node = nested_enclosed_index,
                 } }) catch unreachable;
                 break :indented_blk .{ .node = statement_index, .until_triggered = false };
             } else self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
+                common.debugPrint("tab {d} in block {d}, couldn't find another statement\n", .{ tab, enclosed_node_index });
+                self.debugTokens();
                 // There wasn't another statement here.
                 self.farthest_token_index += 1;
+                common.debugPrint("advancing to ", self.peekToken() catch .file_end);
                 // We don't update any previous statements here because we didn't successfully add one here.
                 // This can be for multiple reasons, including good ones (e.g., trailing commas or declarations).
                 break;
             };
+            common.debugPrint("tab {d} in block {d}, after statement:\n", .{ tab, enclosed_node_index });
+            self.debugTokens();
             const current_statement_index = statement_result.node;
+            until_triggered = statement_result.until_triggered;
             if (enclosed_start_index == 0) {
                 enclosed_start_index = current_statement_index;
             } else {
@@ -87,19 +109,32 @@ pub const Parser = struct {
                 };
             }
             previous_statement_index = current_statement_index;
-            if (statement_result.until_triggered) {
+            if (until_triggered) {
                 break;
             }
         }
+        //if (open.mirrorsClose() and !until_triggered) {
+        //    if (tab < 4) {
+        //        self.addTokenizerError(Token.InvalidType.expected_close(open));
+        //        return ParserError.syntax;
+        //    }
+        //}
 
         // TODO: add tab to `Node.Statement` so that we can tell if it's an indented block
         //      by looking at the first statement's tab.
-        self.nodes.set(enclosed_node_index, Node{ .enclosed = .{
+        return .{
             .tab = tab,
             .open = open,
             .start = enclosed_start_index,
-        } }) catch unreachable;
-        return enclosed_node_index;
+        };
+    }
+
+    fn getNextEnclosedQuote(self: *Self, tab: u16, open: Open, enclosed_node_index: NodeIndex) ParserError!Node.Enclosed {
+        _ = self;
+        _ = tab;
+        _ = open;
+        _ = enclosed_node_index;
+        return ParserError.unimplemented;
     }
 
     fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
@@ -570,6 +605,14 @@ pub const Parser = struct {
         self.tokenizer.printDebugInfoAt(self.farthest_token_index);
     }
 
+    pub fn debugTokens(self: *Self) void {
+        common.debugPrint("Tokens: [\n", .{});
+        for (0..self.farthest_token_index + 1) |token_index| {
+            common.debugPrint("    ", self.tokenAt(token_index) catch unreachable);
+        }
+        common.debugPrint("]\n", .{});
+    }
+
     fn nodeInBounds(self: *Self, index: usize) *Node {
         return &self.nodes.items()[index];
     }
@@ -623,6 +666,93 @@ const Tabbed = struct {
 };
 
 const expected_spacing = "expected spacing between each identifier";
+
+test "parser one-true-brace nesting" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        common.debugPrint("# file:\n", parser.tokenizer.file);
+    }
+    const file_slice = [_][]const u8{
+        "greet_thee(Str, World): array[int] {",
+        "    print(",
+        "        Str",
+        "        World",
+        "    )",
+        "    wow54([",
+        "        57973",
+        "        67974",
+        "    ])",
+        "}",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 10, .next = 25 } },
+        Node{ .callable_token = 1 }, // greet_thee
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
+        Node{ .statement = .{ .node = 5, .next = 6 } },
+        // [5]:
+        Node{ .atomic_token = 5 }, // Str
+        Node{ .statement = .{ .node = 7, .next = 0 } },
+        Node{ .atomic_token = 9 }, // World
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+        Node{ .callable_token = 15 }, // array
+        // [10]:
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 8, .right = 24 } },
+        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 12 } },
+        Node{ .statement = .{ .node = 13, .next = 0 } },
+        Node{ .callable_token = 19 }, // int
+        Node{ .binary = .{ .operator = Operator.access, .left = 9, .right = 11 } },
+        // [15]:
+        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 16 } }, //
+        Node{ .statement = .{ .node = 23, .next = 0 } }, // first statement in {}
+        Node{ .callable_token = 25 }, // print
+        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 19 } }, // print(...)
+        Node{ .statement = .{ .node = 20, .next = 21 } },
+        // [20]:
+        Node{ .atomic_token = 29 }, // Str
+        Node{ .statement = .{ .node = 22, .next = 0 } },
+        Node{ .atomic_token = 31 }, // World
+        Node{ .binary = .{ .operator = Operator.access, .left = 17, .right = 18 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 14, .right = 15 } }, //
+        // [25]:
+        // TODO: not 100% sure what this is, but it's the "second statement" of the root block.
+        Node{ .statement = .{ .node = 26, .next = 0 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 0 } },
+        .end,
+        // TODO
+    });
+    // No tampering done with the file, i.e., no errors.
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+}
+
+//test "parsing quotes" {
+//    {
+//    var parser: Parser = .{};
+//    defer parser.deinit();
+//    errdefer {
+//        common.debugPrint("# file:\n", parser.tokenizer.file);
+//    }
+//    const file_slice = [_][]const u8{
+//        "'hi quote'",
+//    };
+//    try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//    try parser.complete();
+//
+//    try parser.nodes.expectEqualsSlice(&[_]Node{
+//        .end,
+//    });
+//    // No tampering done with the file, i.e., no errors.
+//    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//    }
+//
+//}
 
 test "parser simple expressions" {
     var parser: Parser = .{};

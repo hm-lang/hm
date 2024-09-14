@@ -28,6 +28,9 @@ pub const Tokenizer = struct {
     /// via `at()`.  (Not recommended, but you could still do so via `tokens.at`.)
     last_token_index: usize = std.math.maxInt(usize),
     committed_line_index: u32 = 0,
+    // TODO: add a `string_lot` which is an array of strings and a hash map from string to index in the array
+    //      e.g., `string_lot.lookUp(slice) ?usize`
+    //      think about whether it should be here or in Parser (where names can enscope/descope)
 
     pub fn deinit(self: *Self) void {
         self.tokens.deinit();
