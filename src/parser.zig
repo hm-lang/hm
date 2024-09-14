@@ -220,7 +220,7 @@ pub const Parser = struct {
                     // TODO: this will probably break tab functionality
                     self.farthest_token_index -= 1;
                     // Pretend that we have an operator before this prefix.
-                    break :blk .{ .operator = .implicit_member_access, .type = .infix };
+                    break :blk .{ .operator = .access, .type = .infix };
                 }
             },
             .close => |close| blk: {
@@ -230,13 +230,13 @@ pub const Parser = struct {
                 }
                 // Same as the `else` block below:
                 self.farthest_token_index -= 1;
-                break :blk .{ .operator = .implicit_member_access, .type = .infix };
+                break :blk .{ .operator = .access, .type = .infix };
             },
             else => blk: {
                 // We encountered another realizable token, back up so that
                 // we maintain the invariant that there's a space before the next real element.
                 self.farthest_token_index -= 1;
-                break :blk .{ .operator = .implicit_member_access, .type = .infix };
+                break :blk .{ .operator = .access, .type = .infix };
             },
         };
 
@@ -720,21 +720,21 @@ test "parser simple (and postfix) implicit member access" {
         Node{ .statement = .{ .node = 4, .next = 5 } },
         Node{ .atomic_token = 1 }, // Pi
         Node{ .atomic_token = 3 }, // Sky
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
         // [5]:
         Node{ .statement = .{ .node = 9, .next = 10 } },
         Node{ .atomic_token = 5 }, // Sci
         Node{ .atomic_token = 7 }, // Fi
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 6, .right = 7 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 6, .right = 7 } },
         Node{ .postfix = .{ .operator = Operator.increment, .node = 8 } },
         // [10]:
         Node{ .statement = .{ .node = 16, .next = 0 } },
         Node{ .atomic_token = 11 }, // Kite
         Node{ .atomic_token = 13 }, // Sty
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 11, .right = 12 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 11, .right = 12 } },
         Node{ .atomic_token = 15 }, // Five
         // [15]:
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 13, .right = 14 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 13, .right = 14 } },
         Node{ .postfix = .{ .operator = Operator.not, .node = 15 } },
         .end,
     });
@@ -764,26 +764,26 @@ test "parser complicated (and prefix) implicit member access" {
         Node{ .atomic_token = 3 }, // Why
         Node{ .atomic_token = 5 }, // Shy
         // [5]:
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 3, .right = 4 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 3, .right = 4 } },
         Node{ .atomic_token = 7 }, // Spy
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 5, .right = 6 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 5, .right = 6 } },
         Node{ .statement = .{ .node = 9, .next = 15 } },
         Node{ .prefix = .{ .operator = Operator.not, .node = 14 } },
         // [10]:
         Node{ .atomic_token = 11 }, // Chai
         Node{ .atomic_token = 13 }, // Lie
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 11 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 10, .right = 11 } },
         Node{ .atomic_token = 15 }, // Fry
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 12, .right = 13 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 12, .right = 13 } },
         // [15]:
         Node{ .statement = .{ .node = 16, .next = 0 } },
         Node{ .prefix = .{ .operator = Operator.not, .node = 22 } },
         Node{ .atomic_token = 19 }, // Knife
         Node{ .atomic_token = 21 }, // Fly
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 17, .right = 18 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 17, .right = 18 } },
         // [20]:
         Node{ .atomic_token = 23 }, // Nigh
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 19, .right = 20 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 19, .right = 20 } },
         Node{ .postfix = .{ .operator = Operator.not, .node = 21 } },
         .end,
     });
@@ -859,7 +859,7 @@ test "complicated prefix/postfix operators with addition/multiplication" {
         Node{ .atomic_token = 7 }, // Berry
         // [5]:
         Node{ .atomic_token = 9 }, // Cantaloupe
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 4, .right = 5 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 4, .right = 5 } },
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 6 } },
         Node{ .binary = .{ .operator = Operator.multiply, .left = 2, .right = 3 } },
         Node{ .atomic_token = 15 }, // 500
@@ -870,7 +870,7 @@ test "complicated prefix/postfix operators with addition/multiplication" {
         Node{ .atomic_token = 19 }, // Xeno
         Node{ .atomic_token = 21 }, // Yak
         // [15]:
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 13, .right = 14 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 13, .right = 14 } },
         Node{ .postfix = .{ .operator = Operator.not, .node = 12 } },
         Node{ .atomic_token = 27 }, // 3000
         Node{ .binary = .{ .operator = Operator.minus, .left = 16, .right = 20 } },
@@ -901,7 +901,7 @@ test "nested prefix/postfix operators" {
         Node{ .statement = .{ .node = 6, .next = 7 } },
         Node{ .atomic_token = 1 }, // Abc
         Node{ .atomic_token = 3 }, // Xyz
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
         // [5]:
         Node{ .postfix = .{ .operator = Operator.decrement, .node = 4 } },
         Node{ .postfix = .{ .operator = Operator.not, .node = 5 } },
@@ -911,7 +911,7 @@ test "nested prefix/postfix operators" {
         // [10]:
         Node{ .atomic_token = 13 }, // Def
         Node{ .atomic_token = 15 }, // Uvw
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 11 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 10, .right = 11 } },
         .end,
     });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
@@ -946,7 +946,7 @@ test "deeply nested prefix/postfix operators" {
         Node{ .prefix = .{ .operator = Operator.lambda1, .node = 12 } },
         Node{ .atomic_token = 19 }, // Oh
         Node{ .atomic_token = 21 }, // Great
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 11, .right = 13 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 11, .right = 13 } },
         // [15]:
         Node{ .atomic_token = 25 }, // Hessian
         Node{ .binary = .{ .operator = Operator.multiply, .left = 9, .right = 15 } },
@@ -1024,15 +1024,15 @@ test "generic types" {
         Node{ .statement = .{ .node = 14, .next = 0 } },
         Node{ .callable_token = 21 }, // qusp
         // [15]:
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 10, .right = 12 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 10, .right = 12 } },
         Node{ .statement = .{ .node = 21, .next = 0 } },
         Node{ .callable_token = 27 }, // array
         Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 19 } },
         Node{ .statement = .{ .node = 20, .next = 0 } },
         // [20]:
         Node{ .callable_token = 31 }, // dongle
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 17, .right = 18 } },
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 17, .right = 18 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
         .end,
     });
     // No errors when parsing:
@@ -1070,7 +1070,7 @@ test "simple function calls" {
         Node{ .binary = .{ .operator = Operator.declare_writable, .left = 9, .right = 10 } },
         Node{ .statement = .{ .node = 13, .next = 0 } },
         Node{ .atomic_token = 21 }, // Candid
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
         // [15]:
         .end,
     });
@@ -1106,7 +1106,7 @@ test "generic function calls" {
         Node{ .statement = .{ .node = 10, .next = 0 } },
         // [10]:
         Node{ .callable_token = 13 }, // str7
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 6, .right = 8 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 6, .right = 8 } },
         Node{ .statement = .{ .node = 13, .next = 14 } },
         Node{ .callable_token = 19 }, // type2
         Node{ .statement = .{ .node = 17, .next = 0 } },
@@ -1114,7 +1114,7 @@ test "generic function calls" {
         Node{ .callable_token = 23 }, // type3
         Node{ .callable_token = 27 }, // i64
         Node{ .binary = .{ .operator = Operator.declare_writable, .left = 15, .right = 16 } },
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
         Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 20 } },
         // [20]:
         Node{ .statement = .{ .node = 23, .next = 24 } },
@@ -1130,7 +1130,7 @@ test "generic function calls" {
         Node{ .callable_token = 51 }, // foo_fritz
         // [30]:
         Node{ .binary = .{ .operator = Operator.declare_writable, .left = 28, .right = 29 } },
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 18, .right = 19 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 18, .right = 19 } },
         .end,
     });
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
@@ -1241,7 +1241,7 @@ test "declarations with missing right expressions" {
             Node{ .statement = .{ .node = 12, .next = 0 } },
             Node{ .atomic_token = 17 }, // H4
             Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 11 } },
-            Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
             Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 13 } },
             // [15]:
             .end,
@@ -1253,14 +1253,6 @@ test "declarations with missing right expressions" {
     }
 }
 
-// TODO: should we remove `generics` and `arguments` from the `CallableNode` struct?
-// i think i like `generics` and `arguments` on a `callable` because they do go
-// together in the same way always.  in contrast, `generics` and `arguments` don't
-// always mean the same thing for variables; in a declaration, `Array[int]:` means
-// `Array: array[int]` but in an expression `Array[3]` means to grab the fourth value.
-// we can handle `Array[3]` as `variable { .generics = "[3]" }` but it's not super
-// consistent with `Array[3][4]` which would be implicit_member_access on the "[4]".
-// if we keep it as is, then we'd have `implicit_member_access`es for both [3] and [4].
 test "declaring a variable with arguments and/or generics" {
     var parser: Parser = .{};
     defer parser.deinit();
@@ -1285,7 +1277,7 @@ test "declaring a variable with arguments and/or generics" {
         Node{ .statement = .{ .node = 5, .next = 0 } },
         // [5]:
         Node{ .atomic_token = 5 }, // 543
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 2, .right = 3 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
         Node{ .postfix = .{ .operator = Operator.declare_temporary, .node = 6 } },
         Node{ .statement = .{ .node = 22, .next = 23 } },
         Node{ .atomic_token = 11 }, // Array
@@ -1293,7 +1285,7 @@ test "declaring a variable with arguments and/or generics" {
         Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 11 } },
         Node{ .statement = .{ .node = 12, .next = 0 } },
         Node{ .callable_token = 15 }, // element_type
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 9, .right = 10 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 9, .right = 10 } },
         Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 15 } },
         // [15]:
         Node{ .statement = .{ .node = 16, .next = 17 } },
@@ -1303,7 +1295,7 @@ test "declaring a variable with arguments and/or generics" {
         Node{ .statement = .{ .node = 20, .next = 0 } },
         // [20]:
         Node{ .atomic_token = 29 }, // 3
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 13, .right = 14 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 13, .right = 14 } },
         Node{ .postfix = .{ .operator = Operator.declare_readonly, .node = 21 } },
         Node{ .statement = .{ .node = 33, .next = 0 } },
         Node{ .atomic_token = 35 }, // Lot
@@ -1316,7 +1308,7 @@ test "declaring a variable with arguments and/or generics" {
         // [30]:
         Node{ .callable_token = 47 }, // index4
         Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 29, .right = 30 } },
-        Node{ .binary = .{ .operator = Operator.implicit_member_access, .left = 24, .right = 25 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 24, .right = 25 } },
         Node{ .postfix = .{ .operator = Operator.declare_writable, .node = 32 } },
         .end,
     });
