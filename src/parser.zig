@@ -63,15 +63,27 @@ pub const Parser = struct {
         var previous_statement_index: usize = 0;
         // TODO: return a `Tabbed` struct that gives the `tab` and a `start_parsing_index`
         //      if the tab is indented, append another Open.none enclosed block.
-        while (self.getSameBlockNextNonSpacingTokenIndex(tab)) |start_parsing_index| {
-            self.farthest_token_index = start_parsing_index;
-            common.debugPrint("in block {d}", .{enclosed_node_index});
-            common.debugPrint(", next non-spacing token at ", self.peekToken() catch .file_end);
-            const statement_result = self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
+        while (self.getSameBlockNextTabbed(tab)) |next_tabbed| {
+            common.debugPrint("tab {d} in block {d}", .{ tab, enclosed_node_index });
+            common.debugPrint(", next token is ", self.peekToken() catch .file_end);
+            self.farthest_token_index = next_tabbed.start_parsing_index;
+            const statement_result: NodeResult = if (next_tabbed.tab > tab) indented_blk: {
+                // TODO: do we need an errdefer to pop/remove this `justAppendNode` if enclosing fails?
+                const statement_index = try self.justAppendNode(.end);
+                common.debugPrint("in block {d} found ennesting indent {d} -> {d}\n", .{ enclosed_node_index, tab, next_tabbed.tab });
+                const nested_enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
+                common.debugPrint("in block {d} found denesting indent {d} -> {d}\n", .{ enclosed_node_index, next_tabbed.tab, tab });
+                self.nodes.set(statement_index, Node{ .statement = .{
+                    .node = nested_enclosed_index,
+                } }) catch unreachable;
+                break :indented_blk .{ .node = statement_index, .until_triggered = false };
+            } else self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
                 common.debugPrint("in block {d}", .{enclosed_node_index});
                 common.debugPrint(", breaking after finding Until ", self.peekToken() catch .file_end);
                 self.farthest_token_index += 1;
                 common.debugPrint("next token is ", self.peekToken() catch .file_end);
+                // We don't update any previous statements here because we didn't successfully add one here.
+                // This can be for multiple reasons, including good ones (e.g., trailing commas or declarations).
                 break;
             };
             common.debugPrint("in block {d}", .{enclosed_node_index});
@@ -92,7 +104,8 @@ pub const Parser = struct {
             }
         }
 
-        // TODO: enclosed.inner_tab = inner_index.tab; ???
+        // TODO: add tab to `Node.Statement` so that we can tell if it's an indented block
+        //      by looking at the first statement's tab.
         self.nodes.set(enclosed_node_index, Node{ .enclosed = .{
             .tab = tab,
             .open = open,
@@ -490,7 +503,7 @@ pub const Parser = struct {
     }
 
     /// For inside a block, the next statement index to continue with
-    fn getSameBlockNextNonSpacingTokenIndex(self: *Self, tab: u16) ?TokenIndex {
+    fn getSameBlockNextTabbed(self: *Self, tab: u16) ?Tabbed {
         common.debugPrint("getting same block next non-spacing token checking ", self.peekToken() catch .file_end);
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
@@ -500,19 +513,24 @@ pub const Parser = struct {
             //&|        +SomeValue  # keep prefix operators at tab indent
             //&|    -   CoolStuff   # infix operator should be ignored
             .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
+                if (newline_tab == tab) {
+                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
+                }
                 if (newline_tab % 4 != 0) {
                     self.addTokenizerError("tabs should be 4-wide");
                     return null;
                 }
                 if (newline_tab < tab) {
                     return null;
+                } else {
+                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = newline_tab };
                 }
-                return self.farthest_token_index + 1;
             } else {
                 // Not a newline, just continuing in the same statement
-                return self.farthest_token_index + 1;
+                return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
             },
-            else => return null,
+            // Assume that anything else is already at the correct tab.
+            else => return .{ .start_parsing_index = self.farthest_token_index, .tab = tab },
         }
     }
 
@@ -645,25 +663,33 @@ test "parser simple expressions" {
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
-        Node{ .statement = .{ .node = 1 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 2, .next = 3 } },
         Node{ .atomic_token = 1 }, // 3.456
-        Node{ .statement = .{ .node = 3 } },
-        Node{ .callable_token = 123 }, // hello_you
-        Node{ .statement = .{ .node = 5 } },
+        Node{ .statement = .{ .node = 4, .next = 7 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 5 } },
         // [5]:
-        Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
+        Node{ .statement = .{ .node = 6, .next = 0 } },
+        Node{ .callable_token = 3 }, // hello_you
+        Node{ .statement = .{ .node = 8, .next = 10 } },
+        Node{ .prefix = .{ .operator = Operator.plus, .node = 9 } },
         Node{ .atomic_token = 7 }, // 1.234
-        Node{ .statement = .{ .node = 8 } },
-        Node{ .prefix = .{ .operator = Operator.minus, .node = 9 } },
-        Node{ .atomic_token = 11 }, // 5.678
         // [10]:
-        Node{ .statement = .{ .node = 11 } },
-        Node{ .prefix = .{ .operator = Operator.lambda3, .node = 12 } },
-        Node{ .atomic_token = 15 }, // Foe
-        Node{ .statement = .{ .node = 15 } },
-        Node{ .atomic_token = 17 }, // Fum
+        Node{ .statement = .{ .node = 11, .next = 0 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 12 } },
+        Node{ .statement = .{ .node = 13, .next = 15 } },
+        Node{ .prefix = .{ .operator = Operator.minus, .node = 14 } },
+        Node{ .atomic_token = 11 }, // 5.678
         // [15]:
-        Node{ .postfix = .{ .operator = Operator.decrement, .node = 14 } },
+        Node{ .statement = .{ .node = 16, .next = 18 } },
+        Node{ .prefix = .{ .operator = Operator.lambda3, .node = 17 } },
+        Node{ .atomic_token = 15 }, // Foe
+        Node{ .statement = .{ .node = 19, .next = 0 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 20 } },
+        // [20]:
+        Node{ .statement = .{ .node = 22, .next = 0 } },
+        Node{ .atomic_token = 17 }, // Fum
+        Node{ .postfix = .{ .operator = Operator.decrement, .node = 21 } },
         .end,
     });
     // No tampering done with the file, i.e., no errors.
