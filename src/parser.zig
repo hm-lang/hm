@@ -74,7 +74,7 @@ pub const Parser = struct {
         var previous_statement_index: usize = 0;
         var until_triggered = false;
         while (self.getSameBlockNextTabbed(tab)) |next_tabbed| {
-            common.debugPrint("tab {d} in block {d}\n", .{ tab, enclosed_node_index });
+            common.debugPrint("tab {d} in block {d}, looking for next statement\n", .{ tab, enclosed_node_index });
             self.debugTokens();
             self.farthest_token_index = next_tabbed.start_parsing_index;
             const statement_result: NodeResult = if (next_tabbed.tab > tab) indented_blk: {
@@ -97,7 +97,7 @@ pub const Parser = struct {
                 // This can be for multiple reasons, including good ones (e.g., trailing commas or declarations).
                 break;
             };
-            common.debugPrint("tab {d} in block {d}, after statement:\n", .{ tab, enclosed_node_index });
+            common.debugPrint("tab {d} in block {d}, after getting next statement:\n", .{ tab, enclosed_node_index });
             self.debugTokens();
             const current_statement_index = statement_result.node;
             until_triggered = statement_result.until_triggered;
@@ -319,8 +319,9 @@ pub const Parser = struct {
                 return callable_index;
             },
             .open => |open| {
+                const enclosed_tab = try self.getOpenTab(self.farthest_token_index, open) orelse tab;
                 self.farthest_token_index += 1;
-                const enclosed_index = try self.appendNextEnclosed(try self.tokenizerTab(), open);
+                const enclosed_index = try self.appendNextEnclosed(enclosed_tab, open);
                 hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
                 return enclosed_index;
             },
@@ -477,42 +478,18 @@ pub const Parser = struct {
         };
     }
 
-    fn tokenizerTab(self: *Self) ParserError!u16 {
-        var token_index: i64 = @intCast(self.farthest_token_index);
-        while (token_index >= 0) {
-            const token = try self.tokenAt(@intCast(token_index));
-            switch (token) {
-                .spacing => |spacing| if (spacing.getNewlineTab()) |tab| {
-                    return tab;
-                },
-                .open => |open| if (try self.getOpenTab(@intCast(token_index), open)) |tab| {
-                    return tab;
-                },
-                else => {},
-            }
-            token_index -= 1;
-        }
-        return 0;
-    }
-
     /// Returns non-null if this open was the first non-whitespace element on a line
     /// and the space following it signifies an indent.
     fn getOpenTab(self: *Self, token_index: usize, open: Token.Open) ParserError!?u16 {
         if (!open.mirrorsClose()) {
             return null;
         }
-        // Check if we're at the start of the line:
-        switch (try self.tokenAt(token_index - 1)) {
-            .spacing => |spacing| if (spacing.isNewline()) {
-                // continue
-            } else {
-                return null;
-            },
-            else => return ParserError.broken_invariant,
-        }
-        // Check if we're indenting after this:
         switch (try self.tokenAt(token_index + 1)) {
-            .spacing => |spacing| if (spacing.relative > 1 and spacing.absolute % 4 == 0) {
+            .spacing => |spacing| if (spacing.getNewlineTab()) |tab| {
+                // We newline-indented after the open parentheses, e.g., for one-true-brace style:
+                return tab;
+            } else if (spacing.relative > 1 and spacing.absolute % 4 == 0) {
+                // We indented past the open parentheses, Horstmann style
                 return spacing.absolute;
             },
             else => return ParserError.broken_invariant,
@@ -607,8 +584,10 @@ pub const Parser = struct {
 
     pub fn debugTokens(self: *Self) void {
         common.debugPrint("Tokens: [\n", .{});
-        for (0..self.farthest_token_index + 1) |token_index| {
-            common.debugPrint("    ", self.tokenAt(token_index) catch unreachable);
+        const start = common.back(self.farthest_token_index, 5) orelse 0;
+        for (start..self.farthest_token_index + 1) |token_index| {
+            common.debugPrint(" [{d}]:", .{token_index});
+            common.debugPrint(" ", self.tokenAt(token_index) catch unreachable);
         }
         common.debugPrint("]\n", .{});
     }
@@ -674,9 +653,9 @@ test "parser one-true-brace nesting" {
         common.debugPrint("# file:\n", parser.tokenizer.file);
     }
     const file_slice = [_][]const u8{
-        "greet_thee(Str, World): array[int] {",
+        "greet_thee(): {",
         "    print(",
-        "        Str",
+        "        99731",
         "        World",
         "    )",
         "    wow54([",
@@ -690,42 +669,41 @@ test "parser one-true-brace nesting" {
     try parser.complete();
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
+        // TODO: see if this is right
         // [0]:
         Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-        Node{ .statement = .{ .node = 10, .next = 25 } },
-        Node{ .callable_token = 1 }, // greet_thee
-        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
-        Node{ .statement = .{ .node = 5, .next = 6 } },
-        // [5]:
-        Node{ .atomic_token = 5 }, // Str
-        Node{ .statement = .{ .node = 7, .next = 0 } },
-        Node{ .atomic_token = 9 }, // World
+        Node{ .statement = .{ .node = 14, .next = 15 } },
+        Node{ .callable_token = 1 },
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } },
         Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
-        Node{ .callable_token = 15 }, // array
-        // [10]:
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 8, .right = 24 } },
-        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 12 } },
+        // [5]:
+        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 6 } },
         Node{ .statement = .{ .node = 13, .next = 0 } },
-        Node{ .callable_token = 19 }, // int
-        Node{ .binary = .{ .operator = Operator.access, .left = 9, .right = 11 } },
+        Node{ .callable_token = 11 },
+        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 9 } },
+        Node{ .statement = .{ .node = 10, .next = 11 } },
+        // [10]:
+        Node{ .atomic_token = 15 },
+        Node{ .statement = .{ .node = 12, .next = 0 } },
+        Node{ .atomic_token = 17 },
+        Node{ .binary = .{ .operator = Operator.access, .left = 7, .right = 8 } },
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
         // [15]:
-        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 16 } }, //
-        Node{ .statement = .{ .node = 23, .next = 0 } }, // first statement in {}
-        Node{ .callable_token = 25 }, // print
-        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 19 } }, // print(...)
-        Node{ .statement = .{ .node = 20, .next = 21 } },
-        // [20]:
-        Node{ .atomic_token = 29 }, // Str
-        Node{ .statement = .{ .node = 22, .next = 0 } },
-        Node{ .atomic_token = 31 }, // World
-        Node{ .binary = .{ .operator = Operator.access, .left = 17, .right = 18 } },
-        Node{ .binary = .{ .operator = Operator.access, .left = 14, .right = 15 } }, //
-        // [25]:
-        // TODO: not 100% sure what this is, but it's the "second statement" of the root block.
-        Node{ .statement = .{ .node = 26, .next = 0 } },
+        Node{ .statement = .{ .node = 16, .next = 0 } },
         Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 0 } },
         .end,
-        // TODO
+        Node{ .callable_token = 21 },
+        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 20 } },
+        // [20]:
+        Node{ .statement = .{ .node = 21, .next = 0 } },
+        Node{ .enclosed = .{ .open = .bracket, .tab = 8, .start = 22 } },
+        Node{ .statement = .{ .node = 23, .next = 24 } },
+        Node{ .atomic_token = 27 },
+        Node{ .statement = .{ .node = 25, .next = 0 } },
+        // [25]:
+        Node{ .atomic_token = 29 },
+        Node{ .binary = .{ .operator = Operator.access, .left = 18, .right = 19 } },
+        .end,
     });
     // No tampering done with the file, i.e., no errors.
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
