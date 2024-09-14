@@ -61,33 +61,23 @@ pub const Parser = struct {
 
         var enclosed_start_index: usize = 0;
         var previous_statement_index: usize = 0;
-        // TODO: return a `Tabbed` struct that gives the `tab` and a `start_parsing_index`
-        //      if the tab is indented, append another Open.none enclosed block.
         while (self.getSameBlockNextTabbed(tab)) |next_tabbed| {
-            common.debugPrint("tab {d} in block {d}", .{ tab, enclosed_node_index });
-            common.debugPrint(", next token is ", self.peekToken() catch .file_end);
             self.farthest_token_index = next_tabbed.start_parsing_index;
             const statement_result: NodeResult = if (next_tabbed.tab > tab) indented_blk: {
                 // TODO: do we need an errdefer to pop/remove this `justAppendNode` if enclosing fails?
                 const statement_index = try self.justAppendNode(.end);
-                common.debugPrint("in block {d} found ennesting indent {d} -> {d}\n", .{ enclosed_node_index, tab, next_tabbed.tab });
                 const nested_enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
-                common.debugPrint("in block {d} found denesting indent {d} -> {d}\n", .{ enclosed_node_index, next_tabbed.tab, tab });
                 self.nodes.set(statement_index, Node{ .statement = .{
                     .node = nested_enclosed_index,
                 } }) catch unreachable;
                 break :indented_blk .{ .node = statement_index, .until_triggered = false };
             } else self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
-                common.debugPrint("in block {d}", .{enclosed_node_index});
-                common.debugPrint(", breaking after finding Until ", self.peekToken() catch .file_end);
+                // There wasn't another statement here.
                 self.farthest_token_index += 1;
-                common.debugPrint("next token is ", self.peekToken() catch .file_end);
                 // We don't update any previous statements here because we didn't successfully add one here.
                 // This can be for multiple reasons, including good ones (e.g., trailing commas or declarations).
                 break;
             };
-            common.debugPrint("in block {d}", .{enclosed_node_index});
-            common.debugPrint(", after statement ", self.peekToken() catch .file_end);
             const current_statement_index = statement_result.node;
             if (enclosed_start_index == 0) {
                 enclosed_start_index = current_statement_index;
@@ -98,8 +88,6 @@ pub const Parser = struct {
             }
             previous_statement_index = current_statement_index;
             if (statement_result.until_triggered) {
-                common.debugPrint("in block {d}, statement result Until was triggered\n", .{enclosed_node_index});
-                common.debugPrint("next token is ", self.peekToken() catch .file_end);
                 break;
             }
         }
@@ -150,16 +138,12 @@ pub const Parser = struct {
         // inside the `appendNextStandaloneExpression`?  e.g., `(whatever, +)`?
         // i think that will be some other syntax error, though.
         // TODO: add `tab` to the StatementNode so we can see if it's been indented
-        common.debugPrint("before next standalone expression, next token is ", self.peekToken() catch .file_end);
         _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else);
-        common.debugPrint("after next standalone expression, next token is ", self.peekToken() catch .file_end);
         defer hierarchy.deinit();
 
         while (true) {
             const result = try self.seekNextOperation(tab, until);
             const operation = result.operation;
-            common.debugPrint("after getting next op: ", operation);
-            common.debugPrint("after getting next op, next token is ", self.peekToken() catch .file_end);
             switch (operation.operator) {
                 .none => return result.toNode(hierarchy.inBounds(0)),
                 .comma => {
@@ -302,7 +286,6 @@ pub const Parser = struct {
             .open => |open| {
                 self.farthest_token_index += 1;
                 const enclosed_index = try self.appendNextEnclosed(try self.tokenizerTab(), open);
-                common.debugPrint("after appending enclosed, next token is ", self.peekToken() catch .file_end);
                 hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
                 return enclosed_index;
             },
@@ -504,7 +487,6 @@ pub const Parser = struct {
 
     /// For inside a block, the next statement index to continue with
     fn getSameBlockNextTabbed(self: *Self, tab: u16) ?Tabbed {
-        common.debugPrint("getting same block next non-spacing token checking ", self.peekToken() catch .file_end);
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
@@ -536,7 +518,6 @@ pub const Parser = struct {
 
     /// For inside a statement, the next index that we should continue with.
     fn getSameStatementNextNonSpacingTokenIndex(self: *Self, tab: u16) ?TokenIndex {
-        common.debugPrint("looking for non-spacing, same statement next is at token ", self.peekToken() catch .file_end);
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
