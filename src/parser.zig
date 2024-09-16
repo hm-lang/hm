@@ -370,7 +370,10 @@ pub const Parser = struct {
                 return callable_index;
             },
             .open => |open| {
-                const enclosed_tab = try self.getOpenTab(self.farthest_token_index, open) orelse tab;
+                common.debugPrint("tab {d}, ", .{tab});
+                common.debugPrint("found an open paren ", open);
+                const enclosed_tab = self.getOpenTab(self.farthest_token_index, open) orelse tab;
+                common.debugPrint("found enclosed tab {d}\n", .{enclosed_tab});
                 self.farthest_token_index += 1;
                 const enclosed_index = try self.appendNextEnclosed(enclosed_tab, open);
                 hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
@@ -531,11 +534,12 @@ pub const Parser = struct {
 
     /// Returns non-null if this open was the first non-whitespace element on a line
     /// and the space following it signifies an indent.
-    fn getOpenTab(self: *Self, token_index: usize, open: Token.Open) ParserError!?u16 {
+    fn getOpenTab(self: *Self, token_index: usize, open: Token.Open) ?u16 {
+        // TODO: use getTabbed internally here
         if (!open.mirrorsClose()) {
             return null;
         }
-        switch (try self.tokenAt(token_index + 1)) {
+        switch (self.tokenAt(token_index + 1) catch return null) {
             .spacing => |spacing| if (spacing.getNewlineTab()) |tab| {
                 // We newline-indented after the open parentheses, e.g., for one-true-brace style:
                 return tab;
@@ -543,82 +547,15 @@ pub const Parser = struct {
                 // We indented past the open parentheses, Horstmann style
                 return spacing.absolute;
             },
-            else => return ParserError.broken_invariant,
+            else => return null,
         }
         return null;
     }
 
-    /// For inside a block, the next statement index to continue with
-    fn getSameBlockNextTabbed(self: *Self, tab: u16) ?Tabbed {
-        // TODO: ignore comments as well
-        switch (self.peekToken() catch return null) {
-            .file_end => return null,
-            // TODO: ignore infix operators for indent level:
-            //&|MyValue:
-            //&|        +SomeValue  # keep prefix operators at tab indent
-            //&|    -   CoolStuff   # infix operator should be ignored
-            .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
-                if (newline_tab == tab) {
-                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
-                }
-                if (newline_tab % 4 != 0) {
-                    self.addTokenizerError(expected_four_space_indents);
-                    return null;
-                }
-                if (newline_tab < tab) {
-                    return null;
-                } else {
-                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = newline_tab };
-                }
-            } else {
-                // Not a newline, just continuing in the same statement
-                return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
-            },
-            // Assume that anything else is already at the correct tab.
-            else => return .{ .start_parsing_index = self.farthest_token_index, .tab = tab },
-        }
-    }
-
-    /// For inside a statement, the next index that we should continue with.
-    fn getSameStatementNextTabbed(self: *Self, tab: u16, check_for_indents_at_start: bool) ?Tabbed {
-        return self.getSameStatementNextTabbedAt(self.farthest_token_index, tab, check_for_indents_at_start);
-    }
-
-    fn getSameStatementNextTabbedAt(self: *Self, starting_token_index: TokenIndex, tab: u16, check_for_indents_at_start: bool) ?Tabbed {
+    fn getTabbed(self: *Self, starting_token_index: usize, tab: u16) ?Tabbed {
         var token_index = starting_token_index;
-        // TODO: ignore comments
-        switch (self.tokenAt(token_index) catch return null) {
-            .file_end => return null,
-            .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
-                if (newline_tab % 4 != 0) {
-                    self.addTokenizerError(expected_four_space_indents);
-                    return null;
-                }
-                if (newline_tab > tab) {
-                    return .{
-                        .start_parsing_index = token_index + 1,
-                        // Check if we're just a line continuation:
-                        .tab = if (newline_tab >= tab + 8) tab else newline_tab,
-                    };
-                }
-                if (newline_tab < tab) {
-                    // Going lower in indent or higher in indent should not continue here.
-                    return null;
-                }
-                // handle newlines with no indent especially below.
-            } else if (check_for_indents_at_start and spacing.relative > 0 and spacing.absolute % 4 == 0) {
-                // Space on the same line, but indented
-                return .{ .start_parsing_index = token_index + 1, .tab = spacing.absolute };
-            } else {
-                // Space on the same line, just continue parsing
-                return .{ .start_parsing_index = token_index + 1, .tab = tab };
-            },
-            else => return .{ .start_parsing_index = token_index, .tab = tab },
-        }
-        // newlines are special due to Horstmann braces.
         for (0..3) |closes| {
             _ = closes;
-            token_index += 1;
             if (!(self.tokenAt(token_index) catch return null).isMirrorOpen()) {
                 return null;
             }
@@ -666,17 +603,88 @@ pub const Parser = struct {
                     // because otherwise we won't be able to trigger on `spacing.relative > 0`.
                     if (spacing.absolute >= tab + 8) {
                         // line continuation
-                        return .{ .start_parsing_index = starting_token_index + 1, .tab = tab };
+                        return .{ .start_parsing_index = starting_token_index, .tab = tab };
                     } else if (spacing.absolute == tab + 4) {
-                        return .{ .start_parsing_index = starting_token_index + 1, .tab = tab + 4 };
+                        return .{ .start_parsing_index = starting_token_index, .tab = tab + 4 };
                     }
                 } else {
                     return null;
                 },
                 else => return null,
             }
+            token_index += 1;
         }
         return null;
+    }
+
+    /// For inside a block, the next statement index to continue with
+    fn getSameBlockNextTabbed(self: *Self, tab: u16) ?Tabbed {
+        // TODO: ignore comments as well
+        switch (self.peekToken() catch return null) {
+            .file_end => return null,
+            // TODO: ignore infix operators for indent level:
+            //&|MyValue:
+            //&|        +SomeValue  # keep prefix operators at tab indent
+            //&|    -   CoolStuff   # infix operator should be ignored
+            .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
+                if (newline_tab == tab) {
+                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
+                }
+                if (newline_tab % 4 != 0) {
+                    self.addTokenizerError(expected_four_space_indents);
+                    return null;
+                }
+                if (newline_tab < tab) {
+                    return null;
+                } else {
+                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = newline_tab };
+                }
+            } else {
+                // Not a newline, just continuing in the same statement
+                return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
+            },
+            // Assume that anything else is already at the correct tab.
+            else => return .{ .start_parsing_index = self.farthest_token_index, .tab = tab },
+        }
+    }
+
+    /// For inside a statement, the next index that we should continue with.
+    fn getSameStatementNextTabbed(self: *Self, tab: u16, check_for_indents_at_start: bool) ?Tabbed {
+        return self.getSameStatementNextTabbedAt(self.farthest_token_index, tab, check_for_indents_at_start);
+    }
+
+    fn getSameStatementNextTabbedAt(self: *Self, token_index: TokenIndex, tab: u16, check_for_indents_at_start: bool) ?Tabbed {
+        // TODO: ignore comments
+        switch (self.tokenAt(token_index) catch return null) {
+            .file_end => return null,
+            .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
+                if (newline_tab % 4 != 0) {
+                    self.addTokenizerError(expected_four_space_indents);
+                    return null;
+                }
+                if (newline_tab > tab) {
+                    return .{
+                        .start_parsing_index = token_index + 1,
+                        // Check if we're just a line continuation:
+                        .tab = if (newline_tab >= tab + 8) tab else newline_tab,
+                    };
+                }
+                if (newline_tab < tab) {
+                    // Going lower in indent or higher in indent should not continue here.
+                    return null;
+                }
+                // handle newlines with no indent especially below.
+            } else if (check_for_indents_at_start and spacing.relative > 0 and spacing.absolute % 4 == 0) {
+                // Space on the same line, but indented
+                return .{ .start_parsing_index = token_index + 1, .tab = spacing.absolute };
+            } else {
+                // Space on the same line, just continue parsing
+                return .{ .start_parsing_index = token_index + 1, .tab = tab };
+            },
+            else => return .{ .start_parsing_index = token_index, .tab = tab },
+        }
+        // newlines are special due to Horstmann braces.
+        return self.getTabbed(token_index + 1, tab);
     }
 
     fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, or_else: OrElse) ParserError!void {
