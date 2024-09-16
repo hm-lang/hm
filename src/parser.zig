@@ -193,8 +193,15 @@ pub const Parser = struct {
         defer hierarchy.deinit();
 
         while (true) {
+            const restore_index = self.farthest_token_index;
             const result = try self.seekNextOperation(tab, until);
-            const operation = result.operation;
+            const operation = if (result.tab == tab)
+                result.operation
+            else blk: {
+                std.debug.assert(result.tab == tab + 4);
+                self.farthest_token_index = restore_index;
+                break :blk Operation{ .operator = .access, .type = .infix };
+            };
             switch (operation.operator) {
                 .none => return result.toNode(hierarchy.inBounds(0)),
                 .comma => {
@@ -253,17 +260,29 @@ pub const Parser = struct {
     fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!OperationResult {
         const restore_index = self.farthest_token_index;
 
-        // TODO: line continuations where you tab to operator then tab to value
-        const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
-            return OperationResult.notTriggered(.{ .operator = .none });
+        var operation_tabbed = self.getSameStatementNextTabbed(tab, true) orelse {
+            return OperationResult.notTriggered(.{ .operator = .none }, tab);
         };
-        self.farthest_token_index = next_tabbed.start_parsing_index;
-        // TODO: handle next_tabbed.tab
+        self.farthest_token_index = operation_tabbed.start_parsing_index;
 
-        const operation: Operation = switch (try self.peekToken()) {
+        var operation: Operation = switch (try self.peekToken()) {
             .operator => |operator| blk: {
                 if (operator.isInfixable()) {
+                    common.debugPrint("getting infix operator at ", self.peekToken() catch .file_end);
                     self.farthest_token_index += 1;
+                    common.debugPrint("checking for indent ", self.peekToken() catch .file_end);
+                    if (self.getSameStatementNextTabbed(tab, true)) |next_tabbed| {
+                        common.debugPrint("got next tabbed ", next_tabbed);
+
+                        // see if we should keep parsing based on tabs past the operation.
+                        //&|    Some_variable
+                        //&|        +   Some_other_variable1
+                        //&|        -   Some_other_variable2
+                        if (next_tabbed.tab >= tab + 8) {
+                            // This is a line continuation.
+                            operation_tabbed.tab = tab;
+                        }
+                    }
                     break :blk .{ .operator = operator, .type = .infix };
                 } else if (operator.isPostfixable()) {
                     self.farthest_token_index += 1;
@@ -281,7 +300,7 @@ pub const Parser = struct {
             .close => |close| blk: {
                 if (until.shouldBreakAtClose(close)) {
                     self.farthest_token_index += 1;
-                    return OperationResult.triggered(.{ .operator = .none });
+                    return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
                 }
                 // Same as the `else` block below:
                 self.farthest_token_index -= 1;
@@ -295,11 +314,21 @@ pub const Parser = struct {
             },
         };
 
+        if (operation_tabbed.tab == tab + 4) {
+            common.debugPrint("getting an operation to indent one tab, resetting and switching to access-infix from: ", operation);
+            // This is an indented operation, and we didn't see another indent past it.
+            //&|    Some_expression
+            //&|        +enclosed
+            // this is probably a syntax error, but we'll parse it as `Some_expression` `access` `+enclosed`
+            self.farthest_token_index = restore_index;
+            operation = .{ .operator = .access, .type = .infix };
+        }
+
         if (until.shouldBreakBeforeOperation(operation)) {
             self.farthest_token_index = restore_index;
-            return OperationResult.triggered(.{ .operator = .none });
+            return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
         }
-        return OperationResult.notTriggered(operation);
+        return operation_tabbed.toNotTriggeredOperation(operation);
     }
 
     /// Adds an atom with possible prefix (but NOT postfix) operators.
@@ -309,13 +338,15 @@ pub const Parser = struct {
     /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
     /// Supports starting with spacing *or not* (e.g., for the start of a statement).
     fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse) ParserError!NodeIndex {
-        const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
+        const next_tabbed = self.getSameStatementNextTabbed(tab, false) orelse {
             const had_expression_token = false;
             self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
             return ParserError.syntax;
         };
         self.farthest_token_index = next_tabbed.start_parsing_index;
-        // TODO: handle next_tabbed.tab
+        if (next_tabbed.tab > tab) {
+            return self.appendNextEnclosed(next_tabbed.tab, .none);
+        }
 
         switch (try self.peekToken()) {
             .starts_upper, .number => {
@@ -549,11 +580,11 @@ pub const Parser = struct {
     }
 
     /// For inside a statement, the next index that we should continue with.
-    fn getSameStatementNextTabbed(self: *Self, tab: u16) ?Tabbed {
-        return self.getSameStatementNextTabbedAt(self.farthest_token_index, tab);
+    fn getSameStatementNextTabbed(self: *Self, tab: u16, check_for_indents_at_start: bool) ?Tabbed {
+        return self.getSameStatementNextTabbedAt(self.farthest_token_index, tab, check_for_indents_at_start);
     }
 
-    fn getSameStatementNextTabbedAt(self: *Self, starting_token_index: TokenIndex, tab: u16) ?Tabbed {
+    fn getSameStatementNextTabbedAt(self: *Self, starting_token_index: TokenIndex, tab: u16, check_for_indents_at_start: bool) ?Tabbed {
         var token_index = starting_token_index;
         // TODO: ignore comments
         switch (self.tokenAt(token_index) catch return null) {
@@ -565,7 +596,7 @@ pub const Parser = struct {
                 }
                 if (newline_tab > tab) {
                     return .{
-                        .start_parsing_index = starting_token_index + 1,
+                        .start_parsing_index = token_index + 1,
                         // Check if we're just a line continuation:
                         .tab = if (newline_tab >= tab + 8) tab else newline_tab,
                     };
@@ -575,11 +606,14 @@ pub const Parser = struct {
                     return null;
                 }
                 // handle newlines with no indent especially below.
+            } else if (check_for_indents_at_start and spacing.relative > 0 and spacing.absolute % 4 == 0) {
+                // Space on the same line, but indented
+                return .{ .start_parsing_index = token_index + 1, .tab = spacing.absolute };
             } else {
                 // Space on the same line, just continue parsing
-                return .{ .start_parsing_index = starting_token_index + 1, .tab = tab };
+                return .{ .start_parsing_index = token_index + 1, .tab = tab };
             },
-            else => return .{ .start_parsing_index = starting_token_index, .tab = tab },
+            else => return .{ .start_parsing_index = token_index, .tab = tab },
         }
         // newlines are special due to Horstmann braces.
         for (0..3) |closes| {
@@ -712,14 +746,15 @@ const NodeResult = struct {
 
 const OperationResult = struct {
     operation: Operation,
+    tab: u16,
     until_triggered: bool,
 
-    fn triggered(operation: Operation) Self {
-        return .{ .operation = operation, .until_triggered = true };
+    fn triggered(operation: Operation, tab: u16) Self {
+        return .{ .operation = operation, .tab = tab, .until_triggered = true };
     }
 
-    fn notTriggered(operation: Operation) Self {
-        return .{ .operation = operation, .until_triggered = false };
+    fn notTriggered(operation: Operation, tab: u16) Self {
+        return .{ .operation = operation, .tab = tab, .until_triggered = false };
     }
 
     fn toNode(self: Self, node: NodeIndex) NodeResult {
@@ -733,6 +768,25 @@ const Tabbed = struct {
     tab: u16,
     start_parsing_index: NodeIndex = 0,
     // TODO: probably needs a `had_newline: bool` in case we want to add a comma to statements
+
+    fn toTriggeredOperation(self: Self, operation: Operation) OperationResult {
+        return OperationResult.triggered(operation, self.tab);
+    }
+
+    fn toNotTriggeredOperation(self: Self, operation: Operation) OperationResult {
+        return OperationResult.notTriggered(operation, self.tab);
+    }
+
+    pub fn printLine(self: Self, writer: anytype) !void {
+        try self.print(writer);
+        try writer.print("\n", .{});
+    }
+
+    pub fn print(self: Self, writer: anytype) !void {
+        try writer.print("Tabbed{{ .tab = {d}, .start_parsing_index = {d} }}", .{ self.tab, self.start_parsing_index });
+    }
+
+    const Self = @This();
 };
 
 const expected_spacing = "expected spacing between each identifier";
@@ -904,32 +958,54 @@ test "parser simple expressions" {
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
         Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-        Node{ .statement = .{ .node = 2, .next = 3 } },
+        Node{ .statement = .{ .node = 6, .next = 7 } }, // statement of 3.456 + indent
         Node{ .atomic_token = 1 }, // 3.456
-        Node{ .statement = .{ .node = 4, .next = 7 } },
-        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 5 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 4 } }, // indent with hello_you
+        Node{ .statement = .{ .node = 5, .next = 0 } }, // hello_you statement
         // [5]:
-        Node{ .statement = .{ .node = 6, .next = 0 } },
         Node{ .callable_token = 3 }, // hello_you
-        Node{ .statement = .{ .node = 8, .next = 10 } },
-        Node{ .prefix = .{ .operator = Operator.plus, .node = 9 } },
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // 3.456 access indent
+        Node{ .statement = .{ .node = 8, .next = 0 } }, // statement of +1.234 + indent
+        Node{ .prefix = .{ .operator = Operator.plus, .node = 22 } }, // +1.234
         Node{ .atomic_token = 7 }, // 1.234
         // [10]:
-        Node{ .statement = .{ .node = 11, .next = 0 } },
-        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 12 } },
-        Node{ .statement = .{ .node = 13, .next = 15 } },
-        Node{ .prefix = .{ .operator = Operator.minus, .node = 14 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 11 } }, // block with -5.678 starting
+        Node{ .statement = .{ .node = 12, .next = 14 } }, // -5.678 statement
+        Node{ .prefix = .{ .operator = Operator.minus, .node = 13 } }, // -5.678
         Node{ .atomic_token = 11 }, // 5.678
+        Node{ .statement = .{ .node = 15, .next = 0 } }, // $$$Foe indent statement
         // [15]:
-        Node{ .statement = .{ .node = 16, .next = 18 } },
-        Node{ .prefix = .{ .operator = Operator.lambda3, .node = 17 } },
-        Node{ .atomic_token = 15 }, // Foe
-        Node{ .statement = .{ .node = 19, .next = 0 } },
-        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 20 } },
-        // [20]:
-        Node{ .statement = .{ .node = 22, .next = 0 } },
-        Node{ .atomic_token = 17 }, // Fum
-        Node{ .postfix = .{ .operator = Operator.decrement, .node = 21 } },
+        // TODO: $$$ should bind strongly on Foe
+    });
+    // No tampering done with the file, i.e., no errors.
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+}
+
+test "parser line continuations" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        common.debugPrint("# file:\n", parser.tokenizer.file);
+    }
+    const file_slice = [_][]const u8{
+        "Random_id3",
+        "    +   Other_id4",
+        "    -   Other_id5",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 6, .next = 0 } },
+        Node{ .atomic_token = 1 }, // Random_id3
+        Node{ .atomic_token = 5 }, // Other_id4
+        Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 3 } },
+        // [5]:
+        Node{ .atomic_token = 9 }, // Other_id5
+        Node{ .binary = .{ .operator = Operator.minus, .left = 4, .right = 5 } },
         .end,
     });
     // No tampering done with the file, i.e., no errors.
