@@ -1075,6 +1075,200 @@ test "parser implied blocks" {
     }
 }
 
+test "parser explicit Horstmann blocks" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Bart4",
+            "[   Bented4",
+            "]",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Bart4
+            Node{ .enclosed = .{ .open = .bracket, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 0 } },
+            // [5]:
+            Node{ .atomic_token = 5 }, // Bented4
+            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Bart3",
+            "(   +Bented3",
+            ")",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Bart3
+            Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 0 } },
+            // [5]:
+            Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
+            Node{ .atomic_token = 7 }, // Bented3
+            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Bart5:",
+            "{   Bented51",
+            "    Bented52",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 8, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Bart5
+            Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 6 } },
+            // [5]:
+            Node{ .atomic_token = 7 }, // Bented51
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .atomic_token = 9 }, // Bented52
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
+test "parser explicit one-true-brace blocks" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Otbart4[",
+            "    Otbed4",
+            "]",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Otbart4
+            Node{ .enclosed = .{ .open = .bracket, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 0 } },
+            // [5]:
+            Node{ .atomic_token = 5 }, // Otbed4
+            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Otbart3(",
+            "    +Otbed3",
+            ")",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Otbart3
+            Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 0 } },
+            // [5]:
+            Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
+            Node{ .atomic_token = 7 }, // Otbed3
+            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Otbart5: {",
+            "    Otbed51",
+            "    Otbed52",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 8, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Otbart5
+            Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 6 } },
+            // [5]:
+            Node{ .atomic_token = 7 }, // Otbed51
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .atomic_token = 9 }, // Otbed52
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
 test "parser line continuations" {
     var parser: Parser = .{};
     defer parser.deinit();
