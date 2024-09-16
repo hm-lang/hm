@@ -73,7 +73,10 @@ pub const Parser = struct {
         var enclosed_start_index: usize = 0;
         var previous_statement_index: usize = 0;
         var until_triggered = false;
-        while (self.getSameBlockNextTabbed(tab)) |next_tabbed| {
+        // Check for a Horstmann indent here.
+        var check_for_indents = open.mirrorsClose();
+        while (self.getSameBlockNextTabbed(tab, check_for_indents)) |next_tabbed| {
+            check_for_indents = false;
             common.debugPrint("tab {d} in block {d}, looking for next statement\n", .{ tab, enclosed_node_index });
             self.debugTokens();
             self.farthest_token_index = next_tabbed.start_parsing_index;
@@ -371,11 +374,12 @@ pub const Parser = struct {
             },
             .open => |open| {
                 common.debugPrint("tab {d}, ", .{tab});
-                common.debugPrint("found an open paren ", open);
-                const enclosed_tab = self.getOpenTab(self.farthest_token_index, open) orelse tab;
-                common.debugPrint("found enclosed tab {d}\n", .{enclosed_tab});
+                common.debugPrint("found an open ", open);
+                //const enclosed_tabbed: Tabbed = self.getMirrorTabbed(self.farthest_token_index, tab) orelse .{ .tab = tab };
+                //const enclosed_tab = enclosed_tabbed.tab;
+                //common.debugPrint("found enclosed tab {d}\n", .{enclosed_tab});
                 self.farthest_token_index += 1;
-                const enclosed_index = try self.appendNextEnclosed(enclosed_tab, open);
+                const enclosed_index = try self.appendNextEnclosed(tab, open);
                 hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
                 return enclosed_index;
             },
@@ -532,27 +536,7 @@ pub const Parser = struct {
         };
     }
 
-    /// Returns non-null if this open was the first non-whitespace element on a line
-    /// and the space following it signifies an indent.
-    fn getOpenTab(self: *Self, token_index: usize, open: Token.Open) ?u16 {
-        // TODO: use getTabbed internally here
-        if (!open.mirrorsClose()) {
-            return null;
-        }
-        switch (self.tokenAt(token_index + 1) catch return null) {
-            .spacing => |spacing| if (spacing.getNewlineTab()) |tab| {
-                // We newline-indented after the open parentheses, e.g., for one-true-brace style:
-                return tab;
-            } else if (spacing.relative > 1 and spacing.absolute % 4 == 0) {
-                // We indented past the open parentheses, Horstmann style
-                return spacing.absolute;
-            },
-            else => return null,
-        }
-        return null;
-    }
-
-    fn getTabbed(self: *Self, starting_token_index: usize, tab: u16) ?Tabbed {
+    fn getMirrorTabbed(self: *Self, starting_token_index: usize, tab: u16) ?Tabbed {
         var token_index = starting_token_index;
         for (0..3) |closes| {
             _ = closes;
@@ -589,7 +573,7 @@ pub const Parser = struct {
                     //&|        [
                     //&|        ]
                     return null;
-                } else if (spacing.relative > 0) {
+                } else if (spacing.relative > 0 and spacing.absolute % 4 == 0) {
                     // we do want to support this, however:
                     //&|    my_function(): array[array[int]]
                     //&|        return
@@ -601,11 +585,10 @@ pub const Parser = struct {
                     //&|        [{( 5
                     //&|        )}]
                     // because otherwise we won't be able to trigger on `spacing.relative > 0`.
-                    if (spacing.absolute >= tab + 8) {
-                        // line continuation
-                        return .{ .start_parsing_index = starting_token_index, .tab = tab };
-                    } else if (spacing.absolute == tab + 4) {
-                        return .{ .start_parsing_index = starting_token_index, .tab = tab + 4 };
+                    if (spacing.absolute >= tab + 4) {
+                        // line continuation in some form.  we'll let the compiler figure
+                        // out the true tab later.
+                        return .{ .start_parsing_index = starting_token_index, .tab = spacing.absolute };
                     }
                 } else {
                     return null;
@@ -618,18 +601,14 @@ pub const Parser = struct {
     }
 
     /// For inside a block, the next statement index to continue with
-    fn getSameBlockNextTabbed(self: *Self, tab: u16) ?Tabbed {
+    fn getSameBlockNextTabbed(self: *Self, tab: u16, check_for_indents: bool) ?Tabbed {
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
-            // TODO: ignore infix operators for indent level:
             //&|MyValue:
             //&|        +SomeValue  # keep prefix operators at tab indent
             //&|    -   CoolStuff   # infix operator should be ignored
             .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
-                if (newline_tab == tab) {
-                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
-                }
                 if (newline_tab % 4 != 0) {
                     self.addTokenizerError(expected_four_space_indents);
                     return null;
@@ -639,6 +618,11 @@ pub const Parser = struct {
                 } else {
                     return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = newline_tab };
                 }
+            } else if (spacing.absolute < tab) {
+                return null;
+            } else if (check_for_indents and spacing.absolute % 4 == 0) {
+                // Assume we're possibly in a Horstmann indent
+                return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = spacing.absolute };
             } else {
                 // Not a newline, just continuing in the same statement
                 return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
@@ -670,7 +654,7 @@ pub const Parser = struct {
                     };
                 }
                 if (newline_tab < tab) {
-                    // Going lower in indent or higher in indent should not continue here.
+                    // Going lower in indent should not continue here.
                     return null;
                 }
                 // handle newlines with no indent especially below.
@@ -684,7 +668,9 @@ pub const Parser = struct {
             else => return .{ .start_parsing_index = token_index, .tab = tab },
         }
         // newlines are special due to Horstmann braces.
-        return self.getTabbed(token_index + 1, tab);
+        const continues_with_an_open = self.getMirrorTabbed(token_index + 1, tab) orelse return null;
+        _ = continues_with_an_open;
+        return .{ .start_parsing_index = token_index + 1, .tab = tab };
     }
 
     fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, or_else: OrElse) ParserError!void {
@@ -1085,6 +1071,7 @@ test "parser implied blocks" {
 
 test "parser explicit Horstmann blocks" {
     {
+        common.debugPrint("\n\nStarting hosrtmann challenge\n\n", .{});
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
@@ -1102,11 +1089,13 @@ test "parser explicit Horstmann blocks" {
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 6, .next = 0 } },
+            Node{ .statement = .{ .node = 8, .next = 0 } },
             Node{ .atomic_token = 1 }, // Bart4
-            Node{ .enclosed = .{ .open = .bracket, .tab = 4, .start = 4 } },
+            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
             Node{ .statement = .{ .node = 5, .next = 0 } },
             // [5]:
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+            Node{ .statement = .{ .node = 7, .next = 0 } },
             Node{ .atomic_token = 5 }, // Bented4
             Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
             .end,
@@ -1132,14 +1121,17 @@ test "parser explicit Horstmann blocks" {
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .statement = .{ .node = 9, .next = 0 } },
             Node{ .atomic_token = 1 }, // Bart3
-            Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 4 } },
+            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
             Node{ .statement = .{ .node = 5, .next = 0 } },
             // [5]:
-            Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .prefix = .{ .operator = Operator.plus, .node = 8 } },
             Node{ .atomic_token = 7 }, // Bented3
             Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            // [10]:
             .end,
         });
         // No tampering done with the file, i.e., no errors.
@@ -1164,14 +1156,17 @@ test "parser explicit Horstmann blocks" {
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 8, .next = 0 } },
-            Node{ .atomic_token = 1 }, // Bart5
-            Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 4 } },
-            Node{ .statement = .{ .node = 5, .next = 6 } },
+            Node{ .statement = .{ .node = 10, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Bart4
+            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 0 } },
             // [5]:
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+            Node{ .statement = .{ .node = 7, .next = 8 } },
             Node{ .atomic_token = 7 }, // Bented51
-            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .statement = .{ .node = 9, .next = 0 } },
             Node{ .atomic_token = 9 }, // Bented52
+            // [10]:
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
             .end,
         });
@@ -1199,12 +1194,14 @@ test "parser explicit one-true-brace blocks" {
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 6, .next = 0 } },
-            Node{ .atomic_token = 1 }, // Otbart4
-            Node{ .enclosed = .{ .open = .bracket, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 8, .next = 0 } },
+            Node{ .atomic_token = 1 },
+            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
             Node{ .statement = .{ .node = 5, .next = 0 } },
             // [5]:
-            Node{ .atomic_token = 5 }, // Otbed4
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .atomic_token = 5 },
             Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
             .end,
         });
@@ -1229,14 +1226,17 @@ test "parser explicit one-true-brace blocks" {
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 7, .next = 0 } },
-            Node{ .atomic_token = 1 }, // Otbart3
-            Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 9, .next = 0 } },
+            Node{ .atomic_token = 1 },
+            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
             Node{ .statement = .{ .node = 5, .next = 0 } },
             // [5]:
-            Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
-            Node{ .atomic_token = 7 }, // Otbed3
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .prefix = .{ .operator = Operator.plus, .node = 8 } },
+            Node{ .atomic_token = 7 },
             Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            // [10]:
             .end,
         });
         // No tampering done with the file, i.e., no errors.
@@ -1261,20 +1261,28 @@ test "parser explicit one-true-brace blocks" {
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 8, .next = 0 } },
-            Node{ .atomic_token = 1 }, // Otbart5
-            Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 4 } },
-            Node{ .statement = .{ .node = 5, .next = 6 } },
+            Node{ .statement = .{ .node = 10, .next = 0 } },
+            Node{ .atomic_token = 1 },
+            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 0 } },
             // [5]:
-            Node{ .atomic_token = 7 }, // Otbed51
-            Node{ .statement = .{ .node = 7, .next = 0 } },
-            Node{ .atomic_token = 9 }, // Otbed52
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+            Node{ .statement = .{ .node = 7, .next = 8 } },
+            Node{ .atomic_token = 7 },
+            Node{ .statement = .{ .node = 9, .next = 0 } },
+            Node{ .atomic_token = 9 },
+            // [10]:
             Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
             .end,
         });
         // No tampering done with the file, i.e., no errors.
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
+    // TODO: add `SomeCondition { some_bracket_logic() }`
+    //      braces need to be lower priority than `access`.
+    //      same for `open = .none` blocks.
+    //&|if MyCondition
+    //&|    do_something()
 }
 
 test "parser line continuations" {
