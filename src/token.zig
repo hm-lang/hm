@@ -80,6 +80,24 @@ pub const Token = union(TokenTag) {
         };
     }
 
+    pub fn isNewlineTab(self: Self, tab: u16) bool {
+        return switch (self) {
+            .spacing => |spacing| if (spacing.getNewlineTab()) |actual_tab|
+                actual_tab == tab
+            else
+                false,
+            .file_end => false,
+            else => false,
+        };
+    }
+
+    pub fn isMirrorOpen(self: Self) bool {
+        return switch (self) {
+            .open => |open| open.mirrorsClose(),
+            else => false,
+        };
+    }
+
     pub fn countChars(self: Token) u16 {
         return switch (self) {
             .invalid => |invalid| invalid.columns.count(),

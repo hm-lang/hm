@@ -253,9 +253,13 @@ pub const Parser = struct {
     fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!OperationResult {
         const restore_index = self.farthest_token_index;
 
-        self.farthest_token_index = self.getSameStatementNextNonSpacingTokenIndex(tab) orelse {
+        // TODO: line continuations where you tab to operator then tab to value
+        const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
             return OperationResult.notTriggered(.{ .operator = .none });
         };
+        self.farthest_token_index = next_tabbed.start_parsing_index;
+        // TODO: handle next_tabbed.tab
+
         const operation: Operation = switch (try self.peekToken()) {
             .operator => |operator| blk: {
                 if (operator.isInfixable()) {
@@ -305,13 +309,13 @@ pub const Parser = struct {
     /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
     /// Supports starting with spacing *or not* (e.g., for the start of a statement).
     fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse) ParserError!NodeIndex {
-        switch (try self.peekToken()) {
-            .spacing => |spacing| {
-                try self.assertSyntax(self.shouldContinueStatementAfterSpacing(spacing, tab), or_else.map(expected_spacing));
-                self.farthest_token_index += 1;
-            },
-            else => {},
-        }
+        const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
+            const had_expression_token = false;
+            self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
+            return ParserError.syntax;
+        };
+        self.farthest_token_index = next_tabbed.start_parsing_index;
+        // TODO: handle next_tabbed.tab
 
         switch (try self.peekToken()) {
             .starts_upper, .number => {
@@ -527,7 +531,7 @@ pub const Parser = struct {
                     return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
                 }
                 if (newline_tab % 4 != 0) {
-                    self.addTokenizerError("tabs should be 4-wide");
+                    self.addTokenizerError(expected_four_space_indents);
                     return null;
                 }
                 if (newline_tab < tab) {
@@ -545,30 +549,100 @@ pub const Parser = struct {
     }
 
     /// For inside a statement, the next index that we should continue with.
-    fn getSameStatementNextNonSpacingTokenIndex(self: *Self, tab: u16) ?TokenIndex {
-        // TODO: ignore comments as well
-        switch (self.peekToken() catch return null) {
-            .file_end => return null,
-            .spacing => |spacing| if (self.shouldContinueStatementAfterSpacing(spacing, tab)) {
-                return self.farthest_token_index + 1;
-            } else {
-                return null;
-            },
-            else => return self.farthest_token_index,
-        }
+    fn getSameStatementNextTabbed(self: *Self, tab: u16) ?Tabbed {
+        return self.getSameStatementNextTabbedAt(self.farthest_token_index, tab);
     }
 
-    /// This needs to be a Parser method because it will look for open
-    /// parens/braces/brackets on the next line.
-    fn shouldContinueStatementAfterSpacing(self: *Self, spacing: Token.Spacing, tab: u16) bool {
-        _ = self;
-        // TODO: check for being the first token since starting an expression
-        if (spacing.getNewlineTab()) |new_tab| {
-            // TODO: this needs to be more complicated based on braces etc.
-            return new_tab >= tab + 8;
+    fn getSameStatementNextTabbedAt(self: *Self, starting_token_index: TokenIndex, tab: u16) ?Tabbed {
+        var token_index = starting_token_index;
+        // TODO: ignore comments
+        switch (self.tokenAt(token_index) catch return null) {
+            .file_end => return null,
+            .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
+                if (newline_tab % 4 != 0) {
+                    self.addTokenizerError(expected_four_space_indents);
+                    return null;
+                }
+                if (newline_tab > tab) {
+                    return .{
+                        .start_parsing_index = starting_token_index + 1,
+                        // Check if we're just a line continuation:
+                        .tab = if (newline_tab >= tab + 8) tab else newline_tab,
+                    };
+                }
+                if (newline_tab < tab) {
+                    // Going lower in indent or higher in indent should not continue here.
+                    return null;
+                }
+                // handle newlines with no indent especially below.
+            } else {
+                // Space on the same line, just continue parsing
+                return .{ .start_parsing_index = starting_token_index + 1, .tab = tab };
+            },
+            else => return .{ .start_parsing_index = starting_token_index, .tab = tab },
         }
-        // We are just continuing on one line
-        return true;
+        // newlines are special due to Horstmann braces.
+        for (0..3) |closes| {
+            _ = closes;
+            token_index += 1;
+            if (!(self.tokenAt(token_index) catch return null).isMirrorOpen()) {
+                return null;
+            }
+            token_index += 1;
+            switch (self.tokenAt(token_index) catch return null) {
+                .file_end => return null,
+                .spacing => |spacing| if (spacing.isNewline()) {
+                    // we don't want to support horstmann like this:
+                    //&|    my_function(): array[array[int]]
+                    //&|        return
+                    //&|        [
+                    //&|        [   5, 6, 7]
+                    //&|        [   8
+                    //&|            9
+                    //&|            10
+                    //&|        ]
+                    //&|        ]
+                    // the correct syntax would be something like this:
+                    //&|    my_function(): array[array[int]]
+                    //&|        return
+                    //&|        [   [5, 6, 7]
+                    //&|            [   8
+                    //&|                9
+                    //&|                10
+                    //&|            ]
+                    //&|        ]
+                    // so if we encounter a newline just bail:
+                    // TODO: we probably can support this, although we should format.
+                    //&|    my_function(): array[array[int]]
+                    //&|        return
+                    //&|        [
+                    //&|        ]
+                    return null;
+                } else if (spacing.relative > 0) {
+                    // we do want to support this, however:
+                    //&|    my_function(): array[array[int]]
+                    //&|        return
+                    //&|        [[  5
+                    //&|            6
+                    //&|            7
+                    //&|        ]]
+                    // but only up to three braces, e.g.,
+                    //&|        [{( 5
+                    //&|        )}]
+                    // because otherwise we won't be able to trigger on `spacing.relative > 0`.
+                    if (spacing.absolute >= tab + 8) {
+                        // line continuation
+                        return .{ .start_parsing_index = starting_token_index + 1, .tab = tab };
+                    } else if (spacing.absolute == tab + 4) {
+                        return .{ .start_parsing_index = starting_token_index + 1, .tab = tab + 4 };
+                    }
+                } else {
+                    return null;
+                },
+                else => return null,
+            }
+        }
+        return null;
     }
 
     fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, or_else: OrElse) ParserError!void {
@@ -658,9 +732,11 @@ const OperationResult = struct {
 const Tabbed = struct {
     tab: u16,
     start_parsing_index: NodeIndex = 0,
+    // TODO: probably needs a `had_newline: bool` in case we want to add a comma to statements
 };
 
 const expected_spacing = "expected spacing between each identifier";
+const expected_four_space_indents = "indents should be 4-spaces wide";
 
 test "parser one-true-brace nesting" {
     var parser: Parser = .{};
@@ -677,6 +753,67 @@ test "parser one-true-brace nesting" {
         "    )",
         "    wow54([",
         "        57973",
+        "        67974",
+        "    ])",
+        "}",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 24, .next = 0 } },
+        Node{ .callable_token = 1 }, // greet_thee
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // greet_thee()
+        // [5]:
+        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 6 } }, // {...}
+        Node{ .statement = .{ .node = 13, .next = 14 } }, // first statement in {...}
+        Node{ .callable_token = 11 }, // print
+        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 9 } }, // (...) in print
+        Node{ .statement = .{ .node = 10, .next = 11 } }, // first statement in print
+        // [10]:
+        Node{ .atomic_token = 15 }, // 99731
+        Node{ .statement = .{ .node = 12, .next = 0 } }, // second statement in print
+        Node{ .atomic_token = 17 }, // World
+        Node{ .binary = .{ .operator = Operator.access, .left = 7, .right = 8 } }, // print(...)
+        Node{ .statement = .{ .node = 23, .next = 0 } }, // second statement in {...}
+        // [15]:
+        Node{ .callable_token = 21 }, // wow54
+        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 17 } }, // (...) in wow54
+        Node{ .statement = .{ .node = 18, .next = 0 } }, // first statement in wow54
+        Node{ .enclosed = .{ .open = .bracket, .tab = 8, .start = 19 } }, // [...]
+        Node{ .statement = .{ .node = 20, .next = 21 } }, // first statement in [...]
+        // [20]:
+        Node{ .atomic_token = 27 }, // 57973
+        Node{ .statement = .{ .node = 22, .next = 0 } }, // second statement in [...]
+        Node{ .atomic_token = 29 }, // 67974
+        Node{ .binary = .{ .operator = Operator.access, .left = 15, .right = 16 } }, // wow54(...)
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
+        // [25]:
+        .end,
+    });
+    // No tampering done with the file, i.e., no errors.
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+}
+
+test "parser Horstmann nesting" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer {
+        common.debugPrint("# file:\n", parser.tokenizer.file);
+        common.debugPrint("# nodes:\n", parser.nodes);
+    }
+    const file_slice = [_][]const u8{
+        "greet_thee():",
+        "{   print",
+        "    (   99731",
+        "        World",
+        "    )",
+        "    wow54",
+        "    ([  57973",
         "        67974",
         "    ])",
         "}",
