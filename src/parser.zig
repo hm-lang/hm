@@ -981,6 +981,100 @@ test "parser simple expressions" {
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
+test "parser implied blocks" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Start4",
+            "    Indented4",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Start4
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 0 } },
+            // [5]:
+            Node{ .atomic_token = 3 }, // Indented4
+            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Start3",
+            "    +Indented3",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Start3
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 0 } },
+            // [5]:
+            Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
+            Node{ .atomic_token = 5 }, // Indented3
+            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Start5:",
+            "    Indented51",
+            "    Indented52",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 8, .next = 0 } },
+            Node{ .atomic_token = 1 }, // Start5
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 6 } },
+            // [5]:
+            Node{ .atomic_token = 5 }, // Indented51
+            Node{ .statement = .{ .node = 7, .next = 0 } },
+            Node{ .atomic_token = 7 }, // Indented52
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
 test "parser line continuations" {
     var parser: Parser = .{};
     defer parser.deinit();
