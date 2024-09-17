@@ -28,6 +28,7 @@ const TokenTag = enum {
     /// also ok for "$[MyLogic]" or '${MyLogic}'
     interpolation_open,
     annotation,
+    keyword,
     comment,
 };
 
@@ -47,6 +48,7 @@ pub const Token = union(TokenTag) {
     /// Note that the close is just considered a `close` here ^.
     interpolation_open: Open,
     annotation: SmallString,
+    keyword: Keyword,
     comment: SmallString,
 
     pub inline fn tag(self: Token) TokenTag {
@@ -70,6 +72,20 @@ pub const Token = union(TokenTag) {
                 }
             }
         }
+    }
+
+    // TODO: do we want to support `and` here?  we could just use `&&`
+    //      so that `X and(Y)` would be ok to overload.
+    //      mostly eventually we need `xor`. maybe just use `&|` or |&` or `>|`
+    /// This function takes ownership of the passed-in string.
+    /// Make a copy if you need it before passing in a string.
+    pub fn keywordOrStartsLower(string: SmallString) Self {
+        return if (Keyword.init(string)) |keyword|
+            // Theoretically we should `string.deinit()` here but if it was
+            // small enough to be a keyword it shouldn't have any allocated memory.
+            Token{ .keyword = keyword }
+        else
+            Token{ .starts_lower = string };
     }
 
     pub fn isNewline(self: Self) bool {
@@ -138,6 +154,7 @@ pub const Token = union(TokenTag) {
             .interpolation_open => 2,
             .close => 1,
             .annotation => |string| string.count(),
+            .keyword => |keyword| @intCast(keyword.slice().len),
             .comment => |string| string.count(),
         };
     }
@@ -204,6 +221,11 @@ pub const Token = union(TokenTag) {
                 try writer.print("Token{{ .annotation = try SmallString.init(\"", .{});
                 try string.print(writer);
                 try writer.print("\") }}", .{});
+            },
+            .keyword => |keyword| {
+                try writer.print("Token{{ .keyword = .", .{});
+                try keyword.print(writer);
+                try writer.print(" }}", .{});
             },
             .comment => |string| {
                 try writer.print("Token{{ .comment = try SmallString.init(\"", .{});
@@ -281,6 +303,7 @@ pub const Token = union(TokenTag) {
     pub const Open = TokenOpen;
     pub const Close = TokenOpen;
 
+    pub const Keyword = TokenKeyword;
     pub const InvalidType = InvalidTokenType;
 
     pub const Tag = TokenTag;
@@ -354,6 +377,60 @@ const TokenOpen = enum {
             .single_quote => "single_quote",
             .double_quote => "double_quote",
             .multiline_quote => "multiline_quote",
+        };
+    }
+
+    pub fn printLine(self: Self, writer: anytype) !void {
+        try self.print(writer);
+        try writer.print("\n", .{});
+    }
+
+    pub fn print(self: Self, writer: anytype) !void {
+        try writer.print("{s}", .{self.slice()});
+    }
+
+    const Self = @This();
+};
+
+const TokenKeyword = enum {
+    if_,
+    elif,
+    else_,
+    return_,
+    each,
+    what,
+    while_,
+
+    pub const if64 = SmallString.as64("if");
+    pub const elif64 = SmallString.as64("elif");
+    pub const else64 = SmallString.as64("else");
+    pub const return64 = SmallString.as64("return");
+    pub const each64 = SmallString.as64("each");
+    pub const what64 = SmallString.as64("what");
+    pub const while64 = SmallString.as64("while");
+
+    pub fn init(string: SmallString) ?Self {
+        return switch (string.big64() catch return null) {
+            if64 => .if_,
+            elif64 => .elif,
+            else64 => .else_,
+            return64 => .return_,
+            each64 => .each,
+            what64 => .what,
+            while64 => .while_,
+            else => null,
+        };
+    }
+
+    pub fn slice(self: Self) []const u8 {
+        return switch (self) {
+            .if_ => "if",
+            .elif => "elif",
+            .else_ => "else",
+            .return_ => "return",
+            .each => "each",
+            .what => "what",
+            .while_ => "while",
         };
     }
 

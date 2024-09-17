@@ -276,10 +276,7 @@ pub const Tokenizer = struct {
             switch (starting_char) {
                 '#' => return try self.getNextComment(line),
                 'A'...'Z', '_' => return Token{ .starts_upper = try self.getNextIdentifier(line) },
-                // TODO: do we want to support `and` here?  we could just use `&&`
-                //      so that `X and(Y)` would be ok to overload.
-                //      mostly eventually we need `xor`. maybe just use `&|` or |&`
-                'a'...'z' => return Token{ .starts_lower = try self.getNextIdentifier(line) },
+                'a'...'z' => return Token.keywordOrStartsLower(try self.getNextIdentifier(line)),
                 '0'...'9' => return self.getNextNumber(line),
                 '@' => return Token{ .annotation = try self.getNextIdentifier(line) },
                 '\'' => return try self.getNextOpen(.single_quote),
