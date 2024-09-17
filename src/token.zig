@@ -393,13 +393,13 @@ const TokenOpen = enum {
 };
 
 const TokenKeyword = enum {
-    if_,
-    elif,
-    else_,
-    return_,
-    each,
-    what,
-    while_,
+    kw_if,
+    kw_elif,
+    kw_else,
+    kw_return,
+    kw_each,
+    kw_what,
+    kw_while,
 
     pub const if64 = SmallString.as64("if");
     pub const elif64 = SmallString.as64("elif");
@@ -411,26 +411,26 @@ const TokenKeyword = enum {
 
     pub fn init(string: SmallString) ?Self {
         return switch (string.big64() catch return null) {
-            if64 => .if_,
-            elif64 => .elif,
-            else64 => .else_,
-            return64 => .return_,
-            each64 => .each,
-            what64 => .what,
-            while64 => .while_,
+            if64 => .kw_if,
+            elif64 => .kw_elif,
+            else64 => .kw_else,
+            return64 => .kw_return,
+            each64 => .kw_each,
+            what64 => .kw_what,
+            while64 => .kw_while,
             else => null,
         };
     }
 
     pub fn slice(self: Self) []const u8 {
         return switch (self) {
-            .if_ => "if",
-            .elif => "elif",
-            .else_ => "else",
-            .return_ => "return",
-            .each => "each",
-            .what => "what",
-            .while_ => "while",
+            .kw_if => "kw_if",
+            .kw_elif => "kw_elif",
+            .kw_else => "kw_else",
+            .kw_return => "kw_return",
+            .kw_each => "kw_each",
+            .kw_what => "kw_what",
+            .kw_while => "kw_while",
         };
     }
 

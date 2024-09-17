@@ -911,23 +911,27 @@ test "Tokenizer.addErrorAt" {
     try tokenizer.file.lines.inBounds(0 * 2 + 1).expectEqualsString("#@! hidden caret and squiggles");
 }
 
+// TODO: test number tokenizing errors like `45e123.4` and `123.456.789`
 test "tokenizer tokenizing" {
     var tokenizer: Tokenizer = .{};
     defer tokenizer.deinit();
 
-    try tokenizer.file.lines.append(try SmallString.init("  Hello w_o_rld2  /  "));
-    try tokenizer.file.lines.append(try SmallString.init("#@! ^ this was an error last time"));
-    try tokenizer.file.lines.append(try SmallString.init("2.73456    -l1ne   "));
-    try tokenizer.file.lines.append(try SmallString.init("#@! if we have multiple lines"));
-    try tokenizer.file.lines.append(try SmallString.init("#@! it's because of additional info"));
-    try tokenizer.file.lines.append(try SmallString.init("sp3cial* Fin_ancial  +  _problems"));
-    try tokenizer.file.lines.append(try SmallString.init("#@!    assume we should get rid of this"));
-    // TODO: test number tokenizing errors like `45e123.4` and `123.456.789`
-    try tokenizer.file.lines.append(try SmallString.init("45.6e123   7E10 400."));
-    try tokenizer.file.lines.append(try SmallString.init("3 ,+7,  ;= -80"));
-    try tokenizer.file.lines.append(try SmallString.init("@[] @{} @() @ @hello_world  @A"));
+    const file_slice = [_][]const u8{
+        "  Hello w_o_rld2  /  ",
+        "#@! ^ this was an error last time",
+        "2.73456    -l1ne   ",
+        "#@! if we have multiple lines",
+        "#@! it's because of additional info",
+        "sp3cial* Fin_ancial  +  _problems",
+        "#@!    assume we should get rid of this",
+        "45.6e123   7E10 400.",
+        "3 ,+7,  ;= -80",
+        "@[] @{} @() @ @hello_world  @A",
+    };
+    try tokenizer.file.appendSlice(&file_slice);
 
     try tokenizer.complete();
+
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 2, .relative = 2, .line = 0 } },
         Token{ .starts_upper = SmallString.noAlloc("Hello") },
@@ -1003,12 +1007,72 @@ test "tokenizer tokenizing" {
     });
 
     // Tokenizer will clean up the compile errors in the file automatically:
-    try tokenizer.file.lines.inBounds(0).expectEqualsString("  Hello w_o_rld2  /  ");
-    try tokenizer.file.lines.inBounds(1).expectEqualsString("2.73456    -l1ne   ");
-    try tokenizer.file.lines.inBounds(2).expectEqualsString("sp3cial* Fin_ancial  +  _problems");
-    try tokenizer.file.lines.inBounds(3).expectEqualsString("45.6e123   7E10 400.");
-    try tokenizer.file.lines.inBounds(4).expectEqualsString("3 ,+7,  ;= -80");
-    try tokenizer.file.lines.inBounds(5).expectEqualsString("@[] @{} @() @ @hello_world  @A");
+    try tokenizer.file.expectEqualsSlice(&[_][]const u8{
+        "  Hello w_o_rld2  /  ",
+        "2.73456    -l1ne   ",
+        "sp3cial* Fin_ancial  +  _problems",
+        "45.6e123   7E10 400.",
+        "3 ,+7,  ;= -80",
+        "@[] @{} @() @ @hello_world  @A",
+    });
+}
+
+test "tokenizer keywords" {
+    var tokenizer: Tokenizer = .{};
+    defer tokenizer.deinit();
+
+    const file_slice = [_][]const u8{
+        "if iF",
+        "elif el1f",
+        "else els3",
+        "return retrun",
+        "each each3",
+        "what what2",
+        "while while1",
+    };
+    try tokenizer.file.appendSlice(&file_slice);
+
+    try tokenizer.complete();
+
+    try tokenizer.tokens.expectEqualsSlice(&[_]Token{
+        // [0]:
+        Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
+        Token{ .keyword = .kw_if },
+        Token{ .spacing = .{ .absolute = 3, .relative = 1, .line = 0 } },
+        Token{ .starts_lower = try SmallString.init("iF") },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 1 } },
+        // [5]:
+        Token{ .keyword = .kw_elif },
+        Token{ .spacing = .{ .absolute = 5, .relative = 1, .line = 1 } },
+        Token{ .starts_lower = try SmallString.init("el1f") },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 2 } },
+        Token{ .keyword = .kw_else },
+        // [10]:
+        Token{ .spacing = .{ .absolute = 5, .relative = 1, .line = 2 } },
+        Token{ .starts_lower = try SmallString.init("els3") },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 3 } },
+        Token{ .keyword = .kw_return },
+        Token{ .spacing = .{ .absolute = 7, .relative = 1, .line = 3 } },
+        // [15]:
+        Token{ .starts_lower = try SmallString.init("retrun") },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 4 } },
+        Token{ .keyword = .kw_each },
+        Token{ .spacing = .{ .absolute = 5, .relative = 1, .line = 4 } },
+        Token{ .starts_lower = try SmallString.init("each3") },
+        // [20]:
+        Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 5 } },
+        Token{ .keyword = .kw_what },
+        Token{ .spacing = .{ .absolute = 5, .relative = 1, .line = 5 } },
+        Token{ .starts_lower = try SmallString.init("what2") },
+        Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 6 } },
+        // [25]:
+        Token{ .keyword = .kw_while },
+        Token{ .spacing = .{ .absolute = 6, .relative = 1, .line = 6 } },
+        Token{ .starts_lower = try SmallString.init("while1") },
+        .file_end,
+    });
+
+    try tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
 test "tokenizer exclamation operators" {
