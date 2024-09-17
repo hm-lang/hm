@@ -500,70 +500,6 @@ pub const Parser = struct {
         };
     }
 
-    fn getMirrorTabbed(self: *Self, starting_token_index: usize, tab: u16) ?Tabbed {
-        var token_index = starting_token_index;
-        for (0..3) |closes| {
-            _ = closes;
-            if (!(self.tokenAt(token_index) catch return null).isMirrorOpen()) {
-                return null;
-            }
-            token_index += 1;
-            switch (self.tokenAt(token_index) catch return null) {
-                .file_end => return null,
-                .spacing => |spacing| if (spacing.isNewline()) {
-                    // we don't want to support horstmann like this:
-                    //&|    my_function(): array[array[int]]
-                    //&|        return
-                    //&|        [
-                    //&|        [   5, 6, 7]
-                    //&|        [   8
-                    //&|            9
-                    //&|            10
-                    //&|        ]
-                    //&|        ]
-                    // the correct syntax would be something like this:
-                    //&|    my_function(): array[array[int]]
-                    //&|        return
-                    //&|        [   [5, 6, 7]
-                    //&|            [   8
-                    //&|                9
-                    //&|                10
-                    //&|            ]
-                    //&|        ]
-                    // so if we encounter a newline just bail:
-                    // TODO: we probably can support this, although we should format.
-                    //&|    my_function(): array[array[int]]
-                    //&|        return
-                    //&|        [
-                    //&|        ]
-                    return null;
-                } else if (spacing.relative > 0 and spacing.absolute % 4 == 0) {
-                    // we do want to support this, however:
-                    //&|    my_function(): array[array[int]]
-                    //&|        return
-                    //&|        [[  5
-                    //&|            6
-                    //&|            7
-                    //&|        ]]
-                    // but only up to three braces, e.g.,
-                    //&|        [{( 5
-                    //&|        )}]
-                    // because otherwise we won't be able to trigger on `spacing.relative > 0`.
-                    if (spacing.absolute >= tab + 4) {
-                        // line continuation in some form.  we'll let the compiler figure
-                        // out the true tab later.
-                        return .{ .start_parsing_index = starting_token_index, .tab = spacing.absolute };
-                    }
-                } else {
-                    return null;
-                },
-                else => return null,
-            }
-            token_index += 1;
-        }
-        return null;
-    }
-
     /// For inside a block, the next statement index to continue with
     fn getSameBlockNextNodeIndex(self: *Self, tab: u16) ?NodeIndex {
         // TODO: ignore comments as well
@@ -633,11 +569,89 @@ pub const Parser = struct {
             },
         }
         // newlines are special due to Horstmann braces.
-        const continues_with_an_open = self.getMirrorTabbed(token_index + 1, tab) orelse return null;
-        _ = continues_with_an_open;
-        return .{ .start_parsing_index = token_index + 1, .tab = tab };
+        if (self.isHorstmannTabbedGoingForward(token_index + 1, tab)) {
+            common.debugPrint("found horstmann indent\n", .{});
+            return .{ .start_parsing_index = token_index + 1, .tab = tab };
+        } else {
+            return null;
+        }
     }
 
+    fn isHorstmannTabbedGoingForward(self: *Self, starting_token_index: usize, tab: u16) bool {
+        common.debugPrint("ok looking for a horstmann indent at {d}\n", .{starting_token_index});
+        var token_index = starting_token_index;
+        // TODO: we probably can relax the 3 parentheses limit but we need to bump the tab.
+        //&|my_function():
+        //&|    return
+        //&|    [[[[    my_indent1
+        //&|            my_indent2
+        //&|    ]]]]
+        for (0..3) |closes| {
+            common.debugPrint("ok looking for a horstmann indent ", self.peekToken() catch .file_end);
+            _ = closes;
+            if (!(self.tokenAt(token_index) catch return false).isMirrorOpen()) {
+                return false;
+            }
+            common.debugPrint("ok checking space for a horstmann indent ", self.peekToken() catch .file_end);
+            token_index += 1;
+            switch (self.tokenAt(token_index) catch return false) {
+                .file_end => return false,
+                .spacing => |spacing| if (spacing.isNewline()) {
+                    // we don't want to support horstmann like this:
+                    //&|    my_function(): array[array[int]]
+                    //&|        return
+                    //&|        [
+                    //&|        [   5, 6, 7]
+                    //&|        [   8
+                    //&|            9
+                    //&|            10
+                    //&|        ]
+                    //&|        ]
+                    // the correct syntax would be something like this:
+                    //&|    my_function(): array[array[int]]
+                    //&|        return
+                    //&|        [   [5, 6, 7]
+                    //&|            [   8
+                    //&|                9
+                    //&|                10
+                    //&|            ]
+                    //&|        ]
+                    // so if we encounter a newline just bail:
+                    // TODO: we probably can support this, although we should format.
+                    //&|    my_function(): array[array[int]]
+                    //&|        return
+                    //&|        [
+                    //&|        ]
+                    return false;
+                } else if (spacing.relative > 0 and spacing.absolute % 4 == 0) {
+                    // we do want to support this, however:
+                    //&|    my_function(): array[array[int]]
+                    //&|        return
+                    //&|        [[  5
+                    //&|            6
+                    //&|            7
+                    //&|        ]]
+                    // but only up to three braces, e.g.,
+                    //&|        [{( 5
+                    //&|        )}]
+                    // because otherwise we won't be able to trigger on `spacing.relative > 0`.
+                    if (spacing.absolute >= tab + 4) {
+                        // line continuation in some form.  we'll let the compiler figure
+                        // out the true tab later.
+                        return true;
+                    }
+                } else {
+                    return false;
+                },
+                else => return false,
+            }
+            token_index += 1;
+        }
+        return false;
+    }
+
+    /// This returns the Horstmann tab for this current spacing if there were
+    /// parentheses/braces/brackets before it with the correct syntax.
     fn getHorstmannTabAt(self: *Self, token_index: TokenIndex, tab: u16) ?u16 {
         switch (self.tokenAt(token_index) catch return null) {
             .spacing => |spacing| {
@@ -767,6 +781,11 @@ const Tabbed = struct {
 const expected_spacing = "expected spacing between each identifier";
 const expected_four_space_indents = "indents should be 4-spaces wide";
 
+// General test structure:
+// Organize by topic but within each topic put easier tests near the end.
+// This makes easy tests fail last, and they are easier to debug
+// if they are at the end of the input.
+
 test "parser indent nesting" {
     const expected_nodes = [_]Node{
         // [0]:
@@ -866,6 +885,185 @@ test "parser indent nesting" {
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
 }
+
+test "parser simple bracket indent" {
+    const expected_nodes = [_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 8, .next = 0 } },
+        Node{ .atomic_token = 1 }, // Bart4
+        Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
+        Node{ .statement = .{ .node = 5, .next = 0 } },
+        // [5]:
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+        Node{ .statement = .{ .node = 7, .next = 0 } },
+        Node{ .atomic_token = 5 }, // Bented4
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+        .end,
+    };
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Bart4",
+            "[   Bented4",
+            "]",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Bart4[",
+            "    Bented4",
+            "]",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
+test "parser simple paren indent" {
+    const expected_nodes = [_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 9, .next = 0 } },
+        Node{ .atomic_token = 1 }, // Bart3
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
+        Node{ .statement = .{ .node = 5, .next = 0 } },
+        // [5]:
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+        Node{ .statement = .{ .node = 7, .next = 0 } },
+        Node{ .prefix = .{ .operator = Operator.plus, .node = 8 } },
+        Node{ .atomic_token = 7 }, // Bented3
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+        // [10]:
+        .end,
+    };
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Bart3",
+            "(   +Bented3",
+            ")",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Bart3(",
+            "    +Bented3",
+            ")",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
+// TODO: implicit blocks
+test "parser simple explicit brace block" {
+    const expected_nodes = [_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 10, .next = 0 } }, // root block first (only) statement
+        Node{ .atomic_token = 1 }, // Bart5
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } }, // {...}
+        Node{ .statement = .{ .node = 5, .next = 0 } }, // internal statement
+        // [5]:
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } }, // indent
+        Node{ .statement = .{ .node = 7, .next = 8 } }, // Bented51 statement
+        Node{ .atomic_token = 7 }, // Bented51
+        Node{ .statement = .{ .node = 9, .next = 0 } }, // Bented52 statement
+        Node{ .atomic_token = 9 }, // Bented52
+        // [10]:
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } }, // :
+        .end,
+    };
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Bart5:",
+            "{   Bented51",
+            "    Bented52",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "Bart5: {",
+            "    Bented51",
+            "    Bented52",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
+// TODO: add `SomeCondition { some_bracket_logic() }`
+//      braces need to be lower priority than `access`.
+//      same for `open = .none` blocks.
+//&|if MyCondition
+//&|    do_something()
 
 // TODO: test to error out on spacing indented to +8 or more at start of file
 // TODO: test to see what happens when indented to +4 at start of file
@@ -1039,224 +1237,7 @@ test "parser implied blocks" {
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
 }
-//
-//test "parser explicit Horstmann blocks" {
-//    {
-//        var parser: Parser = .{};
-//        defer parser.deinit();
-//        errdefer {
-//            common.debugPrint("# file:\n", parser.tokenizer.file);
-//        }
-//        const file_slice = [_][]const u8{
-//            "Bart4",
-//            "[   Bented4",
-//            "]",
-//        };
-//        try parser.tokenizer.file.appendSlice(&file_slice);
-//
-//        try parser.complete();
-//
-//        try parser.nodes.expectEqualsSlice(&[_]Node{
-//            // [0]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-//            Node{ .statement = .{ .node = 8, .next = 0 } },
-//            Node{ .atomic_token = 1 }, // Bart4
-//            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
-//            Node{ .statement = .{ .node = 5, .next = 0 } },
-//            // [5]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-//            Node{ .statement = .{ .node = 7, .next = 0 } },
-//            Node{ .atomic_token = 5 }, // Bented4
-//            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
-//            .end,
-//        });
-//        // No tampering done with the file, i.e., no errors.
-//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-//    }
-//    {
-//        var parser: Parser = .{};
-//        defer parser.deinit();
-//        errdefer {
-//            common.debugPrint("# file:\n", parser.tokenizer.file);
-//        }
-//        const file_slice = [_][]const u8{
-//            "Bart3",
-//            "(   +Bented3",
-//            ")",
-//        };
-//        try parser.tokenizer.file.appendSlice(&file_slice);
-//
-//        try parser.complete();
-//
-//        try parser.nodes.expectEqualsSlice(&[_]Node{
-//            // [0]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-//            Node{ .statement = .{ .node = 9, .next = 0 } },
-//            Node{ .atomic_token = 1 }, // Bart3
-//            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
-//            Node{ .statement = .{ .node = 5, .next = 0 } },
-//            // [5]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-//            Node{ .statement = .{ .node = 7, .next = 0 } },
-//            Node{ .prefix = .{ .operator = Operator.plus, .node = 8 } },
-//            Node{ .atomic_token = 7 }, // Bented3
-//            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
-//            // [10]:
-//            .end,
-//        });
-//        // No tampering done with the file, i.e., no errors.
-//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-//    }
-//    {
-//        var parser: Parser = .{};
-//        defer parser.deinit();
-//        errdefer {
-//            common.debugPrint("# file:\n", parser.tokenizer.file);
-//        }
-//        const file_slice = [_][]const u8{
-//            "Bart5:",
-//            "{   Bented51",
-//            "    Bented52",
-//            "}",
-//        };
-//        try parser.tokenizer.file.appendSlice(&file_slice);
-//
-//        try parser.complete();
-//
-//        try parser.nodes.expectEqualsSlice(&[_]Node{
-//            // [0]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-//            Node{ .statement = .{ .node = 10, .next = 0 } },
-//            Node{ .atomic_token = 1 }, // Bart4
-//            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } },
-//            Node{ .statement = .{ .node = 5, .next = 0 } },
-//            // [5]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-//            Node{ .statement = .{ .node = 7, .next = 8 } },
-//            Node{ .atomic_token = 7 }, // Bented51
-//            Node{ .statement = .{ .node = 9, .next = 0 } },
-//            Node{ .atomic_token = 9 }, // Bented52
-//            // [10]:
-//            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
-//            .end,
-//        });
-//        // No tampering done with the file, i.e., no errors.
-//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-//    }
-//}
-//
-//test "parser explicit one-true-brace blocks" {
-//    // TODO: we should split these out differently, e.g., by brace type
-//    //      Horstmann and OTB should be in the same test with the same expected nodes.
-//    {
-//        var parser: Parser = .{};
-//        defer parser.deinit();
-//        errdefer {
-//            common.debugPrint("# file:\n", parser.tokenizer.file);
-//        }
-//        const file_slice = [_][]const u8{
-//            "Otbart4[",
-//            "    Otbed4",
-//            "]",
-//        };
-//        try parser.tokenizer.file.appendSlice(&file_slice);
-//
-//        try parser.complete();
-//
-//        try parser.nodes.expectEqualsSlice(&[_]Node{
-//            // [0]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-//            Node{ .statement = .{ .node = 8, .next = 0 } },
-//            Node{ .atomic_token = 1 },
-//            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
-//            Node{ .statement = .{ .node = 5, .next = 0 } },
-//            // [5]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-//            Node{ .statement = .{ .node = 7, .next = 0 } },
-//            Node{ .atomic_token = 5 },
-//            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
-//            .end,
-//        });
-//        // No tampering done with the file, i.e., no errors.
-//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-//    }
-//    {
-//        var parser: Parser = .{};
-//        defer parser.deinit();
-//        errdefer {
-//            common.debugPrint("# file:\n", parser.tokenizer.file);
-//        }
-//        const file_slice = [_][]const u8{
-//            "Otbart3(",
-//            "    +Otbed3",
-//            ")",
-//        };
-//        try parser.tokenizer.file.appendSlice(&file_slice);
-//
-//        try parser.complete();
-//
-//        try parser.nodes.expectEqualsSlice(&[_]Node{
-//            // [0]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-//            Node{ .statement = .{ .node = 9, .next = 0 } },
-//            Node{ .atomic_token = 1 },
-//            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
-//            Node{ .statement = .{ .node = 5, .next = 0 } },
-//            // [5]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-//            Node{ .statement = .{ .node = 7, .next = 0 } },
-//            Node{ .prefix = .{ .operator = Operator.plus, .node = 8 } },
-//            Node{ .atomic_token = 7 },
-//            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
-//            // [10]:
-//            .end,
-//        });
-//        // No tampering done with the file, i.e., no errors.
-//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-//    }
-//    {
-//        var parser: Parser = .{};
-//        defer parser.deinit();
-//        errdefer {
-//            common.debugPrint("# file:\n", parser.tokenizer.file);
-//        }
-//        const file_slice = [_][]const u8{
-//            "Otbart5: {",
-//            "    Otbed51",
-//            "    Otbed52",
-//            "}",
-//        };
-//        try parser.tokenizer.file.appendSlice(&file_slice);
-//
-//        try parser.complete();
-//
-//        try parser.nodes.expectEqualsSlice(&[_]Node{
-//            // [0]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-//            Node{ .statement = .{ .node = 10, .next = 0 } },
-//            Node{ .atomic_token = 1 },
-//            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } },
-//            Node{ .statement = .{ .node = 5, .next = 0 } },
-//            // [5]:
-//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-//            Node{ .statement = .{ .node = 7, .next = 8 } },
-//            Node{ .atomic_token = 7 },
-//            Node{ .statement = .{ .node = 9, .next = 0 } },
-//            Node{ .atomic_token = 9 },
-//            // [10]:
-//            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
-//            .end,
-//        });
-//        // No tampering done with the file, i.e., no errors.
-//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-//    }
-//    // TODO: add `SomeCondition { some_bracket_logic() }`
-//    //      braces need to be lower priority than `access`.
-//    //      same for `open = .none` blocks.
-//    //&|if MyCondition
-//    //&|    do_something()
-//}
-//
+
 test "parser line continuations" {
     var parser: Parser = .{};
     defer parser.deinit();
