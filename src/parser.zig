@@ -1177,6 +1177,8 @@ test "parser explicit Horstmann blocks" {
 }
 
 test "parser explicit one-true-brace blocks" {
+    // TODO: we should split these out differently, e.g., by brace type
+    //      Horstmann and OTB should be in the same test with the same expected nodes.
     {
         var parser: Parser = .{};
         defer parser.deinit();
@@ -2049,6 +2051,35 @@ test "simple parentheses, brackets, and braces" {
 }
 
 test "mixed commas and newlines" {
+    const expected_nodes = [_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 20, .next = 0 } },
+        Node{ .callable_token = 1 }, // goober
+        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // goober()
+        // [5]:
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 6 } }, // { ... }
+        Node{ .statement = .{ .node = 7, .next = 0 } }, // interior of {...}
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 8 } }, // interior is indented
+        Node{ .statement = .{ .node = 9, .next = 10 } }, // first statement
+        Node{ .atomic_token = 11 }, // 405
+        // [10]:
+        Node{ .statement = .{ .node = 11, .next = 12 } }, // second statement
+        Node{ .atomic_token = 15 }, // 406
+        Node{ .statement = .{ .node = 13, .next = 14 } },
+        Node{ .atomic_token = 17 }, // 407
+        Node{ .statement = .{ .node = 15, .next = 16 } },
+        // [15]:
+        Node{ .atomic_token = 19 }, // 408
+        Node{ .statement = .{ .node = 17, .next = 18 } },
+        Node{ .atomic_token = 23 }, // 409
+        Node{ .statement = .{ .node = 19, .next = 0 } },
+        Node{ .atomic_token = 27 }, // 510
+        // [20]:
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
+        .end,
+    };
     {
         var parser: Parser = .{};
         defer parser.deinit();
@@ -2067,35 +2098,29 @@ test "mixed commas and newlines" {
 
         try parser.complete();
 
-        try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 20, .next = 0 } },
-            Node{ .callable_token = 1 }, // goober
-            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
-            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // goober()
-            // [5]:
-            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 6 } }, // { ... }
-            Node{ .statement = .{ .node = 7, .next = 0 } }, // interior of {...}
-            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 8 } }, // interior is indented
-            Node{ .statement = .{ .node = 9, .next = 10 } }, // first statement
-            Node{ .atomic_token = 11 }, // 405
-            // [10]:
-            Node{ .statement = .{ .node = 11, .next = 12 } }, // second statement
-            Node{ .atomic_token = 15 }, // 406
-            Node{ .statement = .{ .node = 13, .next = 14 } },
-            Node{ .atomic_token = 17 }, // 407
-            Node{ .statement = .{ .node = 15, .next = 16 } },
-            // [15]:
-            Node{ .atomic_token = 19 }, // 408
-            Node{ .statement = .{ .node = 17, .next = 18 } },
-            Node{ .atomic_token = 23 }, // 409
-            Node{ .statement = .{ .node = 19, .next = 0 } },
-            Node{ .atomic_token = 27 }, // 510
-            // [20]:
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
-            .end,
-        });
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "goober():",
+            "{   405, 406",
+            "    407",
+            "    408, 409,",
+            "    510,",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
