@@ -311,8 +311,6 @@ pub const Parser = struct {
             self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
             return ParserError.syntax;
         };
-        common.debugPrint("was at tab {d} -> {d}\n", .{ tab, next_tabbed.tab });
-        self.debugTokens();
         self.farthest_token_index = next_tabbed.start_parsing_index;
         if (next_tabbed.tab > tab) {
             const enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
@@ -570,7 +568,6 @@ pub const Parser = struct {
         }
         // newlines are special due to Horstmann braces.
         if (self.isHorstmannTabbedGoingForward(token_index + 1, tab)) {
-            common.debugPrint("found horstmann indent\n", .{});
             return .{ .start_parsing_index = token_index + 1, .tab = tab };
         } else {
             return null;
@@ -578,7 +575,6 @@ pub const Parser = struct {
     }
 
     fn isHorstmannTabbedGoingForward(self: *Self, starting_token_index: usize, tab: u16) bool {
-        common.debugPrint("ok looking for a horstmann indent at {d}\n", .{starting_token_index});
         var token_index = starting_token_index;
         // TODO: we probably can relax the 3 parentheses limit but we need to bump the tab.
         //&|my_function():
@@ -587,12 +583,10 @@ pub const Parser = struct {
         //&|            my_indent2
         //&|    ]]]]
         for (0..3) |closes| {
-            common.debugPrint("ok looking for a horstmann indent ", self.peekToken() catch .file_end);
             _ = closes;
             if (!(self.tokenAt(token_index) catch return false).isMirrorOpen()) {
                 return false;
             }
-            common.debugPrint("ok checking space for a horstmann indent ", self.peekToken() catch .file_end);
             token_index += 1;
             switch (self.tokenAt(token_index) catch return false) {
                 .file_end => return false,
@@ -640,8 +634,6 @@ pub const Parser = struct {
                         // out the true tab later.
                         return true;
                     }
-                } else {
-                    return false;
                 },
                 else => return false,
             }
@@ -694,9 +686,13 @@ pub const Parser = struct {
     }
 
     pub fn debugTokens(self: *Self) void {
+        self.debugTokensUpTo(self.farthest_token_index);
+    }
+
+    pub fn debugTokensUpTo(self: *Self, end_token_index: TokenIndex) void {
         common.debugPrint("Tokens: [\n", .{});
         const start = common.back(self.farthest_token_index, 5) orelse 0;
-        for (start..self.farthest_token_index + 1) |token_index| {
+        for (start..end_token_index + 1) |token_index| {
             common.debugPrint(" [{d}]:", .{token_index});
             common.debugPrint(" ", self.tokenAt(token_index) catch .file_end);
         }
@@ -2038,7 +2034,7 @@ test "simple parentheses, brackets, and braces" {
 //            common.debugPrint("# file:\n", parser.tokenizer.file);
 //        }
 //        const file_slice = [_][]const u8{
-//            "goober(): {",
+//            "goober {",
 //            "    405, 406",
 //            "    407",
 //            "    408, 409,",
@@ -2060,7 +2056,7 @@ test "simple parentheses, brackets, and braces" {
 //            common.debugPrint("# file:\n", parser.tokenizer.file);
 //        }
 //        const file_slice = [_][]const u8{
-//            "goober():",
+//            "goober",
 //            "{   405, 406",
 //            "    407",
 //            "    408, 409,",
