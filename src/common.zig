@@ -90,6 +90,10 @@ pub fn swap(a: anytype, b: anytype) void {
     b.* = c;
 }
 
+pub fn boolSlice(b: bool) []const u8 {
+    return if (b) "true" else "false";
+}
+
 pub fn Found(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Optional => |optional| optional.child,

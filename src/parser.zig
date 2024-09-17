@@ -62,19 +62,19 @@ pub const Parser = struct {
         const enclosed_node = try if (open.isQuote())
             self.getNextEnclosedQuote(tab, open, enclosed_node_index)
         else
-            self.getNextEnclosedBlock(tab, open, enclosed_node_index);
+            self.getNextEnclosedBlock(tab, open, enclosed_node_index, false);
 
         self.nodes.set(enclosed_node_index, .{ .enclosed = enclosed_node }) catch unreachable;
 
         return enclosed_node_index;
     }
 
-    fn getNextEnclosedBlock(self: *Self, tab: u16, open: Open, enclosed_node_index: NodeIndex) ParserError!Node.Enclosed {
+    fn getNextEnclosedBlock(self: *Self, tab: u16, open: Open, enclosed_node_index: NodeIndex, start_check_for_indents: bool) ParserError!Node.Enclosed {
         var enclosed_start_index: usize = 0;
         var previous_statement_index: usize = 0;
         var until_triggered = false;
         // Check for a Horstmann indent here.
-        var check_for_indents = open.mirrorsClose();
+        var check_for_indents = start_check_for_indents;
         while (self.getSameBlockNextTabbed(tab, check_for_indents)) |next_tabbed| {
             check_for_indents = false;
             common.debugPrint("tab {d} in block {d}, looking for next statement\n", .{ tab, enclosed_node_index });
@@ -90,7 +90,7 @@ pub const Parser = struct {
                     .node = nested_enclosed_index,
                 } }) catch unreachable;
                 break :indented_blk .{ .node = statement_index, .until_triggered = false };
-            } else self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
+            } else self.appendNextStatement(tab, Until.closing(open), .only_try, next_tabbed.newline) catch {
                 // There wasn't another statement here.
                 common.debugPrint("tab {d} in block {d}, couldn't find another statement\n", .{ tab, enclosed_node_index });
                 self.debugTokens();
@@ -156,7 +156,7 @@ pub const Parser = struct {
         return ParserError.unimplemented;
     }
 
-    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
+    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse, start_of_line: bool) ParserError!NodeResult {
         // To make nodes mostly go in order, append the node first.
         const statement_index = try self.justAppendNode(.end);
         errdefer {
@@ -167,7 +167,7 @@ pub const Parser = struct {
             }
         }
 
-        const result = try self.appendNextExpression(tab, until, or_else);
+        const result = try self.appendNextExpression(tab, until, or_else, start_of_line);
 
         self.nodes.set(statement_index, Node{ .statement = .{
             .node = result.node,
@@ -178,7 +178,7 @@ pub const Parser = struct {
 
     /// Supports starting with spacing *or not* (e.g., for the start of a statement
     /// where we don't want to check the indent yet).
-    fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
+    fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse, start_of_line: bool) ParserError!NodeResult {
         errdefer {
             if (or_else.be_noisy()) |error_message| {
                 self.addTokenizerError(error_message);
@@ -192,19 +192,12 @@ pub const Parser = struct {
         // inside the `appendNextStandaloneExpression`?  e.g., `(whatever, +)`?
         // i think that will be some other syntax error, though.
         // TODO: add `tab` to the StatementNode so we can see if it's been indented
-        _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else);
+        _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else, start_of_line);
         defer hierarchy.deinit();
 
         while (true) {
-            const restore_index = self.farthest_token_index;
             const result = try self.seekNextOperation(tab, until);
-            const operation = if (result.tab == tab)
-                result.operation
-            else blk: {
-                std.debug.assert(result.tab == tab + 4);
-                self.farthest_token_index = restore_index;
-                break :blk Operation{ .operator = .access, .type = .infix };
-            };
+            const operation = result.operation;
             switch (operation.operator) {
                 .none => return result.toNode(hierarchy.inBounds(0)),
                 .comma => {
@@ -217,7 +210,7 @@ pub const Parser = struct {
             }
             if (operation.type == .postfix) {
                 try self.appendPostfixOperation(&hierarchy, operation);
-            } else if (self.appendNextStandaloneExpression(&hierarchy, tab, .only_try)) |right_index| {
+            } else if (self.appendNextStandaloneExpression(&hierarchy, tab, .only_try, false)) |right_index| {
                 try self.appendInfixOperation(&hierarchy, operation, right_index);
             } else |error_getting_right_hand_expression| {
                 if (!operation.operator.isPostfixable()) {
@@ -324,7 +317,8 @@ pub const Parser = struct {
             //&|        +enclosed
             // this is probably a syntax error, but we'll parse it as `Some_expression` `access` `+enclosed`
             self.farthest_token_index = restore_index;
-            operation = .{ .operator = .access, .type = .infix };
+            operation = .{ .operator = .indent, .type = .infix };
+            self.farthest_token_index = restore_index;
         }
 
         if (until.shouldBreakBeforeOperation(operation)) {
@@ -340,15 +334,17 @@ pub const Parser = struct {
     /// `First_identifier Second_identifier`, just grab the first one.
     /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
     /// Supports starting with spacing *or not* (e.g., for the start of a statement).
-    fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse) ParserError!NodeIndex {
-        const next_tabbed = self.getSameStatementNextTabbed(tab, false) orelse {
+    fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse, start_of_line: bool) ParserError!NodeIndex {
+        const next_tabbed = self.getSameStatementNextTabbed(tab, start_of_line) orelse {
             const had_expression_token = false;
             self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
             return ParserError.syntax;
         };
         self.farthest_token_index = next_tabbed.start_parsing_index;
         if (next_tabbed.tab > tab) {
-            return self.appendNextEnclosed(next_tabbed.tab, .none);
+            const enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
+            hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
+            return enclosed_index;
         }
 
         switch (try self.peekToken()) {
@@ -402,7 +398,7 @@ pub const Parser = struct {
                 // We're assuming that prefix operators should not break at an operator using an `Until` here.
                 // We need every operation *stronger* than this prefix to be attached to this prefix.
                 // TODO: add `tab` to the StatementNode so we can see if it's been indented
-                const inner_result = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else);
+                const inner_result = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else, false);
                 switch (self.nodes.items()[prefix_index]) {
                     // restore the invariant:
                     .prefix => |*prefix| {
@@ -616,7 +612,7 @@ pub const Parser = struct {
                 if (newline_tab < tab) {
                     return null;
                 } else {
-                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = newline_tab };
+                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = newline_tab, .newline = true };
                 }
             } else if (spacing.absolute < tab) {
                 return null;
@@ -760,6 +756,7 @@ const OperationResult = struct {
 
 const Tabbed = struct {
     tab: u16,
+    newline: bool = false,
     start_parsing_index: NodeIndex = 0,
     // TODO: probably needs a `had_newline: bool` in case we want to add a comma to statements
 
@@ -777,7 +774,11 @@ const Tabbed = struct {
     }
 
     pub fn print(self: Self, writer: anytype) !void {
-        try writer.print("Tabbed{{ .tab = {d}, .start_parsing_index = {d} }}", .{ self.tab, self.start_parsing_index });
+        try writer.print("Tabbed{{ .tab = {d}, .newline = {s}, .start_parsing_index = {d} }}", .{
+            self.tab,
+            common.boolSlice(self.newline),
+            self.start_parsing_index,
+        });
     }
 
     const Self = @This();
@@ -2044,6 +2045,59 @@ test "simple parentheses, brackets, and braces" {
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "{Boo: 33, hoo: 123 + 44}-57",
         });
+    }
+}
+
+test "mixed commas and newlines" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "goober(): {",
+            "    405, 406",
+            "    407",
+            "    408, 409,",
+            "    510,",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 20, .next = 0 } },
+            Node{ .callable_token = 1 }, // goober
+            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
+            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // goober()
+            // [5]:
+            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 6 } }, // { ... }
+            Node{ .statement = .{ .node = 7, .next = 0 } }, // interior of {...}
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 8 } }, // interior is indented
+            Node{ .statement = .{ .node = 9, .next = 10 } }, // first statement
+            Node{ .atomic_token = 11 }, // 405
+            // [10]:
+            Node{ .statement = .{ .node = 11, .next = 12 } }, // second statement
+            Node{ .atomic_token = 15 }, // 406
+            Node{ .statement = .{ .node = 13, .next = 14 } },
+            Node{ .atomic_token = 17 }, // 407
+            Node{ .statement = .{ .node = 15, .next = 16 } },
+            // [15]:
+            Node{ .atomic_token = 19 }, // 408
+            Node{ .statement = .{ .node = 17, .next = 18 } },
+            Node{ .atomic_token = 23 }, // 409
+            Node{ .statement = .{ .node = 19, .next = 0 } },
+            Node{ .atomic_token = 27 }, // 510
+            // [20]:
+            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
 }
 
