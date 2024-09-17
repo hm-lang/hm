@@ -2000,7 +2000,7 @@ test "simple parentheses, brackets, and braces" {
     }
 }
 
-test "mixed commas and newlines" {
+test "mixed commas and newlines with block" {
     const expected_nodes = [_]Node{
         // [0]:
         Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
@@ -2028,6 +2028,7 @@ test "mixed commas and newlines" {
         .end,
     };
     {
+        // Explicit brace, one-true-brace style
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
@@ -2050,6 +2051,7 @@ test "mixed commas and newlines" {
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
     {
+        // Explicit brace, Horstmann style
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
@@ -2068,6 +2070,53 @@ test "mixed commas and newlines" {
         try parser.complete();
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        // implicit brace
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "goober",
+            "    405, 406",
+            "    407",
+            "    408, 409,",
+            "    510,",
+            "",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        // TODO: do we want to make this exactly like the explicit braces above?
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 16, .next = 0 } },
+            Node{ .callable_token = 1 }, // goober
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 4 } },
+            Node{ .statement = .{ .node = 5, .next = 6 } }, // first statement
+            // [5]:
+            Node{ .atomic_token = 3 }, // 405
+            Node{ .statement = .{ .node = 7, .next = 8 } }, // second
+            Node{ .atomic_token = 7 }, // 406
+            Node{ .statement = .{ .node = 9, .next = 10 } }, // third
+            Node{ .atomic_token = 9 }, // 407
+            // [10]:
+            Node{ .statement = .{ .node = 11, .next = 12 } },
+            Node{ .atomic_token = 11 }, // 408
+            Node{ .statement = .{ .node = 13, .next = 14 } },
+            Node{ .atomic_token = 15 }, // 409
+            Node{ .statement = .{ .node = 15, .next = 0 } },
+            // [15]:
+            Node{ .atomic_token = 19 }, // 510
+            Node{ .binary = .{ .operator = Operator.indent, .left = 2, .right = 3 } },
+            .end,
+        });
         // No tampering done with the file, i.e., no errors.
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
