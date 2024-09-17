@@ -274,6 +274,10 @@ pub const Parser = struct {
                 self.farthest_token_index -= 1;
                 break :blk .{ .operator = .access, .type = .infix };
             },
+            .open => |open| blk: {
+                self.farthest_token_index -= 1;
+                break :blk .{ .operator = if (open == .brace) .indent else .access, .type = .infix };
+            },
             else => blk: {
                 // We encountered another realizable token, back up so that
                 // we maintain the invariant that there's a space before the next real element.
@@ -2020,7 +2024,7 @@ test "mixed commas and newlines" {
         Node{ .atomic_token = 17 }, // 409
         Node{ .statement = .{ .node = 17, .next = 0 } },
         Node{ .atomic_token = 21 }, // 510
-        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // goober {}
+        Node{ .binary = .{ .operator = Operator.indent, .left = 2, .right = 3 } }, // goober {}
         .end,
     };
     {
