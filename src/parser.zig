@@ -62,35 +62,22 @@ pub const Parser = struct {
         const enclosed_node = try if (open.isQuote())
             self.getNextEnclosedQuote(tab, open, enclosed_node_index)
         else
-            self.getNextEnclosedBlock(tab, open, enclosed_node_index, false);
+            self.getNextEnclosedBlock(tab, open, enclosed_node_index);
 
         self.nodes.set(enclosed_node_index, .{ .enclosed = enclosed_node }) catch unreachable;
 
         return enclosed_node_index;
     }
 
-    fn getNextEnclosedBlock(self: *Self, tab: u16, open: Open, enclosed_node_index: NodeIndex, start_check_for_indents: bool) ParserError!Node.Enclosed {
+    fn getNextEnclosedBlock(self: *Self, tab: u16, open: Open, enclosed_node_index: NodeIndex) ParserError!Node.Enclosed {
         var enclosed_start_index: usize = 0;
         var previous_statement_index: usize = 0;
         var until_triggered = false;
-        // Check for a Horstmann indent here.
-        var check_for_indents = start_check_for_indents;
-        while (self.getSameBlockNextTabbed(tab, check_for_indents)) |next_tabbed| {
-            check_for_indents = false;
+        while (self.getSameBlockNextTabbed(tab)) |next_tabbed| {
             common.debugPrint("tab {d} in block {d}, looking for next statement\n", .{ tab, enclosed_node_index });
             self.debugTokens();
             self.farthest_token_index = next_tabbed.start_parsing_index;
-            const statement_result: NodeResult = if (next_tabbed.tab > tab) indented_blk: {
-                // TODO: do we need an errdefer to pop/remove this `justAppendNode` if enclosing fails?
-                const statement_index = try self.justAppendNode(.end);
-                common.debugPrint("in block {d} found ennesting indent {d} -> {d}\n", .{ enclosed_node_index, tab, next_tabbed.tab });
-                const nested_enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
-                common.debugPrint("in block {d} found denesting indent {d} -> {d}\n", .{ enclosed_node_index, next_tabbed.tab, tab });
-                self.nodes.set(statement_index, Node{ .statement = .{
-                    .node = nested_enclosed_index,
-                } }) catch unreachable;
-                break :indented_blk .{ .node = statement_index, .until_triggered = false };
-            } else self.appendNextStatement(tab, Until.closing(open), .only_try, next_tabbed.newline) catch {
+            const statement_result = self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
                 // There wasn't another statement here.
                 common.debugPrint("tab {d} in block {d}, couldn't find another statement\n", .{ tab, enclosed_node_index });
                 self.debugTokens();
@@ -156,7 +143,7 @@ pub const Parser = struct {
         return ParserError.unimplemented;
     }
 
-    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse, start_of_line: bool) ParserError!NodeResult {
+    fn appendNextStatement(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
         // To make nodes mostly go in order, append the node first.
         const statement_index = try self.justAppendNode(.end);
         errdefer {
@@ -167,7 +154,7 @@ pub const Parser = struct {
             }
         }
 
-        const result = try self.appendNextExpression(tab, until, or_else, start_of_line);
+        const result = try self.appendNextExpression(tab, until, or_else);
 
         self.nodes.set(statement_index, Node{ .statement = .{
             .node = result.node,
@@ -178,7 +165,7 @@ pub const Parser = struct {
 
     /// Supports starting with spacing *or not* (e.g., for the start of a statement
     /// where we don't want to check the indent yet).
-    fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse, start_of_line: bool) ParserError!NodeResult {
+    fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
         errdefer {
             if (or_else.be_noisy()) |error_message| {
                 self.addTokenizerError(error_message);
@@ -192,7 +179,7 @@ pub const Parser = struct {
         // inside the `appendNextStandaloneExpression`?  e.g., `(whatever, +)`?
         // i think that will be some other syntax error, though.
         // TODO: add `tab` to the StatementNode so we can see if it's been indented
-        _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else, start_of_line);
+        _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else);
         defer hierarchy.deinit();
 
         while (true) {
@@ -210,7 +197,7 @@ pub const Parser = struct {
             }
             if (operation.type == .postfix) {
                 try self.appendPostfixOperation(&hierarchy, operation);
-            } else if (self.appendNextStandaloneExpression(&hierarchy, tab, .only_try, false)) |right_index| {
+            } else if (self.appendNextStandaloneExpression(&hierarchy, tab, .only_try)) |right_index| {
                 try self.appendInfixOperation(&hierarchy, operation, right_index);
             } else |error_getting_right_hand_expression| {
                 if (!operation.operator.isPostfixable()) {
@@ -256,7 +243,7 @@ pub const Parser = struct {
     fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!OperationResult {
         const restore_index = self.farthest_token_index;
 
-        var operation_tabbed = self.getSameStatementNextTabbed(tab, true) orelse {
+        var operation_tabbed = self.getSameStatementNextTabbed(tab) orelse {
             return OperationResult.notTriggered(.{ .operator = .none }, tab);
         };
         self.farthest_token_index = operation_tabbed.start_parsing_index;
@@ -267,7 +254,7 @@ pub const Parser = struct {
                     common.debugPrint("getting infix operator at ", self.peekToken() catch .file_end);
                     self.farthest_token_index += 1;
                     common.debugPrint("checking for indent ", self.peekToken() catch .file_end);
-                    if (self.getSameStatementNextTabbed(tab, true)) |next_tabbed| {
+                    if (self.getSameStatementNextTabbed(tab)) |next_tabbed| {
                         common.debugPrint("got next tabbed ", next_tabbed);
 
                         // see if we should keep parsing based on tabs past the operation.
@@ -334,18 +321,23 @@ pub const Parser = struct {
     /// `First_identifier Second_identifier`, just grab the first one.
     /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
     /// Supports starting with spacing *or not* (e.g., for the start of a statement).
-    fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse, start_of_line: bool) ParserError!NodeIndex {
-        const next_tabbed = self.getSameStatementNextTabbed(tab, start_of_line) orelse {
+    fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse) ParserError!NodeIndex {
+        common.debugPrint("getting next standalone expression at token ", self.peekToken() catch .file_end);
+        const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
             const had_expression_token = false;
             self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
             return ParserError.syntax;
         };
+        common.debugPrint("at tab {d}, ", .{tab});
+        common.debugPrint("getting next standalone tabbed ", next_tabbed);
         self.farthest_token_index = next_tabbed.start_parsing_index;
         if (next_tabbed.tab > tab) {
+            common.debugPrint("doing an indent, starting enclosed.none at token ", self.peekToken() catch .file_end);
             const enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
             hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
             return enclosed_index;
         }
+        common.debugPrint("starting standalone at token ", self.peekToken() catch .file_end);
 
         switch (try self.peekToken()) {
             .starts_upper, .number => {
@@ -370,6 +362,7 @@ pub const Parser = struct {
             },
             .open => |open| {
                 common.debugPrint("tab {d}, ", .{tab});
+                common.debugPrint("found an open ", open);
                 common.debugPrint("found an open ", open);
                 //const enclosed_tabbed: Tabbed = self.getMirrorTabbed(self.farthest_token_index, tab) orelse .{ .tab = tab };
                 //const enclosed_tab = enclosed_tabbed.tab;
@@ -398,7 +391,7 @@ pub const Parser = struct {
                 // We're assuming that prefix operators should not break at an operator using an `Until` here.
                 // We need every operation *stronger* than this prefix to be attached to this prefix.
                 // TODO: add `tab` to the StatementNode so we can see if it's been indented
-                const inner_result = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else, false);
+                const inner_result = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else);
                 switch (self.nodes.items()[prefix_index]) {
                     // restore the invariant:
                     .prefix => |*prefix| {
@@ -597,7 +590,7 @@ pub const Parser = struct {
     }
 
     /// For inside a block, the next statement index to continue with
-    fn getSameBlockNextTabbed(self: *Self, tab: u16, check_for_indents: bool) ?Tabbed {
+    fn getSameBlockNextTabbed(self: *Self, tab: u16) ?Tabbed {
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
@@ -612,13 +605,10 @@ pub const Parser = struct {
                 if (newline_tab < tab) {
                     return null;
                 } else {
-                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = newline_tab, .newline = true };
+                    return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab, .newline = true };
                 }
             } else if (spacing.absolute < tab) {
                 return null;
-            } else if (check_for_indents and spacing.absolute % 4 == 0) {
-                // Assume we're possibly in a Horstmann indent
-                return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = spacing.absolute };
             } else {
                 // Not a newline, just continuing in the same statement
                 return .{ .start_parsing_index = self.farthest_token_index + 1, .tab = tab };
@@ -629,11 +619,11 @@ pub const Parser = struct {
     }
 
     /// For inside a statement, the next index that we should continue with.
-    fn getSameStatementNextTabbed(self: *Self, tab: u16, check_for_indents_at_start: bool) ?Tabbed {
-        return self.getSameStatementNextTabbedAt(self.farthest_token_index, tab, check_for_indents_at_start);
+    fn getSameStatementNextTabbed(self: *Self, tab: u16) ?Tabbed {
+        return self.getSameStatementNextTabbedAt(self.farthest_token_index, tab);
     }
 
-    fn getSameStatementNextTabbedAt(self: *Self, token_index: TokenIndex, tab: u16, check_for_indents_at_start: bool) ?Tabbed {
+    fn getSameStatementNextTabbedAt(self: *Self, token_index: TokenIndex, tab: u16) ?Tabbed {
         // TODO: ignore comments
         switch (self.tokenAt(token_index) catch return null) {
             .file_end => return null,
@@ -654,19 +644,33 @@ pub const Parser = struct {
                     return null;
                 }
                 // handle newlines with no indent especially below.
-            } else if (check_for_indents_at_start and spacing.relative > 0 and spacing.absolute % 4 == 0) {
-                // Space on the same line, but indented
-                return .{ .start_parsing_index = token_index + 1, .tab = spacing.absolute };
             } else {
-                // Space on the same line, just continue parsing
-                return .{ .start_parsing_index = token_index + 1, .tab = tab };
+                return .{
+                    .start_parsing_index = token_index + 1,
+                    .tab = if (self.isHorstmannSpacingAt(token_index)) tab + 4 else tab,
+                };
             },
-            else => return .{ .start_parsing_index = token_index, .tab = tab },
+            else => {
+                return .{
+                    .start_parsing_index = token_index,
+                    .tab = if (self.isHorstmannSpacingAt(token_index - 1)) tab + 4 else tab,
+                };
+            },
         }
         // newlines are special due to Horstmann braces.
         const continues_with_an_open = self.getMirrorTabbed(token_index + 1, tab) orelse return null;
         _ = continues_with_an_open;
         return .{ .start_parsing_index = token_index + 1, .tab = tab };
+    }
+
+    fn isHorstmannSpacingAt(self: *Self, token_index: TokenIndex) bool {
+        switch (self.tokenAt(token_index) catch return false) {
+            .spacing => |spacing| {
+                return spacing.relative > 0 and spacing.absolute % 4 == 0 and
+                    (token_index == 0 or (self.tokenAt(token_index - 1) catch unreachable).isMirrorOpen());
+            },
+            else => return false,
+        }
     }
 
     fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, or_else: OrElse) ParserError!void {
@@ -2081,6 +2085,7 @@ test "mixed commas and newlines" {
         .end,
     };
     {
+        common.debugPrint("\nhELLOWLWOWLOW\n\n\n", .{});
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
@@ -2103,6 +2108,7 @@ test "mixed commas and newlines" {
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
     {
+        common.debugPrint("\nhELLOWLWOWLOW\n\n\n", .{});
         var parser: Parser = .{};
         defer parser.deinit();
         errdefer {
