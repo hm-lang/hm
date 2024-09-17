@@ -311,6 +311,8 @@ pub const Parser = struct {
             self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
             return ParserError.syntax;
         };
+        common.debugPrint("was at tab {d} -> {d}\n", .{ tab, next_tabbed.tab });
+        self.debugTokens();
         self.farthest_token_index = next_tabbed.start_parsing_index;
         if (next_tabbed.tab > tab) {
             const enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
@@ -620,13 +622,13 @@ pub const Parser = struct {
             } else {
                 return .{
                     .start_parsing_index = token_index + 1,
-                    .tab = if (self.isHorstmannSpacingAt(token_index)) tab + 4 else tab,
+                    .tab = if (self.getHorstmannTabAt(token_index, tab)) |h_tab| h_tab else tab,
                 };
             },
             else => {
                 return .{
                     .start_parsing_index = token_index,
-                    .tab = if (self.isHorstmannSpacingAt(token_index - 1)) tab + 4 else tab,
+                    .tab = if (self.getHorstmannTabAt(token_index - 1, tab)) |h_tab| h_tab else tab,
                 };
             },
         }
@@ -636,14 +638,18 @@ pub const Parser = struct {
         return .{ .start_parsing_index = token_index + 1, .tab = tab };
     }
 
-    fn isHorstmannSpacingAt(self: *Self, token_index: TokenIndex) bool {
-        switch (self.tokenAt(token_index) catch return false) {
+    fn getHorstmannTabAt(self: *Self, token_index: TokenIndex, tab: u16) ?u16 {
+        switch (self.tokenAt(token_index) catch return null) {
             .spacing => |spacing| {
-                return spacing.relative > 0 and spacing.absolute % 4 == 0 and
-                    (token_index == 0 or (self.tokenAt(token_index - 1) catch unreachable).isMirrorOpen());
+                if (spacing.relative > 0 and spacing.absolute == tab + 4 and
+                    (token_index == 0 or (self.tokenAt(token_index - 1) catch unreachable).isMirrorOpen()))
+                {
+                    return spacing.absolute;
+                }
             },
-            else => return false,
+            else => {},
         }
+        return null;
     }
 
     fn assertAndConsumeNextTokenIf(self: *Self, expected_tag: Token.Tag, or_else: OrElse) ParserError!void {
@@ -761,39 +767,46 @@ const Tabbed = struct {
 const expected_spacing = "expected spacing between each identifier";
 const expected_four_space_indents = "indents should be 4-spaces wide";
 
-test "parser one-true-brace nesting" {
+test "parser indent nesting" {
     const expected_nodes = [_]Node{
         // [0]:
         Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-        Node{ .statement = .{ .node = 24, .next = 0 } },
+        Node{ .statement = .{ .node = 30, .next = 0 } }, // first (only) statement in root block
         Node{ .callable_token = 1 }, // greet_thee
         Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
-        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // greet_thee()
+        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // greet_thee ()
         // [5]:
-        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 6 } }, // {...}
-        Node{ .statement = .{ .node = 13, .next = 14 } }, // first statement in {...}
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 6 } }, // {...}
+        Node{ .statement = .{ .node = 7, .next = 0 } }, // outer indent statement
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 8 } }, // outer indent
+        Node{ .statement = .{ .node = 17, .next = 18 } }, // print statement
         Node{ .callable_token = 11 }, // print
-        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 9 } }, // (...) in print
-        Node{ .statement = .{ .node = 10, .next = 11 } }, // first statement in print
         // [10]:
+        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 11 } }, // (...) inside print
+        Node{ .statement = .{ .node = 12, .next = 0 } }, // statement inside print
+        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 13 } }, // indent inside print
+        Node{ .statement = .{ .node = 14, .next = 15 } }, // first statement in print indent
         Node{ .atomic_token = 15 }, // 99731
-        Node{ .statement = .{ .node = 12, .next = 0 } }, // second statement in print
-        Node{ .atomic_token = 17 }, // World
-        Node{ .binary = .{ .operator = Operator.access, .left = 7, .right = 8 } }, // print(...)
-        Node{ .statement = .{ .node = 23, .next = 0 } }, // second statement in {...}
         // [15]:
+        Node{ .statement = .{ .node = 16, .next = 0 } }, // second statement in print indent
+        Node{ .atomic_token = 17 }, // World
+        Node{ .binary = .{ .operator = Operator.access, .left = 9, .right = 10 } }, // print (...)
+        Node{ .statement = .{ .node = 29, .next = 0 } }, // wow54 statement
         Node{ .callable_token = 21 }, // wow54
-        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 17 } }, // (...) in wow54
-        Node{ .statement = .{ .node = 18, .next = 0 } }, // first statement in wow54
-        Node{ .enclosed = .{ .open = .bracket, .tab = 8, .start = 19 } }, // [...]
-        Node{ .statement = .{ .node = 20, .next = 21 } }, // first statement in [...]
         // [20]:
-        Node{ .atomic_token = 27 }, // 57973
-        Node{ .statement = .{ .node = 22, .next = 0 } }, // second statement in [...]
-        Node{ .atomic_token = 29 }, // 67974
-        Node{ .binary = .{ .operator = Operator.access, .left = 15, .right = 16 } }, // wow54(...)
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
+        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 21 } }, // wow54 paren
+        Node{ .statement = .{ .node = 22, .next = 0 } }, // inside wow54(...) statement
+        Node{ .enclosed = .{ .open = .bracket, .tab = 4, .start = 23 } }, // [...]
+        Node{ .statement = .{ .node = 24, .next = 0 } }, // inside wow54([...]) statement
+        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 25 } }, // indent inside ([...])
         // [25]:
+        Node{ .statement = .{ .node = 26, .next = 27 } }, // first statement inside ([...])
+        Node{ .atomic_token = 27 }, // 57973
+        Node{ .statement = .{ .node = 28, .next = 0 } }, // second statement inside ([...])
+        Node{ .atomic_token = 29 }, // 67974
+        Node{ .binary = .{ .operator = Operator.access, .left = 19, .right = 20 } }, // wow (...)
+        // [30]:
+        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } }, // :
         .end,
     };
     {
@@ -853,6 +866,9 @@ test "parser one-true-brace nesting" {
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
 }
+
+// TODO: test to error out on spacing indented to +8 or more at start of file
+// TODO: test to see what happens when indented to +4 at start of file
 
 //test "parsing quotes" {
 //    {
