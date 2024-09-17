@@ -98,6 +98,28 @@ pub const Token = union(TokenTag) {
         };
     }
 
+    pub fn isFileEnd(self: Token) bool {
+        return std.meta.activeTag(self) == TokenTag.file_end;
+    }
+
+    pub fn isSpacing(self: Token) bool {
+        return std.meta.activeTag(self) == TokenTag.spacing;
+    }
+
+    pub fn isAbsoluteSpacing(self: Token, absolute: u16) bool {
+        return switch (self) {
+            .spacing => |spacing| spacing.absolute == absolute,
+            else => false,
+        };
+    }
+
+    pub fn isWhitespace(self: Token) bool {
+        switch (std.meta.activeTag(self)) {
+            TokenTag.spacing, TokenTag.file_end => return true,
+            else => return false,
+        }
+    }
+
     pub fn countChars(self: Token) u16 {
         return switch (self) {
             .invalid => |invalid| invalid.columns.count(),
@@ -118,21 +140,6 @@ pub const Token = union(TokenTag) {
             .annotation => |string| string.count(),
             .comment => |string| string.count(),
         };
-    }
-
-    pub fn isFileEnd(self: Token) bool {
-        return std.meta.activeTag(self) == TokenTag.file_end;
-    }
-
-    pub fn isSpacing(self: Token) bool {
-        return std.meta.activeTag(self) == TokenTag.spacing;
-    }
-
-    pub fn isWhitespace(self: Token) bool {
-        switch (std.meta.activeTag(self)) {
-            TokenTag.spacing, TokenTag.file_end => return true,
-            else => return false,
-        }
     }
 
     pub fn printLine(self: Self, writer: anytype) !void {

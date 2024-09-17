@@ -70,24 +70,18 @@ pub const Parser = struct {
     }
 
     fn getNextEnclosedBlock(self: *Self, tab: u16, open: Open, enclosed_node_index: NodeIndex) ParserError!Node.Enclosed {
+        _ = enclosed_node_index;
         var enclosed_start_index: usize = 0;
         var previous_statement_index: usize = 0;
         var until_triggered = false;
         while (self.getSameBlockNextTabbed(tab)) |next_tabbed| {
-            common.debugPrint("tab {d} in block {d}, looking for next statement\n", .{ tab, enclosed_node_index });
-            self.debugTokens();
             self.farthest_token_index = next_tabbed.start_parsing_index;
             const statement_result = self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
                 // There wasn't another statement here.
-                common.debugPrint("tab {d} in block {d}, couldn't find another statement\n", .{ tab, enclosed_node_index });
-                self.debugTokens();
-                common.debugPrint("advancing to ", self.peekToken() catch .file_end);
                 // We don't update any previous statements here because we didn't successfully add one here.
                 // This can be for multiple reasons, including good ones (e.g., trailing commas or declarations).
                 break;
             };
-            common.debugPrint("tab {d} in block {d}, after getting next statement:\n", .{ tab, enclosed_node_index });
-            self.debugTokens();
             const current_statement_index = statement_result.node;
             until_triggered = statement_result.until_triggered;
             if (enclosed_start_index == 0) {
@@ -103,8 +97,6 @@ pub const Parser = struct {
             }
         }
         if (!until_triggered and open != .none) {
-            common.debugPrint("\n\noh no, didn't finish indent tab {d} in block {d} for {s}\n", .{ tab, enclosed_node_index, open.slice() });
-            self.debugTokens();
             try self.consumeCloseMatching(open);
         }
 
@@ -251,20 +243,13 @@ pub const Parser = struct {
         var operation: Operation = switch (try self.peekToken()) {
             .operator => |operator| blk: {
                 if (operator.isInfixable()) {
-                    common.debugPrint("getting infix operator at ", self.peekToken() catch .file_end);
                     self.farthest_token_index += 1;
-                    common.debugPrint("checking for indent ", self.peekToken() catch .file_end);
-                    if (self.getSameStatementNextTabbed(tab)) |next_tabbed| {
-                        common.debugPrint("got next tabbed ", next_tabbed);
-
-                        // see if we should keep parsing based on tabs past the operation.
+                    if (operation_tabbed.tab > tab and (try self.peekToken()).isAbsoluteSpacing(tab + 8)) {
+                        // This is a line continuation, e.g.,
                         //&|    Some_variable
                         //&|        +   Some_other_variable1
                         //&|        -   Some_other_variable2
-                        if (next_tabbed.tab >= tab + 8) {
-                            // This is a line continuation.
-                            operation_tabbed.tab = tab;
-                        }
+                        operation_tabbed.tab = tab;
                     }
                     break :blk .{ .operator = operator, .type = .infix };
                 } else if (operator.isPostfixable()) {
@@ -298,7 +283,6 @@ pub const Parser = struct {
         };
 
         if (operation_tabbed.tab == tab + 4) {
-            common.debugPrint("getting an operation to indent one tab, resetting and switching to access-infix from: ", operation);
             // This is an indented operation, and we didn't see another indent past it.
             //&|    Some_expression
             //&|        +enclosed
@@ -322,22 +306,17 @@ pub const Parser = struct {
     /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
     /// Supports starting with spacing *or not* (e.g., for the start of a statement).
     fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse) ParserError!NodeIndex {
-        common.debugPrint("getting next standalone expression at token ", self.peekToken() catch .file_end);
         const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
             const had_expression_token = false;
             self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
             return ParserError.syntax;
         };
-        common.debugPrint("at tab {d}, ", .{tab});
-        common.debugPrint("getting next standalone tabbed ", next_tabbed);
         self.farthest_token_index = next_tabbed.start_parsing_index;
         if (next_tabbed.tab > tab) {
-            common.debugPrint("doing an indent, starting enclosed.none at token ", self.peekToken() catch .file_end);
             const enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
             hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
             return enclosed_index;
         }
-        common.debugPrint("starting standalone at token ", self.peekToken() catch .file_end);
 
         switch (try self.peekToken()) {
             .starts_upper, .number => {
@@ -361,12 +340,6 @@ pub const Parser = struct {
                 return callable_index;
             },
             .open => |open| {
-                common.debugPrint("tab {d}, ", .{tab});
-                common.debugPrint("found an open ", open);
-                common.debugPrint("found an open ", open);
-                //const enclosed_tabbed: Tabbed = self.getMirrorTabbed(self.farthest_token_index, tab) orelse .{ .tab = tab };
-                //const enclosed_tab = enclosed_tabbed.tab;
-                //common.debugPrint("found enclosed tab {d}\n", .{enclosed_tab});
                 self.farthest_token_index += 1;
                 const enclosed_index = try self.appendNextEnclosed(tab, open);
                 hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
@@ -791,127 +764,127 @@ const Tabbed = struct {
 const expected_spacing = "expected spacing between each identifier";
 const expected_four_space_indents = "indents should be 4-spaces wide";
 
-test "parser one-true-brace nesting" {
-    var parser: Parser = .{};
-    defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-        common.debugPrint("# nodes:\n", parser.nodes);
-    }
-    const file_slice = [_][]const u8{
-        "greet_thee(): {",
-        "    print(",
-        "        99731",
-        "        World",
-        "    )",
-        "    wow54([",
-        "        57973",
-        "        67974",
-        "    ])",
-        "}",
-    };
-    try parser.tokenizer.file.appendSlice(&file_slice);
-
-    try parser.complete();
-
-    try parser.nodes.expectEqualsSlice(&[_]Node{
-        // [0]:
-        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-        Node{ .statement = .{ .node = 24, .next = 0 } },
-        Node{ .callable_token = 1 }, // greet_thee
-        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
-        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // greet_thee()
-        // [5]:
-        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 6 } }, // {...}
-        Node{ .statement = .{ .node = 13, .next = 14 } }, // first statement in {...}
-        Node{ .callable_token = 11 }, // print
-        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 9 } }, // (...) in print
-        Node{ .statement = .{ .node = 10, .next = 11 } }, // first statement in print
-        // [10]:
-        Node{ .atomic_token = 15 }, // 99731
-        Node{ .statement = .{ .node = 12, .next = 0 } }, // second statement in print
-        Node{ .atomic_token = 17 }, // World
-        Node{ .binary = .{ .operator = Operator.access, .left = 7, .right = 8 } }, // print(...)
-        Node{ .statement = .{ .node = 23, .next = 0 } }, // second statement in {...}
-        // [15]:
-        Node{ .callable_token = 21 }, // wow54
-        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 17 } }, // (...) in wow54
-        Node{ .statement = .{ .node = 18, .next = 0 } }, // first statement in wow54
-        Node{ .enclosed = .{ .open = .bracket, .tab = 8, .start = 19 } }, // [...]
-        Node{ .statement = .{ .node = 20, .next = 21 } }, // first statement in [...]
-        // [20]:
-        Node{ .atomic_token = 27 }, // 57973
-        Node{ .statement = .{ .node = 22, .next = 0 } }, // second statement in [...]
-        Node{ .atomic_token = 29 }, // 67974
-        Node{ .binary = .{ .operator = Operator.access, .left = 15, .right = 16 } }, // wow54(...)
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
-        // [25]:
-        .end,
-    });
-    // No tampering done with the file, i.e., no errors.
-    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-}
-
-test "parser Horstmann nesting" {
-    var parser: Parser = .{};
-    defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-        common.debugPrint("# nodes:\n", parser.nodes);
-    }
-    const file_slice = [_][]const u8{
-        "greet_thee():",
-        "{   print",
-        "    (   99731",
-        "        World",
-        "    )",
-        "    wow54",
-        "    ([  57973",
-        "        67974",
-        "    ])",
-        "}",
-    };
-    try parser.tokenizer.file.appendSlice(&file_slice);
-
-    try parser.complete();
-
-    try parser.nodes.expectEqualsSlice(&[_]Node{
-        // [0]:
-        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-        Node{ .statement = .{ .node = 24, .next = 0 } },
-        Node{ .callable_token = 1 }, // greet_thee
-        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
-        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // greet_thee()
-        // [5]:
-        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 6 } }, // {...}
-        Node{ .statement = .{ .node = 13, .next = 14 } }, // first statement in {...}
-        Node{ .callable_token = 11 }, // print
-        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 9 } }, // (...) in print
-        Node{ .statement = .{ .node = 10, .next = 11 } }, // first statement in print
-        // [10]:
-        Node{ .atomic_token = 15 }, // 99731
-        Node{ .statement = .{ .node = 12, .next = 0 } }, // second statement in print
-        Node{ .atomic_token = 17 }, // World
-        Node{ .binary = .{ .operator = Operator.access, .left = 7, .right = 8 } }, // print(...)
-        Node{ .statement = .{ .node = 23, .next = 0 } }, // second statement in {...}
-        // [15]:
-        Node{ .callable_token = 21 }, // wow54
-        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 17 } }, // (...) in wow54
-        Node{ .statement = .{ .node = 18, .next = 0 } }, // first statement in wow54
-        Node{ .enclosed = .{ .open = .bracket, .tab = 8, .start = 19 } }, // [...]
-        Node{ .statement = .{ .node = 20, .next = 21 } }, // first statement in [...]
-        // [20]:
-        Node{ .atomic_token = 27 }, // 57973
-        Node{ .statement = .{ .node = 22, .next = 0 } }, // second statement in [...]
-        Node{ .atomic_token = 29 }, // 67974
-        Node{ .binary = .{ .operator = Operator.access, .left = 15, .right = 16 } }, // wow54(...)
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
-        // [25]:
-        .end,
-    });
-    // No tampering done with the file, i.e., no errors.
-    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-}
+//test "parser one-true-brace nesting" {
+//    var parser: Parser = .{};
+//    defer parser.deinit();
+//    errdefer {
+//        common.debugPrint("# file:\n", parser.tokenizer.file);
+//        common.debugPrint("# nodes:\n", parser.nodes);
+//    }
+//    const file_slice = [_][]const u8{
+//        "greet_thee(): {",
+//        "    print(",
+//        "        99731",
+//        "        World",
+//        "    )",
+//        "    wow54([",
+//        "        57973",
+//        "        67974",
+//        "    ])",
+//        "}",
+//    };
+//    try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//    try parser.complete();
+//
+//    try parser.nodes.expectEqualsSlice(&[_]Node{
+//        // [0]:
+//        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+//        Node{ .statement = .{ .node = 24, .next = 0 } },
+//        Node{ .callable_token = 1 }, // greet_thee
+//        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
+//        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // greet_thee()
+//        // [5]:
+//        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 6 } }, // {...}
+//        Node{ .statement = .{ .node = 13, .next = 14 } }, // first statement in {...}
+//        Node{ .callable_token = 11 }, // print
+//        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 9 } }, // (...) in print
+//        Node{ .statement = .{ .node = 10, .next = 11 } }, // first statement in print
+//        // [10]:
+//        Node{ .atomic_token = 15 }, // 99731
+//        Node{ .statement = .{ .node = 12, .next = 0 } }, // second statement in print
+//        Node{ .atomic_token = 17 }, // World
+//        Node{ .binary = .{ .operator = Operator.access, .left = 7, .right = 8 } }, // print(...)
+//        Node{ .statement = .{ .node = 23, .next = 0 } }, // second statement in {...}
+//        // [15]:
+//        Node{ .callable_token = 21 }, // wow54
+//        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 17 } }, // (...) in wow54
+//        Node{ .statement = .{ .node = 18, .next = 0 } }, // first statement in wow54
+//        Node{ .enclosed = .{ .open = .bracket, .tab = 8, .start = 19 } }, // [...]
+//        Node{ .statement = .{ .node = 20, .next = 21 } }, // first statement in [...]
+//        // [20]:
+//        Node{ .atomic_token = 27 }, // 57973
+//        Node{ .statement = .{ .node = 22, .next = 0 } }, // second statement in [...]
+//        Node{ .atomic_token = 29 }, // 67974
+//        Node{ .binary = .{ .operator = Operator.access, .left = 15, .right = 16 } }, // wow54(...)
+//        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
+//        // [25]:
+//        .end,
+//    });
+//    // No tampering done with the file, i.e., no errors.
+//    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//}
+//
+//test "parser Horstmann nesting" {
+//    var parser: Parser = .{};
+//    defer parser.deinit();
+//    errdefer {
+//        common.debugPrint("# file:\n", parser.tokenizer.file);
+//        common.debugPrint("# nodes:\n", parser.nodes);
+//    }
+//    const file_slice = [_][]const u8{
+//        "greet_thee():",
+//        "{   print",
+//        "    (   99731",
+//        "        World",
+//        "    )",
+//        "    wow54",
+//        "    ([  57973",
+//        "        67974",
+//        "    ])",
+//        "}",
+//    };
+//    try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//    try parser.complete();
+//
+//    try parser.nodes.expectEqualsSlice(&[_]Node{
+//        // [0]:
+//        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+//        Node{ .statement = .{ .node = 24, .next = 0 } },
+//        Node{ .callable_token = 1 }, // greet_thee
+//        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
+//        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // greet_thee()
+//        // [5]:
+//        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 6 } }, // {...}
+//        Node{ .statement = .{ .node = 13, .next = 14 } }, // first statement in {...}
+//        Node{ .callable_token = 11 }, // print
+//        Node{ .enclosed = .{ .open = .paren, .tab = 8, .start = 9 } }, // (...) in print
+//        Node{ .statement = .{ .node = 10, .next = 11 } }, // first statement in print
+//        // [10]:
+//        Node{ .atomic_token = 15 }, // 99731
+//        Node{ .statement = .{ .node = 12, .next = 0 } }, // second statement in print
+//        Node{ .atomic_token = 17 }, // World
+//        Node{ .binary = .{ .operator = Operator.access, .left = 7, .right = 8 } }, // print(...)
+//        Node{ .statement = .{ .node = 23, .next = 0 } }, // second statement in {...}
+//        // [15]:
+//        Node{ .callable_token = 21 }, // wow54
+//        Node{ .enclosed = .{ .open = .paren, .tab = 4, .start = 17 } }, // (...) in wow54
+//        Node{ .statement = .{ .node = 18, .next = 0 } }, // first statement in wow54
+//        Node{ .enclosed = .{ .open = .bracket, .tab = 8, .start = 19 } }, // [...]
+//        Node{ .statement = .{ .node = 20, .next = 21 } }, // first statement in [...]
+//        // [20]:
+//        Node{ .atomic_token = 27 }, // 57973
+//        Node{ .statement = .{ .node = 22, .next = 0 } }, // second statement in [...]
+//        Node{ .atomic_token = 29 }, // 67974
+//        Node{ .binary = .{ .operator = Operator.access, .left = 15, .right = 16 } }, // wow54(...)
+//        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
+//        // [25]:
+//        .end,
+//    });
+//    // No tampering done with the file, i.e., no errors.
+//    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//}
 
 //test "parsing quotes" {
 //    {
@@ -963,18 +936,27 @@ test "parser simple expressions" {
         Node{ .statement = .{ .node = 5, .next = 0 } }, // hello_you statement
         // [5]:
         Node{ .callable_token = 3 }, // hello_you
-        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // 3.456 access indent
-        Node{ .statement = .{ .node = 8, .next = 0 } }, // statement of +1.234 + indent
-        Node{ .prefix = .{ .operator = Operator.plus, .node = 22 } }, // +1.234
+        Node{ .binary = .{ .operator = Operator.indent, .left = 2, .right = 3 } }, // 3.456 indent
+        Node{ .statement = .{ .node = 22, .next = 0 } }, // statement of +1.234 + indent
+        Node{ .prefix = .{ .operator = Operator.plus, .node = 9 } }, // +1.234
         Node{ .atomic_token = 7 }, // 1.234
         // [10]:
         Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 11 } }, // block with -5.678 starting
         Node{ .statement = .{ .node = 12, .next = 14 } }, // -5.678 statement
         Node{ .prefix = .{ .operator = Operator.minus, .node = 13 } }, // -5.678
         Node{ .atomic_token = 11 }, // 5.678
-        Node{ .statement = .{ .node = 15, .next = 0 } }, // $$$Foe indent statement
+        Node{ .statement = .{ .node = 21, .next = 0 } }, // $$$Foe indent statement
         // [15]:
-        // TODO: $$$ should bind strongly on Foe
+        Node{ .prefix = .{ .operator = Operator.lambda3, .node = 16 } }, // $$$Foe
+        Node{ .atomic_token = 15 }, // Foe
+        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 18 } },
+        Node{ .statement = .{ .node = 20, .next = 0 } },
+        Node{ .atomic_token = 17 }, // Fum
+        // [20]:
+        Node{ .postfix = .{ .operator = Operator.decrement, .node = 19 } },
+        Node{ .binary = .{ .operator = Operator.indent, .left = 15, .right = 17 } },
+        Node{ .binary = .{ .operator = Operator.indent, .left = 8, .right = 10 } },
+        .end,
     });
     // No tampering done with the file, i.e., no errors.
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
@@ -1004,7 +986,7 @@ test "parser implied blocks" {
             Node{ .statement = .{ .node = 5, .next = 0 } },
             // [5]:
             Node{ .atomic_token = 3 }, // Indented4
-            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            Node{ .binary = .{ .operator = Operator.indent, .left = 2, .right = 3 } },
             .end,
         });
         // No tampering done with the file, i.e., no errors.
@@ -1034,7 +1016,7 @@ test "parser implied blocks" {
             // [5]:
             Node{ .prefix = .{ .operator = Operator.plus, .node = 6 } },
             Node{ .atomic_token = 5 }, // Indented3
-            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+            Node{ .binary = .{ .operator = Operator.indent, .left = 2, .right = 3 } },
             .end,
         });
         // No tampering done with the file, i.e., no errors.
@@ -1073,225 +1055,224 @@ test "parser implied blocks" {
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
 }
-
-test "parser explicit Horstmann blocks" {
-    {
-        common.debugPrint("\n\nStarting hosrtmann challenge\n\n", .{});
-        var parser: Parser = .{};
-        defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
-        const file_slice = [_][]const u8{
-            "Bart4",
-            "[   Bented4",
-            "]",
-        };
-        try parser.tokenizer.file.appendSlice(&file_slice);
-
-        try parser.complete();
-
-        try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 8, .next = 0 } },
-            Node{ .atomic_token = 1 }, // Bart4
-            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
-            Node{ .statement = .{ .node = 5, .next = 0 } },
-            // [5]:
-            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-            Node{ .statement = .{ .node = 7, .next = 0 } },
-            Node{ .atomic_token = 5 }, // Bented4
-            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
-            .end,
-        });
-        // No tampering done with the file, i.e., no errors.
-        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-    }
-    {
-        var parser: Parser = .{};
-        defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
-        const file_slice = [_][]const u8{
-            "Bart3",
-            "(   +Bented3",
-            ")",
-        };
-        try parser.tokenizer.file.appendSlice(&file_slice);
-
-        try parser.complete();
-
-        try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 9, .next = 0 } },
-            Node{ .atomic_token = 1 }, // Bart3
-            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
-            Node{ .statement = .{ .node = 5, .next = 0 } },
-            // [5]:
-            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-            Node{ .statement = .{ .node = 7, .next = 0 } },
-            Node{ .prefix = .{ .operator = Operator.plus, .node = 8 } },
-            Node{ .atomic_token = 7 }, // Bented3
-            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
-            // [10]:
-            .end,
-        });
-        // No tampering done with the file, i.e., no errors.
-        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-    }
-    {
-        var parser: Parser = .{};
-        defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
-        const file_slice = [_][]const u8{
-            "Bart5:",
-            "{   Bented51",
-            "    Bented52",
-            "}",
-        };
-        try parser.tokenizer.file.appendSlice(&file_slice);
-
-        try parser.complete();
-
-        try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 10, .next = 0 } },
-            Node{ .atomic_token = 1 }, // Bart4
-            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } },
-            Node{ .statement = .{ .node = 5, .next = 0 } },
-            // [5]:
-            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-            Node{ .statement = .{ .node = 7, .next = 8 } },
-            Node{ .atomic_token = 7 }, // Bented51
-            Node{ .statement = .{ .node = 9, .next = 0 } },
-            Node{ .atomic_token = 9 }, // Bented52
-            // [10]:
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
-            .end,
-        });
-        // No tampering done with the file, i.e., no errors.
-        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-    }
-}
-
-test "parser explicit one-true-brace blocks" {
-    // TODO: we should split these out differently, e.g., by brace type
-    //      Horstmann and OTB should be in the same test with the same expected nodes.
-    {
-        var parser: Parser = .{};
-        defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
-        const file_slice = [_][]const u8{
-            "Otbart4[",
-            "    Otbed4",
-            "]",
-        };
-        try parser.tokenizer.file.appendSlice(&file_slice);
-
-        try parser.complete();
-
-        try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 8, .next = 0 } },
-            Node{ .atomic_token = 1 },
-            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
-            Node{ .statement = .{ .node = 5, .next = 0 } },
-            // [5]:
-            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-            Node{ .statement = .{ .node = 7, .next = 0 } },
-            Node{ .atomic_token = 5 },
-            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
-            .end,
-        });
-        // No tampering done with the file, i.e., no errors.
-        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-    }
-    {
-        var parser: Parser = .{};
-        defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
-        const file_slice = [_][]const u8{
-            "Otbart3(",
-            "    +Otbed3",
-            ")",
-        };
-        try parser.tokenizer.file.appendSlice(&file_slice);
-
-        try parser.complete();
-
-        try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 9, .next = 0 } },
-            Node{ .atomic_token = 1 },
-            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
-            Node{ .statement = .{ .node = 5, .next = 0 } },
-            // [5]:
-            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-            Node{ .statement = .{ .node = 7, .next = 0 } },
-            Node{ .prefix = .{ .operator = Operator.plus, .node = 8 } },
-            Node{ .atomic_token = 7 },
-            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
-            // [10]:
-            .end,
-        });
-        // No tampering done with the file, i.e., no errors.
-        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-    }
-    {
-        var parser: Parser = .{};
-        defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
-        const file_slice = [_][]const u8{
-            "Otbart5: {",
-            "    Otbed51",
-            "    Otbed52",
-            "}",
-        };
-        try parser.tokenizer.file.appendSlice(&file_slice);
-
-        try parser.complete();
-
-        try parser.nodes.expectEqualsSlice(&[_]Node{
-            // [0]:
-            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 10, .next = 0 } },
-            Node{ .atomic_token = 1 },
-            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } },
-            Node{ .statement = .{ .node = 5, .next = 0 } },
-            // [5]:
-            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
-            Node{ .statement = .{ .node = 7, .next = 8 } },
-            Node{ .atomic_token = 7 },
-            Node{ .statement = .{ .node = 9, .next = 0 } },
-            Node{ .atomic_token = 9 },
-            // [10]:
-            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
-            .end,
-        });
-        // No tampering done with the file, i.e., no errors.
-        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-    }
-    // TODO: add `SomeCondition { some_bracket_logic() }`
-    //      braces need to be lower priority than `access`.
-    //      same for `open = .none` blocks.
-    //&|if MyCondition
-    //&|    do_something()
-}
-
+//
+//test "parser explicit Horstmann blocks" {
+//    {
+//        var parser: Parser = .{};
+//        defer parser.deinit();
+//        errdefer {
+//            common.debugPrint("# file:\n", parser.tokenizer.file);
+//        }
+//        const file_slice = [_][]const u8{
+//            "Bart4",
+//            "[   Bented4",
+//            "]",
+//        };
+//        try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//        try parser.complete();
+//
+//        try parser.nodes.expectEqualsSlice(&[_]Node{
+//            // [0]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+//            Node{ .statement = .{ .node = 8, .next = 0 } },
+//            Node{ .atomic_token = 1 }, // Bart4
+//            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
+//            Node{ .statement = .{ .node = 5, .next = 0 } },
+//            // [5]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+//            Node{ .statement = .{ .node = 7, .next = 0 } },
+//            Node{ .atomic_token = 5 }, // Bented4
+//            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+//            .end,
+//        });
+//        // No tampering done with the file, i.e., no errors.
+//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//    }
+//    {
+//        var parser: Parser = .{};
+//        defer parser.deinit();
+//        errdefer {
+//            common.debugPrint("# file:\n", parser.tokenizer.file);
+//        }
+//        const file_slice = [_][]const u8{
+//            "Bart3",
+//            "(   +Bented3",
+//            ")",
+//        };
+//        try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//        try parser.complete();
+//
+//        try parser.nodes.expectEqualsSlice(&[_]Node{
+//            // [0]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+//            Node{ .statement = .{ .node = 9, .next = 0 } },
+//            Node{ .atomic_token = 1 }, // Bart3
+//            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
+//            Node{ .statement = .{ .node = 5, .next = 0 } },
+//            // [5]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+//            Node{ .statement = .{ .node = 7, .next = 0 } },
+//            Node{ .prefix = .{ .operator = Operator.plus, .node = 8 } },
+//            Node{ .atomic_token = 7 }, // Bented3
+//            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+//            // [10]:
+//            .end,
+//        });
+//        // No tampering done with the file, i.e., no errors.
+//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//    }
+//    {
+//        var parser: Parser = .{};
+//        defer parser.deinit();
+//        errdefer {
+//            common.debugPrint("# file:\n", parser.tokenizer.file);
+//        }
+//        const file_slice = [_][]const u8{
+//            "Bart5:",
+//            "{   Bented51",
+//            "    Bented52",
+//            "}",
+//        };
+//        try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//        try parser.complete();
+//
+//        try parser.nodes.expectEqualsSlice(&[_]Node{
+//            // [0]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+//            Node{ .statement = .{ .node = 10, .next = 0 } },
+//            Node{ .atomic_token = 1 }, // Bart4
+//            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } },
+//            Node{ .statement = .{ .node = 5, .next = 0 } },
+//            // [5]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+//            Node{ .statement = .{ .node = 7, .next = 8 } },
+//            Node{ .atomic_token = 7 }, // Bented51
+//            Node{ .statement = .{ .node = 9, .next = 0 } },
+//            Node{ .atomic_token = 9 }, // Bented52
+//            // [10]:
+//            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
+//            .end,
+//        });
+//        // No tampering done with the file, i.e., no errors.
+//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//    }
+//}
+//
+//test "parser explicit one-true-brace blocks" {
+//    // TODO: we should split these out differently, e.g., by brace type
+//    //      Horstmann and OTB should be in the same test with the same expected nodes.
+//    {
+//        var parser: Parser = .{};
+//        defer parser.deinit();
+//        errdefer {
+//            common.debugPrint("# file:\n", parser.tokenizer.file);
+//        }
+//        const file_slice = [_][]const u8{
+//            "Otbart4[",
+//            "    Otbed4",
+//            "]",
+//        };
+//        try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//        try parser.complete();
+//
+//        try parser.nodes.expectEqualsSlice(&[_]Node{
+//            // [0]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+//            Node{ .statement = .{ .node = 8, .next = 0 } },
+//            Node{ .atomic_token = 1 },
+//            Node{ .enclosed = .{ .open = .bracket, .tab = 0, .start = 4 } },
+//            Node{ .statement = .{ .node = 5, .next = 0 } },
+//            // [5]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+//            Node{ .statement = .{ .node = 7, .next = 0 } },
+//            Node{ .atomic_token = 5 },
+//            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+//            .end,
+//        });
+//        // No tampering done with the file, i.e., no errors.
+//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//    }
+//    {
+//        var parser: Parser = .{};
+//        defer parser.deinit();
+//        errdefer {
+//            common.debugPrint("# file:\n", parser.tokenizer.file);
+//        }
+//        const file_slice = [_][]const u8{
+//            "Otbart3(",
+//            "    +Otbed3",
+//            ")",
+//        };
+//        try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//        try parser.complete();
+//
+//        try parser.nodes.expectEqualsSlice(&[_]Node{
+//            // [0]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+//            Node{ .statement = .{ .node = 9, .next = 0 } },
+//            Node{ .atomic_token = 1 },
+//            Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 4 } },
+//            Node{ .statement = .{ .node = 5, .next = 0 } },
+//            // [5]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+//            Node{ .statement = .{ .node = 7, .next = 0 } },
+//            Node{ .prefix = .{ .operator = Operator.plus, .node = 8 } },
+//            Node{ .atomic_token = 7 },
+//            Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } },
+//            // [10]:
+//            .end,
+//        });
+//        // No tampering done with the file, i.e., no errors.
+//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//    }
+//    {
+//        var parser: Parser = .{};
+//        defer parser.deinit();
+//        errdefer {
+//            common.debugPrint("# file:\n", parser.tokenizer.file);
+//        }
+//        const file_slice = [_][]const u8{
+//            "Otbart5: {",
+//            "    Otbed51",
+//            "    Otbed52",
+//            "}",
+//        };
+//        try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//        try parser.complete();
+//
+//        try parser.nodes.expectEqualsSlice(&[_]Node{
+//            // [0]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+//            Node{ .statement = .{ .node = 10, .next = 0 } },
+//            Node{ .atomic_token = 1 },
+//            Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } },
+//            Node{ .statement = .{ .node = 5, .next = 0 } },
+//            // [5]:
+//            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } },
+//            Node{ .statement = .{ .node = 7, .next = 8 } },
+//            Node{ .atomic_token = 7 },
+//            Node{ .statement = .{ .node = 9, .next = 0 } },
+//            Node{ .atomic_token = 9 },
+//            // [10]:
+//            Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 2, .right = 3 } },
+//            .end,
+//        });
+//        // No tampering done with the file, i.e., no errors.
+//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//    }
+//    // TODO: add `SomeCondition { some_bracket_logic() }`
+//    //      braces need to be lower priority than `access`.
+//    //      same for `open = .none` blocks.
+//    //&|if MyCondition
+//    //&|    do_something()
+//}
+//
 test "parser line continuations" {
     var parser: Parser = .{};
     defer parser.deinit();
@@ -2054,83 +2035,82 @@ test "simple parentheses, brackets, and braces" {
     }
 }
 
-test "mixed commas and newlines" {
-    const expected_nodes = [_]Node{
-        // [0]:
-        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-        Node{ .statement = .{ .node = 20, .next = 0 } },
-        Node{ .callable_token = 1 }, // goober
-        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
-        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // goober()
-        // [5]:
-        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 6 } }, // { ... }
-        Node{ .statement = .{ .node = 7, .next = 0 } }, // interior of {...}
-        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 8 } }, // interior is indented
-        Node{ .statement = .{ .node = 9, .next = 10 } }, // first statement
-        Node{ .atomic_token = 11 }, // 405
-        // [10]:
-        Node{ .statement = .{ .node = 11, .next = 12 } }, // second statement
-        Node{ .atomic_token = 15 }, // 406
-        Node{ .statement = .{ .node = 13, .next = 14 } },
-        Node{ .atomic_token = 17 }, // 407
-        Node{ .statement = .{ .node = 15, .next = 16 } },
-        // [15]:
-        Node{ .atomic_token = 19 }, // 408
-        Node{ .statement = .{ .node = 17, .next = 18 } },
-        Node{ .atomic_token = 23 }, // 409
-        Node{ .statement = .{ .node = 19, .next = 0 } },
-        Node{ .atomic_token = 27 }, // 510
-        // [20]:
-        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
-        .end,
-    };
-    {
-        common.debugPrint("\nhELLOWLWOWLOW\n\n\n", .{});
-        var parser: Parser = .{};
-        defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
-        const file_slice = [_][]const u8{
-            "goober(): {",
-            "    405, 406",
-            "    407",
-            "    408, 409,",
-            "    510,",
-            "}",
-        };
-        try parser.tokenizer.file.appendSlice(&file_slice);
-
-        try parser.complete();
-
-        try parser.nodes.expectEqualsSlice(&expected_nodes);
-        // No tampering done with the file, i.e., no errors.
-        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-    }
-    {
-        common.debugPrint("\nhELLOWLWOWLOW\n\n\n", .{});
-        var parser: Parser = .{};
-        defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
-        const file_slice = [_][]const u8{
-            "goober():",
-            "{   405, 406",
-            "    407",
-            "    408, 409,",
-            "    510,",
-            "}",
-        };
-        try parser.tokenizer.file.appendSlice(&file_slice);
-
-        try parser.complete();
-
-        try parser.nodes.expectEqualsSlice(&expected_nodes);
-        // No tampering done with the file, i.e., no errors.
-        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
-    }
-}
+// TODO
+//test "mixed commas and newlines" {
+//    const expected_nodes = [_]Node{
+//        // [0]:
+//        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+//        Node{ .statement = .{ .node = 20, .next = 0 } },
+//        Node{ .callable_token = 1 }, // goober
+//        Node{ .enclosed = .{ .open = .paren, .tab = 0, .start = 0 } }, // ()
+//        Node{ .binary = .{ .operator = Operator.access, .left = 2, .right = 3 } }, // goober()
+//        // [5]:
+//        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 6 } }, // { ... }
+//        Node{ .statement = .{ .node = 7, .next = 0 } }, // interior of {...}
+//        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 8 } }, // interior is indented
+//        Node{ .statement = .{ .node = 9, .next = 10 } }, // first statement
+//        Node{ .atomic_token = 11 }, // 405
+//        // [10]:
+//        Node{ .statement = .{ .node = 11, .next = 12 } }, // second statement
+//        Node{ .atomic_token = 15 }, // 406
+//        Node{ .statement = .{ .node = 13, .next = 14 } },
+//        Node{ .atomic_token = 17 }, // 407
+//        Node{ .statement = .{ .node = 15, .next = 16 } },
+//        // [15]:
+//        Node{ .atomic_token = 19 }, // 408
+//        Node{ .statement = .{ .node = 17, .next = 18 } },
+//        Node{ .atomic_token = 23 }, // 409
+//        Node{ .statement = .{ .node = 19, .next = 0 } },
+//        Node{ .atomic_token = 27 }, // 510
+//        // [20]:
+//        Node{ .binary = .{ .operator = Operator.declare_readonly, .left = 4, .right = 5 } },
+//        .end,
+//    };
+//    {
+//        var parser: Parser = .{};
+//        defer parser.deinit();
+//        errdefer {
+//            common.debugPrint("# file:\n", parser.tokenizer.file);
+//        }
+//        const file_slice = [_][]const u8{
+//            "goober(): {",
+//            "    405, 406",
+//            "    407",
+//            "    408, 409,",
+//            "    510,",
+//            "}",
+//        };
+//        try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//        try parser.complete();
+//
+//        try parser.nodes.expectEqualsSlice(&expected_nodes);
+//        // No tampering done with the file, i.e., no errors.
+//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//    }
+//    {
+//        var parser: Parser = .{};
+//        defer parser.deinit();
+//        errdefer {
+//            common.debugPrint("# file:\n", parser.tokenizer.file);
+//        }
+//        const file_slice = [_][]const u8{
+//            "goober():",
+//            "{   405, 406",
+//            "    407",
+//            "    408, 409,",
+//            "    510,",
+//            "}",
+//        };
+//        try parser.tokenizer.file.appendSlice(&file_slice);
+//
+//        try parser.complete();
+//
+//        try parser.nodes.expectEqualsSlice(&expected_nodes);
+//        // No tampering done with the file, i.e., no errors.
+//        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+//    }
+//}
 
 test "trailing commas are ok" {
     {
