@@ -356,4 +356,12 @@ test "node equality" {
     try binary.expectNotEquals(Node{ .binary = .{ .operator = .plus, .left = 6, .right = 7 } });
     try binary.expectNotEquals(Node{ .binary = .{ .operator = .plus, .left = 5, .right = 8 } });
     try binary.expectNotEquals(Node{ .binary = .{ .operator = .minus, .left = 5, .right = 7 } });
+
+    const conditional = Node{ .conditional = .{ .condition = 5, .if_node = 7, .else_node = 9 } };
+    try conditional.expectNotEquals(postfix);
+    try conditional.expectNotEquals(binary);
+    try conditional.expectEquals(conditional);
+    try conditional.expectNotEquals(Node{ .conditional = .{ .condition = 5, .if_node = 8, .else_node = 9 } });
+    try conditional.expectNotEquals(Node{ .conditional = .{ .condition = 4, .if_node = 7, .else_node = 9 } });
+    try conditional.expectNotEquals(Node{ .conditional = .{ .condition = 5, .if_node = 7, .else_node = 2 } });
 }
