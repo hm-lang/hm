@@ -501,9 +501,10 @@ pub const Parser = struct {
     fn appendConditional(self: *Self, tab: u16) ParserError!NodeIndex {
         const if_index = self.farthest_token_index;
         self.farthest_token_index += 1;
-        const expression_result = try self.appendNextExpression(tab, Until.file_end, .{
-            .fail_with = "need expression for `if`",
-        });
+        const expression_result = self.appendNextExpression(tab, Until.file_end, .only_try) catch {
+            self.tokenizer.addErrorAt(if_index, expected_if_condition_and_block);
+            return ParserError.syntax_panic;
+        };
         const expression_index = expression_result.node;
         const binary = self.nodes.inBounds(expression_index).getBinary() orelse {
             self.tokenizer.addErrorAt(if_index, expected_if_condition_and_block);
@@ -2122,6 +2123,23 @@ test "parsing nested if statements" {
 }
 
 test "parsing if errors" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "    if",
+        });
+
+        try std.testing.expectError(ParserError.syntax_panic, parser.complete());
+
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "    if",
+            "#@! ^~ need condition for `if` or indented block after",
+        });
+    }
     {
         var parser: Parser = .{};
         defer parser.deinit();
