@@ -230,79 +230,6 @@ pub const Parser = struct {
         }
     }
 
-    // Returns the next postfix or infix operation.
-    // Prefix operations are taken care of inside of `appendNextStandaloneExpression`.
-    fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!OperationResult {
-        const restore_index = self.farthest_token_index;
-
-        var operation_tabbed = self.getSameStatementNextTabbed(tab) orelse {
-            return OperationResult.notTriggered(.{ .operator = .none }, tab);
-        };
-        self.farthest_token_index = operation_tabbed.start_parsing_index;
-
-        var operation: Operation = switch (try self.peekToken()) {
-            .operator => |operator| blk: {
-                if (operator.isInfixable()) {
-                    self.farthest_token_index += 1;
-                    if (operation_tabbed.tab > tab and (try self.peekToken()).isAbsoluteSpacing(tab + 8)) {
-                        // This is a line continuation, e.g.,
-                        //&|    Some_variable
-                        //&|        +   Some_other_variable1
-                        //&|        -   Some_other_variable2
-                        operation_tabbed.tab = tab;
-                    }
-                    break :blk .{ .operator = operator, .type = .infix };
-                } else if (operator.isPostfixable()) {
-                    self.farthest_token_index += 1;
-                    break :blk .{ .operator = operator, .type = .postfix };
-                } else {
-                    std.debug.assert(operator.isPrefixable());
-                    // Back up so that the next standalone expression starts at the
-                    // spacing before this prefix:
-                    // TODO: this will probably break tab functionality
-                    self.farthest_token_index -= 1;
-                    // Pretend that we have an operator before this prefix.
-                    break :blk .{ .operator = .access, .type = .infix };
-                }
-            },
-            .close => |close| blk: {
-                if (until.shouldBreakAtClose(close)) {
-                    self.farthest_token_index += 1;
-                    return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
-                }
-                // Same as the `else` block below:
-                self.farthest_token_index -= 1;
-                break :blk .{ .operator = .access, .type = .infix };
-            },
-            .open => |open| blk: {
-                self.farthest_token_index -= 1;
-                break :blk .{ .operator = if (open == .brace) .indent else .access, .type = .infix };
-            },
-            else => blk: {
-                // We encountered another realizable token, back up so that
-                // we maintain the invariant that there's a space before the next real element.
-                self.farthest_token_index -= 1;
-                break :blk .{ .operator = .access, .type = .infix };
-            },
-        };
-
-        if (operation_tabbed.tab == tab + 4) {
-            // This is an indented operation, and we didn't see another indent past it.
-            //&|    Some_expression
-            //&|        +enclosed
-            // this is probably a syntax error, but we'll parse it as `Some_expression` `access` `+enclosed`
-            self.farthest_token_index = restore_index;
-            operation = .{ .operator = .indent, .type = .infix };
-            self.farthest_token_index = restore_index;
-        }
-
-        if (until.shouldBreakBeforeOperation(operation)) {
-            self.farthest_token_index = restore_index;
-            return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
-        }
-        return operation_tabbed.toNotTriggeredOperation(operation);
-    }
-
     /// Adds an atom with possible prefix (but NOT postfix) operators.
     /// Includes things like `1.234`, `My_variable`, `+4.56`, `-7.89`,
     /// `++Index` or `!Countdown` as well.  For member access like
@@ -388,6 +315,79 @@ pub const Parser = struct {
                 return ParserError.syntax;
             },
         }
+    }
+
+    // Returns the next postfix or infix operation.
+    // Prefix operations are taken care of inside of `appendNextStandaloneExpression`.
+    fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!OperationResult {
+        const restore_index = self.farthest_token_index;
+
+        var operation_tabbed = self.getSameStatementNextTabbed(tab) orelse {
+            return OperationResult.notTriggered(.{ .operator = .none }, tab);
+        };
+        self.farthest_token_index = operation_tabbed.start_parsing_index;
+
+        var operation: Operation = switch (try self.peekToken()) {
+            .operator => |operator| blk: {
+                if (operator.isInfixable()) {
+                    self.farthest_token_index += 1;
+                    if (operation_tabbed.tab > tab and (try self.peekToken()).isAbsoluteSpacing(tab + 8)) {
+                        // This is a line continuation, e.g.,
+                        //&|    Some_variable
+                        //&|        +   Some_other_variable1
+                        //&|        -   Some_other_variable2
+                        operation_tabbed.tab = tab;
+                    }
+                    break :blk .{ .operator = operator, .type = .infix };
+                } else if (operator.isPostfixable()) {
+                    self.farthest_token_index += 1;
+                    break :blk .{ .operator = operator, .type = .postfix };
+                } else {
+                    std.debug.assert(operator.isPrefixable());
+                    // Back up so that the next standalone expression starts at the
+                    // spacing before this prefix:
+                    // TODO: this will probably break tab functionality
+                    self.farthest_token_index -= 1;
+                    // Pretend that we have an operator before this prefix.
+                    break :blk .{ .operator = .access, .type = .infix };
+                }
+            },
+            .close => |close| blk: {
+                if (until.shouldBreakAtClose(close)) {
+                    self.farthest_token_index += 1;
+                    return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
+                }
+                // Same as the `else` block below:
+                self.farthest_token_index -= 1;
+                break :blk .{ .operator = .access, .type = .infix };
+            },
+            .open => |open| blk: {
+                self.farthest_token_index -= 1;
+                break :blk .{ .operator = if (open == .brace) .indent else .access, .type = .infix };
+            },
+            else => blk: {
+                // We encountered another realizable token, back up so that
+                // we maintain the invariant that there's a space before the next real element.
+                self.farthest_token_index -= 1;
+                break :blk .{ .operator = .access, .type = .infix };
+            },
+        };
+
+        if (operation_tabbed.tab == tab + 4) {
+            // This is an indented operation, and we didn't see another indent past it.
+            //&|    Some_expression
+            //&|        +enclosed
+            // this is probably a syntax error, but we'll parse it as `Some_expression` `access` `+enclosed`
+            self.farthest_token_index = restore_index;
+            operation = .{ .operator = .indent, .type = .infix };
+            self.farthest_token_index = restore_index;
+        }
+
+        if (until.shouldBreakBeforeOperation(operation)) {
+            self.farthest_token_index = restore_index;
+            return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
+        }
+        return operation_tabbed.toNotTriggeredOperation(operation);
     }
 
     fn appendPostfixOperation(self: *Self, hierarchy: *OwnedNodeIndices, operation: Operation) ParserError!void {
@@ -2380,32 +2380,7 @@ test "parser declare and nested assigns" {
 }
 
 // TODO
-//&|if Some_condition, Then:
-//&|    do_stuff()
-//&|    Then exit(3)
-// should be the same as
-//&|if Some_condition
-//&|Then:
-//&|    do_stuff()
-//&|    Then exit(3)
-// but how should this work inside an argument?
-//&|my_function(X: if Some_condition, Then: {do_stuff(), Then exit(3)})
-// maybe `Then` should be indented.
-//&|if Some_condition
-//&|    Then:
-//&|    do_stuff()
-//&|    Then exit(3)
-// then we could easily do this inside functions
-//&|my_function(X: if Some_condition { Then:, do_stuff(), Then exit(3)})
-// i still really like the way it looks for the first way, though,
-// but there's no real good way to use it in a function without indent...
-//&|my_function
-//&|(   X: if Some_condition
-//&|        Then:
-//&|        do_stuff()
-//&|        Then exit(3)
-//&|)
-// we could introduce a new operator, go to newline and indent:
+// we could introduce a new operator (|> or &>), go to newline and indent:
 //&|if Some_condition |> Then:
 //&|    do_stuff()
 //&|    Then exit(3)
