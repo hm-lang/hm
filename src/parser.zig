@@ -22,7 +22,10 @@ const ParserError = error{
     out_of_memory,
     out_of_statements,
     broken_invariant,
+    // TODO: should all syntax errors panic?  we probably can
+    // switch the syntax errors that shouldn't panic to something else (e.g., out_of_statements)
     syntax,
+    syntax_panic, // break immediately everywhere
     unimplemented,
 };
 
@@ -76,7 +79,10 @@ pub const Parser = struct {
         var until_triggered = false;
         while (try self.getSameBlockNextNodeIndex(tab)) |start_parsing_index| {
             self.farthest_token_index = start_parsing_index;
-            const statement_result = self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
+            const statement_result = self.appendNextStatement(tab, Until.closing(open), .only_try) catch |the_error| {
+                if (the_error == ParserError.syntax_panic) {
+                    return the_error;
+                }
                 // There wasn't another statement here.
                 // We don't update any previous statements here because we didn't successfully add one here.
                 // This can be for multiple reasons, including good ones (e.g., trailing commas or declarations).
@@ -141,7 +147,7 @@ pub const Parser = struct {
         errdefer {
             // A downside of going in order is that we need a bit of cleanup.
             // Only clean up if we don't think it'll wreck any other nodes.
-            if (self.nodes.count() == statement_index + 1) {
+            if (or_else.isOnlyTry() and self.nodes.count() == statement_index + 1) {
                 _ = self.nodes.remove(statement_index);
             }
         }
@@ -192,6 +198,9 @@ pub const Parser = struct {
             } else if (self.appendNextStandaloneExpression(&hierarchy, tab, .only_try)) |right_index| {
                 try self.appendInfixOperation(&hierarchy, operation, right_index);
             } else |error_getting_right_hand_expression| {
+                if (error_getting_right_hand_expression == ParserError.syntax_panic) {
+                    return error_getting_right_hand_expression;
+                }
                 if (!operation.operator.isPostfixable()) {
                     if (or_else.be_noisy()) |_| {
                         self.addTokenizerError("infix operator needs right-hand expression");
@@ -240,6 +249,7 @@ pub const Parser = struct {
         const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
             const had_expression_token = false;
             self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
+            // TODO: maybe return .out_of_statements
             return ParserError.syntax;
         };
         self.farthest_token_index = next_tabbed.start_parsing_index;
@@ -309,6 +319,10 @@ pub const Parser = struct {
             .keyword => |keyword| {
                 const node_index = switch (keyword) {
                     .kw_if => try self.appendConditional(tab),
+                    .kw_else, .kw_elif => {
+                        self.addTokenizerError("need `if` before `else` or `elif`");
+                        return ParserError.syntax_panic;
+                    },
                     else => return ParserError.unimplemented,
                 };
                 hierarchy.append(node_index) catch return ParserError.out_of_memory;
@@ -493,11 +507,11 @@ pub const Parser = struct {
         const expression_index = expression_result.node;
         const binary = self.nodes.inBounds(expression_index).getBinary() orelse {
             self.tokenizer.addErrorAt(if_index, "need condition for `if`");
-            return ParserError.syntax;
+            return ParserError.syntax_panic;
         };
         if (binary.operator != .indent) {
             self.tokenizer.addErrorAt(if_index, "need indent after `if` condition");
-            return ParserError.syntax;
+            return ParserError.syntax_panic;
         }
         self.nodes.items()[expression_index] = Node{ .conditional = .{
             .condition = binary.left,
@@ -2090,6 +2104,28 @@ test "parsing nested if statements" {
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
     // TODO: add else
+}
+
+test "parsing elif and else errors" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "{   else + 3",
+            "}",
+        });
+
+        try std.testing.expectError(ParserError.syntax_panic, parser.complete());
+
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "{   else + 3",
+            "#@! ^~~~ need `if` before `else` or `elif`",
+            "}",
+        });
+    }
 }
 
 // TODO: if/elif/else

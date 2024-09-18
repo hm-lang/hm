@@ -422,7 +422,7 @@ const TokenKeyword = enum {
         };
     }
 
-    pub fn slice(self: Self) []const u8 {
+    pub fn representation(self: Self) []const u8 {
         return switch (self) {
             .kw_if => "kw_if",
             .kw_elif => "kw_elif",
@@ -434,13 +434,25 @@ const TokenKeyword = enum {
         };
     }
 
+    pub fn slice(self: Self) []const u8 {
+        return switch (self) {
+            .kw_if => "if",
+            .kw_elif => "elif",
+            .kw_else => "else",
+            .kw_return => "return",
+            .kw_each => "each",
+            .kw_what => "what",
+            .kw_while => "while",
+        };
+    }
+
     pub fn printLine(self: Self, writer: anytype) !void {
         try self.print(writer);
         try writer.print("\n", .{});
     }
 
     pub fn print(self: Self, writer: anytype) !void {
-        try writer.print("{s}", .{self.slice()});
+        try writer.print("{s}", .{self.representation()});
     }
 
     const Self = @This();
