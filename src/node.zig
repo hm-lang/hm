@@ -58,6 +58,13 @@ pub const Node = union(NodeTag) {
         };
     }
 
+    pub fn getBinary(self: Self) ?BinaryNode {
+        return switch (self) {
+            .binary => |binary| binary,
+            else => null,
+        };
+    }
+
     /// Swaps out the current "right" operand with the new `NodeIndex`.
     /// Returns the old "right" operand.
     pub fn swapRight(self: *Self, new_index: NodeIndex) NodeError!NodeIndex {

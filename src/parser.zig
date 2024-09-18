@@ -307,7 +307,6 @@ pub const Parser = struct {
                 return prefix_index;
             },
             .keyword => |keyword| {
-                self.farthest_token_index += 1;
                 const node_index = switch (keyword) {
                     .kw_if => try self.appendConditional(tab),
                     else => return ParserError.unimplemented,
@@ -364,6 +363,8 @@ pub const Parser = struct {
                     self.farthest_token_index += 1;
                     return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
                 }
+                // TODO: does this ever actually happen?  i expect
+                // that we should always trigger when we find a close.
                 // Same as the `else` block below:
                 self.farthest_token_index -= 1;
                 break :blk .{ .operator = .access, .type = .infix };
@@ -484,10 +485,26 @@ pub const Parser = struct {
     }
 
     fn appendConditional(self: *Self, tab: u16) ParserError!NodeIndex {
-        //const expression_index = try self.appendNextExpression(tab, until);
-        _ = self;
-        _ = tab;
-        return ParserError.unimplemented;
+        const if_index = self.farthest_token_index;
+        self.farthest_token_index += 1;
+        const expression_result = try self.appendNextExpression(tab, Until.file_end, .{
+            .fail_with = "need expression for `if`",
+        });
+        const expression_index = expression_result.node;
+        const binary = self.nodes.inBounds(expression_index).getBinary() orelse {
+            self.tokenizer.addErrorAt(if_index, "need condition for `if`");
+            return ParserError.syntax;
+        };
+        if (binary.operator != .indent) {
+            self.tokenizer.addErrorAt(if_index, "need indent after `if` condition");
+            return ParserError.syntax;
+        }
+        self.nodes.items()[expression_index] = Node{ .conditional = .{
+            .condition = binary.left,
+            .if_node = binary.right,
+        } };
+        // TODO: check for `elif` and `else` in same indent
+        return expression_index;
     }
 
     fn justAppendNode(self: *Self, node: Node) ParserError!NodeIndex {
@@ -2014,6 +2031,77 @@ test "simple parentheses, brackets, and braces" {
     }
 }
 
+// TODO
+// we could introduce a new operator (|> or &>), go to newline and indent:
+//&|if Some_condition |> Then:
+//&|    do_stuff()
+//&|    Then exit(3)
+// which would be equivalent to this:
+//&|if Some_condition
+//&|    Then:
+//&|    do_stuff()
+//&|    Then exit(3)
+// you could use it in a function
+//&|my_function(X: if Some_condition |> Then: {do_stuff(), Then exit(3)})
+// or just do this:
+//&|my_function(X: if Some_condition { Then:, do_stuff(), Then exit(3)})
+test "parsing if statements" {
+    const expected_nodes = [_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 8, .next = 0 } }, // first statement
+        Node{ .atomic_token = 3 }, // Really_true
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } }, // {...}
+        Node{ .statement = .{ .node = 5, .next = 0 } }, // statement inside {}
+        // [5]:
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } }, // indent inside {}
+        Node{ .statement = .{ .node = 7, .next = 0 } }, // first statement in indent
+        Node{ .callable_token = 7 }, // do_something_nice
+        Node{ .conditional = .{ .condition = 2, .if_node = 3, .else_node = 0 } },
+        .end,
+    };
+    {
+        // Explicit brace, one-true-brace style
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "if Really_true {",
+            "    do_something_nice",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        // Explicit brace, Horstmann style
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "if Really_true",
+            "{   do_something_nice",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
 test "mixed commas and newlines with block" {
     const expected_nodes = [_]Node{
         // [0]:
@@ -2392,20 +2480,5 @@ test "parser declare and nested assigns" {
         });
     }
 }
-
-// TODO
-// we could introduce a new operator (|> or &>), go to newline and indent:
-//&|if Some_condition |> Then:
-//&|    do_stuff()
-//&|    Then exit(3)
-// which would be equivalent to this:
-//&|if Some_condition
-//&|    Then:
-//&|    do_stuff()
-//&|    Then exit(3)
-// you could use it in a function
-//&|my_function(X: if Some_condition |> Then: {do_stuff(), Then exit(3)})
-// or just do this:
-//&|my_function(X: if Some_condition { Then:, do_stuff(), Then exit(3)})
 
 // TODO: error tests, e.g., "cannot postfix this"
