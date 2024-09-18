@@ -88,6 +88,13 @@ pub const Token = union(TokenTag) {
             Token{ .starts_lower = string };
     }
 
+    pub fn getKeyword(self: Self) ?TokenKeyword {
+        return switch (self) {
+            .keyword => |keyword| keyword,
+            else => null,
+        };
+    }
+
     pub fn isNewline(self: Self) bool {
         return switch (self) {
             .spacing => |spacing| spacing.isNewline(),
