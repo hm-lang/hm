@@ -77,7 +77,7 @@ pub const Parser = struct {
         var enclosed_start_index: usize = 0;
         var previous_statement_index: usize = 0;
         var until_triggered = false;
-        while (try self.getSameBlockNextNodeIndex(tab)) |start_parsing_index| {
+        while (try self.getSameBlockNextNodeIndex(tab, false)) |start_parsing_index| {
             self.farthest_token_index = start_parsing_index;
             const statement_result = self.appendNextStatement(tab, Until.closing(open), .only_try) catch |the_error| {
                 if (the_error == ParserError.syntax_panic) {
@@ -527,21 +527,17 @@ pub const Parser = struct {
     }
 
     fn maybeAppendConditionalContinuation(self: *Self, conditional_index: NodeIndex, tab: u16) ParserError!void {
-        const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
+        const start_parsing_index = try self.getSameBlockNextNodeIndex(tab, true) orelse {
             // Nothing further at this indent.
             return;
         };
-        if (next_tabbed.tab != tab) {
-            self.tokenizer.addErrorAt(next_tabbed.start_parsing_index - 1, "unexpected indent after `if`");
-            return ParserError.syntax_panic;
-        }
-        const keyword = (try self.tokenAt(next_tabbed.start_parsing_index)).getKeyword() orelse {
+        const keyword = (try self.tokenAt(start_parsing_index)).getKeyword() orelse {
             // Nothing further.
             return;
         };
         switch (keyword) {
             .kw_elif => {
-                self.farthest_token_index = next_tabbed.start_parsing_index;
+                self.farthest_token_index = start_parsing_index;
                 const next_conditional_index = try self.appendConditional(tab, expected_elif_condition_and_block);
                 switch (self.nodes.items()[conditional_index]) {
                     .conditional => |*conditional| {
@@ -581,7 +577,7 @@ pub const Parser = struct {
     }
 
     /// For inside a block, the next statement index to continue with
-    fn getSameBlockNextNodeIndex(self: *Self, tab: u16) ParserError!?NodeIndex {
+    fn getSameBlockNextNodeIndex(self: *Self, tab: u16, require_same_indent: bool) ParserError!?NodeIndex {
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
@@ -589,11 +585,14 @@ pub const Parser = struct {
             //&|        +SomeValue  # keep prefix operators at tab indent
             //&|    -   CoolStuff   # infix operator should be ignored
             .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
+                if (newline_tab == tab) {
+                    return self.farthest_token_index + 1;
+                }
                 if (newline_tab % 4 != 0) {
                     self.addTokenizerError(expected_four_space_indents);
                     return ParserError.syntax;
                 }
-                if (newline_tab < tab) {
+                if (require_same_indent or newline_tab < tab) {
                     return null;
                 } else {
                     return self.farthest_token_index + 1;
@@ -2330,7 +2329,10 @@ test "parsing elif statements" {
             common.debugPrint("# file:\n", parser.tokenizer.file);
         }
         const file_slice = [_][]const u8{
-            "    do_something_nice",
+            "if Maybe_true",
+            "    Go_for_it33",
+            "elif Not_true",
+            "    go_for_it22",
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
@@ -2339,13 +2341,19 @@ test "parsing elif statements" {
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-            Node{ .statement = .{ .node = 6, .next = 0 } }, // if statement
-            Node{ .atomic_token = 3 }, // Really_true
-            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 4 } }, // indent
+            Node{ .statement = .{ .node = 6, .next = 0 } },
+            Node{ .atomic_token = 3 }, // Maybe_true
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 4 } },
             Node{ .statement = .{ .node = 5, .next = 0 } },
             // [5]:
-            Node{ .callable_token = 5 }, // do_something_nice
-            Node{ .conditional = .{ .condition = 2, .if_node = 3, .else_node = 0 } },
+            Node{ .atomic_token = 5 }, // Go_for_it33
+            Node{ .conditional = .{ .condition = 2, .if_node = 3, .else_node = 11 } },
+            Node{ .atomic_token = 9 }, // Not_true
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 9 } },
+            Node{ .statement = .{ .node = 10, .next = 0 } },
+            // [10]:
+            Node{ .callable_token = 11 }, // go_for_it22
+            Node{ .conditional = .{ .condition = 7, .if_node = 8, .else_node = 0 } },
             .end,
         });
         // No tampering done with the file, i.e., no errors.
