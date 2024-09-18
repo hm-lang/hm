@@ -2126,6 +2126,23 @@ test "parsing elif and else errors" {
             "}",
         });
     }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "        elif 5 {3}",
+        });
+
+        try std.testing.expectError(ParserError.syntax_panic, parser.complete());
+
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "        elif 5 {3}",
+            "#@!     ^~~~ need `if` before `else` or `elif`",
+        });
+    }
 }
 
 // TODO: if/elif/else
