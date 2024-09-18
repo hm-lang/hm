@@ -572,7 +572,10 @@ pub const Tokenizer = struct {
             });
         }
         if (at_token_index >= self.last_token_index) {
-            common.debugPrint("token was past the last valid token index {d}\n", .{self.last_token_index});
+            common.debugPrint("tried to add an error message `{s}` but token was past the last valid token index {d}\n", .{
+                error_message,
+                self.last_token_index,
+            });
             return;
         }
         self.last_token_index = at_token_index;
@@ -683,11 +686,7 @@ pub const Tokenizer = struct {
         while (token_index >= 0) {
             const token = self.tokens.inBounds(@intCast(token_index));
             switch (token) {
-                .spacing => |spacing| if (spacing.isNewline() and spacing.line != 0) {
-                    return spacing.line - 1;
-                } else {
-                    return spacing.line;
-                },
+                .spacing => |spacing| return spacing.line,
                 else => token_index -= 1,
             }
         }
@@ -704,11 +703,8 @@ pub const Tokenizer = struct {
                 const line_length = (self.file.lines.at(-1) orelse SmallString{}).count();
                 return .{ .start = line_length, .end = line_length + 1 };
             },
-            .spacing => |spacing| if (spacing.isNewline() and spacing.line != 0) {
-                const line_length = (self.file.lines.at(spacing.line - 1) orelse SmallString{}).count();
-                return .{ .start = line_length, .end = line_length + 1 };
-            } else {
-                return .{ .start = spacing.absolute, .end = spacing.absolute + 1 };
+            .spacing => |spacing| {
+                return .{ .start = common.back(spacing.absolute, spacing.relative) orelse 0, .end = spacing.absolute + 1 };
             },
             else => if (self.tokens.before(at_token_index)) |before_token| {
                 switch (before_token) {

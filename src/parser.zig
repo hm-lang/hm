@@ -74,7 +74,7 @@ pub const Parser = struct {
         var enclosed_start_index: usize = 0;
         var previous_statement_index: usize = 0;
         var until_triggered = false;
-        while (self.getSameBlockNextNodeIndex(tab)) |start_parsing_index| {
+        while (try self.getSameBlockNextNodeIndex(tab)) |start_parsing_index| {
             self.farthest_token_index = start_parsing_index;
             const statement_result = self.appendNextStatement(tab, Until.closing(open), .only_try) catch {
                 // There wasn't another statement here.
@@ -534,7 +534,7 @@ pub const Parser = struct {
     }
 
     /// For inside a block, the next statement index to continue with
-    fn getSameBlockNextNodeIndex(self: *Self, tab: u16) ?NodeIndex {
+    fn getSameBlockNextNodeIndex(self: *Self, tab: u16) ParserError!?NodeIndex {
         // TODO: ignore comments as well
         switch (self.peekToken() catch return null) {
             .file_end => return null,
@@ -544,7 +544,7 @@ pub const Parser = struct {
             .spacing => |spacing| if (spacing.getNewlineTab()) |newline_tab| {
                 if (newline_tab % 4 != 0) {
                     self.addTokenizerError(expected_four_space_indents);
-                    return null;
+                    return ParserError.syntax;
                 }
                 if (newline_tab < tab) {
                     return null;
@@ -2129,6 +2129,49 @@ test "parsing if statements" {
         });
         // No tampering done with the file, i.e., no errors.
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
+test "indent errors" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "H3",
+            "   Only3spaces",
+        });
+
+        try std.testing.expectError(ParserError.syntax, parser.complete());
+
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "H3",
+            "   Only3spaces",
+            "#@!~ indents should be 4-spaces wide",
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "H5",
+            "     Only5spaces",
+        });
+
+        try std.testing.expectError(ParserError.syntax, parser.complete());
+
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "H5",
+            "     Only5spaces",
+            "#@!~~~ indents should be 4-spaces wide",
+        });
     }
 }
 
