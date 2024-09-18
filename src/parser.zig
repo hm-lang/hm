@@ -2379,4 +2379,44 @@ test "parser declare and nested assigns" {
     }
 }
 
+// TODO
+//&|if Some_condition, Then:
+//&|    do_stuff()
+//&|    Then exit(3)
+// should be the same as
+//&|if Some_condition
+//&|Then:
+//&|    do_stuff()
+//&|    Then exit(3)
+// but how should this work inside an argument?
+//&|my_function(X: if Some_condition, Then: {do_stuff(), Then exit(3)})
+// maybe `Then` should be indented.
+//&|if Some_condition
+//&|    Then:
+//&|    do_stuff()
+//&|    Then exit(3)
+// then we could easily do this inside functions
+//&|my_function(X: if Some_condition { Then:, do_stuff(), Then exit(3)})
+// i still really like the way it looks for the first way, though,
+// but there's no real good way to use it in a function without indent...
+//&|my_function
+//&|(   X: if Some_condition
+//&|        Then:
+//&|        do_stuff()
+//&|        Then exit(3)
+//&|)
+// we could introduce a new operator, go to newline and indent:
+//&|if Some_condition |> Then:
+//&|    do_stuff()
+//&|    Then exit(3)
+// which would be equivalent to this:
+//&|if Some_condition
+//&|    Then:
+//&|    do_stuff()
+//&|    Then exit(3)
+// you could use it in a function
+//&|my_function(X: if Some_condition |> Then: {do_stuff(), Then exit(3)})
+// or just do this:
+//&|my_function(X: if Some_condition { Then:, do_stuff(), Then exit(3)})
+
 // TODO: error tests, e.g., "cannot postfix this"
