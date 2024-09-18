@@ -2032,19 +2032,68 @@ test "simple parentheses, brackets, and braces" {
 }
 
 // TODO
-// we could introduce a new operator (|> or &>), go to newline and indent:
-//&|if Some_condition |> Then:
-//&|    do_stuff()
-//&|    Then exit(3)
-// which would be equivalent to this:
-//&|if Some_condition
-//&|    Then:
+// we could introduce a new capture operator (|> or &> or ?>):
+// i don't know if i like this as &> or ?> (because ? is a pretty strong operator),
+// but it does make the most sense from a sentence standpoint.
+//&|if Some_condition ?> Then:
 //&|    do_stuff()
 //&|    Then exit(3)
 // you could use it in a function
-//&|my_function(X: if Some_condition |> Then: {do_stuff(), Then exit(3)})
-// or just do this:
-//&|my_function(X: if Some_condition { Then:, do_stuff(), Then exit(3)})
+//&|my_function(X: if Some_condition ?> Then: {do_stuff(), Then exit(3)})
+test "parsing nested if statements" {
+    const expected_nodes = [_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 18, .next = 0 } }, // root statement
+        Node{ .atomic_token = 1 }, // 5
+        Node{ .atomic_token = 7 }, // Skelluton
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 5 } }, // outer {...}
+        // [5]:
+        Node{ .statement = .{ .node = 6, .next = 0 } }, // first statement in outer {...}
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 7 } }, // first indent
+        Node{ .statement = .{ .node = 14, .next = 0 } }, // inner if statement
+        Node{ .atomic_token = 13 }, // Brandenborg
+        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 10 } },
+        // [10]:
+        Node{ .statement = .{ .node = 11, .next = 0 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 12 } },
+        Node{ .statement = .{ .node = 13, .next = 0 } },
+        Node{ .atomic_token = 17 }, // Chetty
+        Node{ .conditional = .{ .condition = 8, .if_node = 9, .else_node = 0 } },
+        // [15]:
+        Node{ .conditional = .{ .condition = 3, .if_node = 17, .else_node = 0 } },
+        Node{ .atomic_token = 25 }, // 3
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 4, .right = 16 } }, // if * 3
+        Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 15 } }, // 5 + ...
+        .end,
+    };
+    {
+        // Explicit brace, one-true-brace style
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "5 + if Skelluton {",
+            "    if Brandenborg {",
+            "        Chetty",
+            "    }",
+            "} * 3",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    // TODO: add else
+}
+
+// TODO: if/elif/else
+// TODO: if/else
 test "parsing if statements" {
     const expected_nodes = [_]Node{
         // [0]:
