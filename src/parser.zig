@@ -535,18 +535,24 @@ pub const Parser = struct {
             // Nothing further.
             return;
         };
-        switch (keyword) {
-            .kw_elif => {
+        const maybe_else_index: ?NodeIndex = switch (keyword) {
+            .kw_elif => blk: {
                 self.farthest_token_index = start_parsing_index;
-                const next_conditional_index = try self.appendConditional(tab, expected_elif_condition_and_block);
-                switch (self.nodes.items()[conditional_index]) {
-                    .conditional => |*conditional| {
-                        conditional.else_node = next_conditional_index;
-                    },
-                    else => return ParserError.broken_invariant,
-                }
+                break :blk try self.appendConditional(tab, expected_elif_condition_and_block);
             },
-            else => {},
+            .kw_else => {
+                self.farthest_token_index = start_parsing_index + 1;
+                return ParserError.unimplemented;
+            },
+            else => null,
+        };
+        if (maybe_else_index) |else_index| {
+            switch (self.nodes.items()[conditional_index]) {
+                .conditional => |*conditional| {
+                    conditional.else_node = else_index;
+                },
+                else => return ParserError.broken_invariant,
+            }
         }
     }
 
@@ -2207,6 +2213,29 @@ test "parsing if errors" {
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "if Spr33 * 3331",
             "#@! need condition for `if` or indented block after",
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "    if Condit10n",
+            "    {   ok10",
+            "    }",
+            "    elif",
+        });
+
+        try std.testing.expectError(ParserError.syntax_panic, parser.complete());
+
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "    if Condit10n",
+            "    {   ok10",
+            "    }",
+            "    elif",
+            "#@! ^~~~ need condition for `elif` or indented block after",
         });
     }
 }
