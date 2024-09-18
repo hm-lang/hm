@@ -24,6 +24,7 @@ const NodeTag = enum {
     /// where we want to make it like this instead:
     /// `[Node: [Statement1], Next: [Node: [Statement2], Next: [Statement3]]]`.)
     statement,
+    conditional,
     // TODO: split into `identifier` and `number` nodes, probably...
     atomic_token,
     /// Might be a function, might be a type.
@@ -40,6 +41,7 @@ const NodeError = error{not_allowed};
 pub const Node = union(NodeTag) {
     enclosed: EnclosedNode,
     statement: StatementNode,
+    conditional: ConditionalNode,
     atomic_token: TokenIndex,
     callable_token: TokenIndex,
     prefix: PrefixNode,
@@ -100,6 +102,13 @@ pub const Node = union(NodeTag) {
             },
             .statement => |statement| {
                 try writer.print("Node{{ .statement = .{{ .node = {d}, .next = {d} }} }}", .{ statement.node, statement.next });
+            },
+            .conditional => |conditional| {
+                try writer.print("Node{{ .conditional = .{{ .condition = {d}, .if_node = {d}, .else_node = {d} }} }}", .{
+                    conditional.condition,
+                    conditional.if_node,
+                    conditional.else_node,
+                });
             },
             .atomic_token => |token_index| {
                 try writer.print("Node{{ .atomic_token = {d} }}", .{token_index});
@@ -192,6 +201,7 @@ pub const Node = union(NodeTag) {
     pub const Tag = NodeTag;
     pub const Enclosed = EnclosedNode;
     pub const Statement = StatementNode;
+    pub const Conditional = ConditionalNode;
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
     pub const Binary = BinaryNode;
@@ -239,9 +249,30 @@ const StatementNode = struct {
     const Self = @This();
 };
 
+const ConditionalNode = struct {
+    condition: NodeIndex = 0,
+    if_node: NodeIndex = 0,
+    else_node: NodeIndex = 0,
+
+    pub fn operation(self: Self) operator_zig.Operation {
+        _ = self;
+        // we probably should never ask for a `ConditionalNode`'s operation.
+        return .{ .type = .infix, .operator = .none };
+    }
+
+    pub fn equals(a: Self, b: Self) bool {
+        return a.condition == b.condition and a.if_node == b.if_node and a.else_node == b.else_node;
+    }
+
+    pub fn expectEquals(a: Self, b: Self) !void {
+        try std.testing.expect(a.equals(b));
+    }
+
+    const Self = @This();
+};
+
 const BinaryNode = struct {
     operator: Operator = .none,
-    tab: u16 = 0,
     left: NodeIndex = 0,
     right: NodeIndex = 0,
 
@@ -250,7 +281,7 @@ const BinaryNode = struct {
     }
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.operator == b.operator and a.tab == b.tab and a.left == b.left and a.right == b.right;
+        return a.operator == b.operator and a.left == b.left and a.right == b.right;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
@@ -262,7 +293,6 @@ const BinaryNode = struct {
 
 const PrefixNode = struct {
     operator: Operator = .none,
-    tab: u16 = 0,
     node: NodeIndex = 0,
 
     pub fn operation(self: Self) operator_zig.Operation {
@@ -270,7 +300,7 @@ const PrefixNode = struct {
     }
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.operator == b.operator and a.tab == b.tab and a.node == b.node;
+        return a.operator == b.operator and a.node == b.node;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
@@ -282,7 +312,6 @@ const PrefixNode = struct {
 
 const PostfixNode = struct {
     operator: Operator = .none,
-    tab: u16 = 0,
     node: NodeIndex = 0,
 
     pub fn operation(self: Self) operator_zig.Operation {
@@ -290,7 +319,7 @@ const PostfixNode = struct {
     }
 
     pub fn equals(a: Self, b: Self) bool {
-        return a.operator == b.operator and a.tab == b.tab and a.node == b.node;
+        return a.operator == b.operator and a.node == b.node;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {
