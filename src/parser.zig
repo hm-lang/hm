@@ -547,6 +547,10 @@ pub const Parser = struct {
                     self.tokenizer.addErrorAt(keyword_index, expected_else_block);
                     return ParserError.syntax_panic;
                 };
+                if (!self.isBlockAtNode(result.node, tab)) {
+                    self.tokenizer.addErrorAt(keyword_index, expected_else_block);
+                    return ParserError.syntax_panic;
+                }
                 break :blk result.node;
             },
             else => return,
@@ -789,8 +793,23 @@ pub const Parser = struct {
         common.debugPrint("]\n", .{});
     }
 
-    fn nodeInBounds(self: *Self, index: usize) *Node {
+    fn nodeInBounds(self: *Self, index: NodeIndex) *Node {
         return &self.nodes.items()[index];
+    }
+
+    /// Returns true if `node` is an indented block.
+    fn isBlockAtNode(self: *Self, node: NodeIndex, tab: u16) bool {
+        // TODO: we'll eventually need to check for things like `if X $[...] else $(...)`,
+        //      since $[] and $() are effectively indented.
+        // TODO: do we want a dedicated operator like `if X |> [...] else |> (...)` for this?
+        return switch (self.nodes.inBounds(node)) {
+            .enclosed => |enclosed| switch (enclosed.open) {
+                .none => enclosed.tab == tab + 4,
+                .brace => true,
+                else => false,
+            },
+            else => false,
+        };
     }
 
     const Open = Token.Open;
@@ -2244,7 +2263,7 @@ test "parsing if errors" {
     }
 }
 
-test "parsing elif and else errors" {
+test "parsing elif and else without an if errors" {
     {
         var parser: Parser = .{};
         defer parser.deinit();
@@ -2279,6 +2298,28 @@ test "parsing elif and else errors" {
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "        elif 5 {3}",
             "#@!     ^~~~ need `if` before `else` or `elif`",
+        });
+    }
+}
+
+test "parsing else without a block error" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "    if Zxy {2}",
+            "    else 6",
+        });
+
+        try std.testing.expectError(ParserError.syntax_panic, parser.complete());
+
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "    if Zxy {2}",
+            "    else 6",
+            "#@! ^~~~ need indented block after `else`",
         });
     }
 }
