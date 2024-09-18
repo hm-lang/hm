@@ -253,7 +253,6 @@ pub const Parser = struct {
             .starts_upper, .number => {
                 const atomic_index = try self.justAppendNode(Node{
                     .atomic_token = self.farthest_token_index,
-                    // TODO: .tab = try self.tokenizerTab(),
                 });
                 self.farthest_token_index += 1;
 
@@ -263,7 +262,6 @@ pub const Parser = struct {
             .starts_lower => {
                 const callable_index = try self.justAppendNode(Node{
                     .callable_token = self.farthest_token_index,
-                    // TODO: .tab = try self.tokenizerTab(),
                 });
                 self.farthest_token_index += 1;
 
@@ -307,6 +305,15 @@ pub const Parser = struct {
                 // It was stronger than `prefix_index` and so should never be split out.
                 hierarchy.append(prefix_index) catch return ParserError.out_of_memory;
                 return prefix_index;
+            },
+            .keyword => |keyword| {
+                self.farthest_token_index += 1;
+                const node_index = switch (keyword) {
+                    .kw_if => try self.appendConditional(tab),
+                    else => return ParserError.unimplemented,
+                };
+                hierarchy.append(node_index) catch return ParserError.out_of_memory;
+                return node_index;
             },
             else => {
                 if (or_else.be_noisy()) |_| {
@@ -474,6 +481,13 @@ pub const Parser = struct {
             .left = left_index,
             .right = right_index,
         } })) catch return ParserError.out_of_memory;
+    }
+
+    fn appendConditional(self: *Self, tab: u16) ParserError!NodeIndex {
+        //const expression_index = try self.appendNextExpression(tab, until);
+        _ = self;
+        _ = tab;
+        return ParserError.unimplemented;
     }
 
     fn justAppendNode(self: *Self, node: Node) ParserError!NodeIndex {
