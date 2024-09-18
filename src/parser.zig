@@ -506,19 +506,33 @@ pub const Parser = struct {
         });
         const expression_index = expression_result.node;
         const binary = self.nodes.inBounds(expression_index).getBinary() orelse {
-            self.tokenizer.addErrorAt(if_index, "need condition for `if`");
+            self.tokenizer.addErrorAt(if_index, expected_if_condition_and_block);
             return ParserError.syntax_panic;
         };
         if (binary.operator != .indent) {
-            self.tokenizer.addErrorAt(if_index, "need indent after `if` condition");
+            self.tokenizer.addErrorAt(if_index, expected_if_condition_and_block);
             return ParserError.syntax_panic;
         }
         self.nodes.items()[expression_index] = Node{ .conditional = .{
             .condition = binary.left,
             .if_node = binary.right,
         } };
-        // TODO: check for `elif` and `else` in same indent
+        try self.maybeAppendConditionalContinuation(expression_index, tab);
         return expression_index;
+    }
+
+    fn maybeAppendConditionalContinuation(self: *Self, expression_index: NodeIndex, tab: u16) ParserError!void {
+        const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
+            // Nothing further at this indent.
+            return;
+        };
+        if (next_tabbed.tab != tab) {
+            self.tokenizer.addErrorAt(next_tabbed.start_parsing_index - 1, "unexpected indent after `if`");
+            return ParserError.syntax_panic;
+        }
+        _ = expression_index;
+        // TODO: check for `elif` and `else` in same indent
+        return ParserError.unimplemented;
     }
 
     fn justAppendNode(self: *Self, node: Node) ParserError!NodeIndex {
@@ -825,6 +839,7 @@ const Tabbed = struct {
 
 const expected_spacing = "expected spacing between each identifier";
 const expected_four_space_indents = "indents should be 4-spaces wide";
+const expected_if_condition_and_block = "need condition for `if` or indented block after";
 
 // General test structure:
 // Organize by topic but within each topic put easier tests near the end.
@@ -2104,6 +2119,60 @@ test "parsing nested if statements" {
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
     // TODO: add else
+}
+
+test "parsing if errors" {
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "    if {}",
+        });
+
+        try std.testing.expectError(ParserError.syntax_panic, parser.complete());
+
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "    if {}",
+            "#@! ^~ need condition for `if` or indented block after",
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "        if Bardor",
+        });
+
+        try std.testing.expectError(ParserError.syntax_panic, parser.complete());
+
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "        if Bardor",
+            "#@!     ^~ need condition for `if` or indented block after",
+        });
+    }
+    {
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        try parser.tokenizer.file.appendSlice(&[_][]const u8{
+            "if Spr33 * 3331",
+        });
+
+        try std.testing.expectError(ParserError.syntax_panic, parser.complete());
+
+        try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
+            "if Spr33 * 3331",
+            "#@! need condition for `if` or indented block after",
+        });
+    }
 }
 
 test "parsing elif and else errors" {
