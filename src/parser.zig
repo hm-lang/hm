@@ -535,24 +535,27 @@ pub const Parser = struct {
             // Nothing further.
             return;
         };
-        const maybe_else_index: ?NodeIndex = switch (keyword) {
+        const keyword_index = start_parsing_index;
+        const else_index: NodeIndex = switch (keyword) {
             .kw_elif => blk: {
-                self.farthest_token_index = start_parsing_index;
+                self.farthest_token_index = keyword_index;
                 break :blk try self.appendConditional(tab, expected_elif_condition_and_block);
             },
-            .kw_else => {
-                self.farthest_token_index = start_parsing_index + 1;
-                return ParserError.unimplemented;
+            .kw_else => blk: {
+                self.farthest_token_index = keyword_index + 1;
+                const result = self.appendNextExpression(tab, Until.file_end, .only_try) catch {
+                    self.tokenizer.addErrorAt(keyword_index, expected_else_block);
+                    return ParserError.syntax_panic;
+                };
+                break :blk result.node;
             },
-            else => null,
+            else => return,
         };
-        if (maybe_else_index) |else_index| {
-            switch (self.nodes.items()[conditional_index]) {
-                .conditional => |*conditional| {
-                    conditional.else_node = else_index;
-                },
-                else => return ParserError.broken_invariant,
-            }
+        switch (self.nodes.items()[conditional_index]) {
+            .conditional => |*conditional| {
+                conditional.else_node = else_index;
+            },
+            else => return ParserError.broken_invariant,
         }
     }
 
@@ -865,6 +868,7 @@ const expected_spacing = "expected spacing between each identifier";
 const expected_four_space_indents = "indents should be 4-spaces wide";
 const expected_if_condition_and_block = "need condition for `if` or indented block after";
 const expected_elif_condition_and_block = "need condition for `elif` or indented block after";
+const expected_else_block = "need indented block after `else`";
 
 // General test structure:
 // Organize by topic but within each topic put easier tests near the end.
@@ -2280,8 +2284,111 @@ test "parsing elif and else errors" {
 }
 
 // TODO: if/elif/else
-// TODO: if/else
-test "parsing elif statements" {
+test "parsing if/else statements" {
+    const expected_nodes = [_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 8, .next = 0 } },
+        Node{ .atomic_token = 3 }, // If_else
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 4 } }, // if {...} brace
+        Node{ .statement = .{ .node = 5, .next = 0 } }, // inner {...} if statement
+        // [5]:
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 6 } }, // if indent
+        Node{ .statement = .{ .node = 7, .next = 0 } }, // first statement in if indent
+        Node{ .atomic_token = 7 }, // If_inner
+        Node{ .conditional = .{ .condition = 2, .if_node = 3, .else_node = 9 } }, // if/else
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 10 } }, // else brace
+        // [10]:
+        Node{ .statement = .{ .node = 11, .next = 0 } }, // inner {...} else statement
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 12 } }, // else indent
+        Node{ .statement = .{ .node = 13, .next = 0 } }, // first statement in else indent
+        Node{ .callable_token = 15 }, // else_inner
+        .end,
+    };
+    {
+        // Explicit brace, one-true-brace style
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "if If_else {",
+            "    If_inner",
+            "} else {",
+            "    else_inner",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        // Explicit brace, Horstmann style
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "if If_else",
+            "{   If_inner",
+            "}",
+            "else",
+            "{   else_inner",
+            "}",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        // Implicit brace
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "if If_else",
+            "    If_inner",
+            "else",
+            "    else_inner",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } },
+            Node{ .atomic_token = 3 }, // If_else
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 4 } }, // if indent
+            Node{ .statement = .{ .node = 5, .next = 0 } }, // first statement in if indent
+            // [5]:
+            Node{ .atomic_token = 5 }, // If_inner
+            Node{ .conditional = .{ .condition = 2, .if_node = 3, .else_node = 7 } }, // if/else
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 8 } }, // else indent
+            Node{ .statement = .{ .node = 9, .next = 0 } }, // first statement in else indent
+            Node{ .callable_token = 9 }, // else_inner
+            // [10]:
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
+test "parsing if/elif statements" {
     const expected_nodes = [_]Node{
         // [0]:
         Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } }, // root block
