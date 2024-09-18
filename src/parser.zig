@@ -2100,6 +2100,36 @@ test "parsing if statements" {
         // No tampering done with the file, i.e., no errors.
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
+    {
+        // Implicit brace
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "if Really_true",
+            "    do_something_nice",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 6, .next = 0 } }, // if statement
+            Node{ .atomic_token = 3 }, // Really_true
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 4 } }, // indent
+            Node{ .statement = .{ .node = 5, .next = 0 } },
+            // [5]:
+            Node{ .callable_token = 5 }, // do_something_nice
+            Node{ .conditional = .{ .condition = 2, .if_node = 3, .else_node = 0 } },
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
 }
 
 test "mixed commas and newlines with block" {
