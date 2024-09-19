@@ -10,6 +10,7 @@ pub const Until = @import("until.zig").Until;
 
 pub const parser_tests = @import("parser_tests.zig");
 pub const parser_if_tests = @import("parser_if_tests.zig");
+pub const parser_while_tests = @import("parser_while_tests.zig");
 
 const std = @import("std");
 
