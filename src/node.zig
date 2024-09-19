@@ -312,7 +312,7 @@ const WhileLoopNode = struct {
     else_node: NodeIndex = 0,
 
     pub fn withConditionAndFirstBlock(condition: NodeIndex, block: NodeIndex) Node {
-        return .{ .conditional = .{ .condition = condition, .loop_node = block } };
+        return .{ .while_loop = .{ .condition = condition, .loop_node = block } };
     }
 
     pub fn operation(self: Self) Node.Operation {

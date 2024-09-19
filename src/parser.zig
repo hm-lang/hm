@@ -339,6 +339,7 @@ pub const Parser = struct {
             .keyword => |keyword| blk: {
                 const node_index = switch (keyword) {
                     .kw_if => try self.appendConditionAndBlocks(Node.Conditional, tab, expected_if_condition_and_block),
+                    .kw_while => try self.appendConditionAndBlocks(Node.WhileLoop, tab, expected_while_condition_and_block),
                     .kw_else, .kw_elif => {
                         self.addTokenizerError("need `if` before `else` or `elif`");
                         return ParserError.syntax_panic;
@@ -924,5 +925,6 @@ const Tabbed = struct {
 const expected_spacing = "expected spacing between each identifier";
 const expected_four_space_indents = "indents should be 4-spaces wide";
 const expected_if_condition_and_block = "need condition for `if` or indented block after";
+const expected_while_condition_and_block = "need condition for `while` or indented block after";
 const expected_elif_condition_and_block = "need condition for `elif` or indented block after";
 const expected_else_block = "need indented block after `else`";

@@ -8,7 +8,7 @@ pub const SmallString = @import("string.zig").Small;
 pub const testing = @import("testing.zig");
 pub const Until = @import("until.zig").Until;
 
-pub const parser_tests = @import("parser.test.zig");
+pub const parser_tests = @import("parser_tests.zig");
 
 const std = @import("std");
 
