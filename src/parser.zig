@@ -2155,6 +2155,10 @@ test "parsing nested if statements" {
             "5 + if Skelluton {",
             "    if Brandenborg {",
             "        Chetty",
+            // TODO:
+            // "    } else {",
+            // "        Betty",
+            // "        Aetty",
             "    }",
             "} * 3",
         };
