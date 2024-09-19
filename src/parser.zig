@@ -44,11 +44,14 @@ pub const Parser = struct {
         self.nodes.deinit();
     }
 
-    pub fn complete(self: *Self) ParserError!void {
+    pub fn complete(self: *Self, interpreter: anytype) ParserError!void {
         if (self.nodes.count() > 0) {
             return;
         }
         const root_node_index = try self.appendNextEnclosed(0, .none);
+        // TODO: probably should interpret on the fly, rather than all at once here at the end.
+        _ = interpreter;
+
         // So that `nodejindex == 0` appears to be invalid, the
         // root should be appended first, then its child nodes.
         std.debug.assert(root_node_index == 0);

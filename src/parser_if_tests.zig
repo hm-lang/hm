@@ -1,4 +1,5 @@
 const common = @import("common.zig");
+const DoNothing = @import("do_nothing.zig").DoNothing;
 const Node = @import("node.zig").Node;
 const Parser = @import("parser.zig").Parser;
 
@@ -8,11 +9,14 @@ const std = @import("std");
 // we could introduce a new capture operator (|> or &> or ?>):
 // i don't know if i like this as &> or ?> (because ? is a pretty strong operator),
 // but it does make the most sense from a sentence standpoint.
-//&|if Some_condition ?> Then:
+//&|if Some_condition |> Then:
 //&|    do_stuff()
 //&|    Then exit(3)
 // you could use it in a function
-//&|my_function(X: if Some_condition ?> Then: {do_stuff(), Then exit(3)})
+//&|my_function(X: if Some_condition |> Then: {do_stuff(), Then exit(3)})
+// maybe use `?>` if the thing is nullable (or an error), and `|>` for `Then` blocks
+//&|if Nullable ?> Non_null:
+//&|    doStuff
 test "parsing nested if statements" {
     const expected_nodes = [_]Node{
         // [0]:
@@ -68,7 +72,7 @@ test "parsing nested if statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -94,7 +98,7 @@ test "parsing nested if statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -117,7 +121,7 @@ test "parsing nested if statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -163,7 +167,7 @@ test "parsing if errors" {
             "    if",
         });
 
-        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete(DoNothing{}));
 
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "    if",
@@ -180,7 +184,7 @@ test "parsing if errors" {
             "    if {}",
         });
 
-        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete(DoNothing{}));
 
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "    if {}",
@@ -197,7 +201,7 @@ test "parsing if errors" {
             "        if Bardor",
         });
 
-        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete(DoNothing{}));
 
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "        if Bardor",
@@ -214,7 +218,7 @@ test "parsing if errors" {
             "if Spr33 * 3331",
         });
 
-        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete(DoNothing{}));
 
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "if Spr33 * 3331",
@@ -234,7 +238,7 @@ test "parsing if errors" {
             "    elif",
         });
 
-        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete(DoNothing{}));
 
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "    if Condit10n",
@@ -258,7 +262,7 @@ test "parsing elif and else without an if errors" {
             "}",
         });
 
-        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete(DoNothing{}));
 
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "{   else + 3",
@@ -276,7 +280,7 @@ test "parsing elif and else without an if errors" {
             "        elif 5 {3}",
         });
 
-        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete(DoNothing{}));
 
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "        elif 5 {3}",
@@ -297,7 +301,7 @@ test "parsing else without a block error" {
             "    else 6",
         });
 
-        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax_panic, parser.complete(DoNothing{}));
 
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
             "    if Zxy {2}",
@@ -351,7 +355,7 @@ test "parsing if/else statements as part of an expression " {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -375,7 +379,7 @@ test "parsing if/else statements as part of an expression " {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -399,7 +403,7 @@ test "parsing if/else statements as part of an expression " {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -461,7 +465,7 @@ test "parsing if/else statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -484,7 +488,7 @@ test "parsing if/else statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -505,7 +509,7 @@ test "parsing if/else statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -568,7 +572,7 @@ test "parsing if/elif statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -591,7 +595,7 @@ test "parsing if/elif statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -612,7 +616,7 @@ test "parsing if/elif statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -666,7 +670,7 @@ test "parsing simple if statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -686,7 +690,7 @@ test "parsing simple if statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -705,7 +709,7 @@ test "parsing simple if statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
