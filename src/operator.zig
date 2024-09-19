@@ -496,6 +496,8 @@ pub const Operator = enum {
     pub const negative: Self = .minus;
     pub const moot: Self = .not;
     pub const cancel_if_null: Self = .nullify;
+
+    pub const Operation = OperatorOperation;
     const Self = @This();
 };
 
@@ -522,7 +524,7 @@ const OperationType = enum {
     const Self = @This();
 };
 
-pub const Operation = struct {
+const OperatorOperation = struct {
     operator: Operator = .none,
     type: Type = Type.none,
 

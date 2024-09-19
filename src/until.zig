@@ -1,7 +1,6 @@
 const common = @import("common.zig");
-const operator_zig = @import("operator.zig");
-const Operator = operator_zig.Operator;
-const Operation = operator_zig.Operation;
+const Operator = @import("operator.zig").Operator;
+const Operation = Operator.Operation;
 const Token = @import("token.zig").Token;
 
 const std = @import("std");

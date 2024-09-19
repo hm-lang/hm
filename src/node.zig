@@ -1,13 +1,12 @@
 const SmallString = @import("string.zig").Small;
-const operator_zig = @import("operator.zig");
-const Operator = operator_zig.Operator;
+const Operator = @import("operator.zig").Operator;
 const Token = @import("token.zig").Token;
 const common = @import("common.zig");
 
 const std = @import("std");
 
-pub const TokenIndex = usize;
-pub const NodeIndex = usize;
+const NodeTokenIndex = usize;
+const NodeIndex = usize;
 
 const NodeTag = enum {
     /// includes things like blocks which don't have an explicit `open`.
@@ -213,8 +212,11 @@ pub const Node = union(NodeTag) {
     pub const Postfix = PostfixNode;
     pub const Binary = BinaryNode;
 
-    pub const Operation = operator_zig.Operation;
+    pub const Operation = Operator.Operation;
     pub const Error = NodeError;
+
+    pub const TokenIndex = NodeTokenIndex;
+    pub const Index = NodeIndex;
     const Self = @This();
 };
 
@@ -239,7 +241,7 @@ const StatementNode = struct {
     node: NodeIndex = 0,
     next: NodeIndex = 0,
 
-    pub fn operation(self: Self) operator_zig.Operation {
+    pub fn operation(self: Self) Node.Operation {
         _ = self;
         // we probably should never ask for a `StatementNode`'s operation.
         return .{ .type = .infix, .operator = .comma };
@@ -261,7 +263,7 @@ const ConditionalNode = struct {
     if_node: NodeIndex = 0,
     else_node: NodeIndex = 0,
 
-    pub fn operation(self: Self) operator_zig.Operation {
+    pub fn operation(self: Self) Node.Operation {
         _ = self;
         // we probably should never ask for a `ConditionalNode`'s operation.
         return .{ .type = .infix, .operator = .none };
@@ -283,7 +285,7 @@ const BinaryNode = struct {
     left: NodeIndex = 0,
     right: NodeIndex = 0,
 
-    pub fn operation(self: Self) operator_zig.Operation {
+    pub fn operation(self: Self) Node.Operation {
         return .{ .type = .infix, .operator = self.operator };
     }
 
@@ -302,7 +304,7 @@ const PrefixNode = struct {
     operator: Operator = .none,
     node: NodeIndex = 0,
 
-    pub fn operation(self: Self) operator_zig.Operation {
+    pub fn operation(self: Self) Node.Operation {
         return .{ .type = .prefix, .operator = self.operator };
     }
 
@@ -321,7 +323,7 @@ const PostfixNode = struct {
     operator: Operator = .none,
     node: NodeIndex = 0,
 
-    pub fn operation(self: Self) operator_zig.Operation {
+    pub fn operation(self: Self) Node.Operation {
         return .{ .type = .postfix, .operator = self.operator };
     }
 
