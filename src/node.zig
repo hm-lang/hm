@@ -64,6 +64,15 @@ pub const Node = union(NodeTag) {
         };
     }
 
+    pub fn setSecondBlock(self: *Self, new_block: NodeIndex) NodeError!void {
+        switch (self.*) {
+            .conditional => |*conditional| {
+                conditional.else_node = new_block;
+            },
+            else => return NodeError.not_allowed,
+        }
+    }
+
     /// Swaps out the current "right" operand with the new `NodeIndex`.
     /// Returns the old "right" operand.
     pub fn swapRight(self: *Self, new_index: NodeIndex) NodeError!NodeIndex {
@@ -262,6 +271,10 @@ const ConditionalNode = struct {
     condition: NodeIndex = 0,
     if_node: NodeIndex = 0,
     else_node: NodeIndex = 0,
+
+    pub fn withConditionAndFirstBlock(condition: NodeIndex, block: NodeIndex) Node {
+        return .{ .conditional = .{ .condition = condition, .if_node = block } };
+    }
 
     pub fn operation(self: Self) Node.Operation {
         _ = self;

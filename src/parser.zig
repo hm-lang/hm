@@ -338,7 +338,7 @@ pub const Parser = struct {
             },
             .keyword => |keyword| blk: {
                 const node_index = switch (keyword) {
-                    .kw_if => try self.appendConditional(tab, expected_if_condition_and_block),
+                    .kw_if => try self.appendConditionAndBlocks(tab, expected_if_condition_and_block, Node.Conditional),
                     .kw_else, .kw_elif => {
                         self.addTokenizerError("need `if` before `else` or `elif`");
                         return ParserError.syntax_panic;
@@ -533,7 +533,7 @@ pub const Parser = struct {
         } })) catch return ParserError.out_of_memory;
     }
 
-    fn appendConditional(self: *Self, tab: u16, expected: []const u8) ParserError!NodeIndex {
+    fn appendConditionAndBlocks(self: *Self, tab: u16, expected: []const u8, comptime T: anytype) ParserError!NodeIndex {
         const if_index = self.farthest_token_index;
         self.farthest_token_index += 1;
         common.debugPrint("starting if statement\n", self.peekToken() catch .file_end);
@@ -550,10 +550,7 @@ pub const Parser = struct {
             self.tokenizer.addErrorAt(if_index, expected);
             return ParserError.syntax_panic;
         }
-        self.nodes.items()[conditional_index] = Node{ .conditional = .{
-            .condition = binary.left,
-            .if_node = binary.right,
-        } };
+        self.nodes.items()[conditional_index] = T.withConditionAndFirstBlock(binary.left, binary.right);
         try self.maybeAppendConditionalContinuation(conditional_index, tab);
         return conditional_index;
     }
@@ -571,7 +568,7 @@ pub const Parser = struct {
         const else_index: NodeIndex = switch (keyword) {
             .kw_elif => blk: {
                 self.farthest_token_index = keyword_index;
-                break :blk try self.appendConditional(tab, expected_elif_condition_and_block);
+                break :blk try self.appendConditionAndBlocks(tab, expected_elif_condition_and_block, Node.Conditional);
             },
             .kw_else => blk: {
                 self.farthest_token_index = keyword_index + 1;
@@ -589,12 +586,9 @@ pub const Parser = struct {
             },
             else => return,
         };
-        switch (self.nodes.items()[conditional_index]) {
-            .conditional => |*conditional| {
-                conditional.else_node = else_index;
-            },
-            else => return ParserError.broken_invariant,
-        }
+        self.nodes.items()[conditional_index].setSecondBlock(else_index) catch {
+            return ParserError.broken_invariant;
+        };
     }
 
     fn justAppendNode(self: *Self, node: Node) ParserError!NodeIndex {
