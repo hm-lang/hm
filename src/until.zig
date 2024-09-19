@@ -31,7 +31,6 @@ pub const Until = union(UntilTag) {
         switch (self) {
             .precedence => |left_precedence| {
                 const right_precedence = on_right.precedence(Operation.Compare.on_right);
-                // TODO: this should maybe be <= ??
                 return left_precedence < right_precedence;
             },
             else => return false,

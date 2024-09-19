@@ -543,7 +543,9 @@ pub const Parser = struct {
             },
             .kw_else => blk: {
                 self.farthest_token_index = keyword_index + 1;
-                const result = self.appendNextExpression(tab, Until.file_end, .only_try) catch {
+                // Pretty much any operation should interrupt the parsing of this expression.
+                // We just want the next block `{...}` but nothing after (e.g., `else {...} + ...`)
+                const result = self.appendNextExpression(tab, Until.prefix_strength_wins(.none), .only_try) catch {
                     self.tokenizer.addErrorAt(keyword_index, expected_else_block);
                     return ParserError.syntax_panic;
                 };
@@ -2329,6 +2331,122 @@ test "parsing else without a block error" {
 }
 
 // TODO: if/elif/else
+test "parsing if/else statements as part of an expression " {
+    const expected_nodes = [_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 15, .next = 0 } }, // root statement
+        Node{ .atomic_token = 1 }, // 500
+        Node{ .atomic_token = 7 }, // Condition500
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 5 } }, // if brace
+        // [5]:
+        Node{ .statement = .{ .node = 6, .next = 0 } }, // if statement
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 7 } }, // if indent
+        Node{ .statement = .{ .node = 8, .next = 0 } }, // indented if statement
+        Node{ .atomic_token = 11 }, // If_block_500
+        Node{ .conditional = .{ .condition = 3, .if_node = 4, .else_node = 10 } }, // if/else
+        // [10]:
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 11 } }, // else brace
+        Node{ .statement = .{ .node = 12, .next = 0 } }, // else statement
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 13 } }, // else indent
+        Node{ .statement = .{ .node = 14, .next = 0 } }, // indented else statement
+        Node{ .atomic_token = 19 }, // Else_block_500
+        // [15]:
+        Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 17 } }, // 500 + ...
+        Node{ .atomic_token = 25 }, // 3500
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 9, .right = 16 } }, // (if{}else{}) * 3500
+        .end,
+    };
+    {
+        // Explicit brace, one-true-brace style
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+            common.debugPrint("# nodes:\n", parser.nodes);
+        }
+        const file_slice = [_][]const u8{
+            "500 + if Condition500 {",
+            "    If_block_500",
+            "} else {",
+            "    Else_block_500",
+            "} * 3500",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        // Explicit brace, Horstmann style
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+            common.debugPrint("# nodes:\n", parser.nodes);
+        }
+        const file_slice = [_][]const u8{
+            "500 + if Condition500",
+            "{   If_block_500",
+            "}",
+            "else",
+            "{   Else_block_500",
+            "} * 3500",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        // Implicit brace
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+            common.debugPrint("# nodes:\n", parser.nodes);
+        }
+        const file_slice = [_][]const u8{
+            "500 + if Condition500",
+            "    If_block_500",
+            "else",
+            "    Else_block_500",
+            // Notice we're not doing a *3500 here because it would be hard
+            // to syntactically do that without parentheses.
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 11, .next = 0 } },
+            Node{ .atomic_token = 1 }, // 500
+            Node{ .atomic_token = 7 }, // Condition500
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 5 } }, // if indent
+            // [5]:
+            Node{ .statement = .{ .node = 6, .next = 0 } }, // if indented statement
+            Node{ .atomic_token = 9 }, // If_block_500
+            Node{ .conditional = .{ .condition = 3, .if_node = 4, .else_node = 8 } }, // if/else
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 9 } }, // else indent
+            Node{ .statement = .{ .node = 10, .next = 0 } }, // else indented statement
+            // [10]:
+            Node{ .atomic_token = 13 }, // Else_block_500
+            Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 7 } }, // 500 + ...
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+}
+
 test "parsing if/else statements" {
     const expected_nodes = [_]Node{
         // [0]:
