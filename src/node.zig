@@ -24,6 +24,7 @@ const NodeTag = enum {
     /// `[Node: [Statement1], Next: [Node: [Statement2], Next: [Statement3]]]`.)
     statement,
     conditional,
+    while_loop,
     // TODO: split into `identifier` and `number` nodes, probably...
     atomic_token,
     /// Might be a function, might be a type.
@@ -41,6 +42,7 @@ pub const Node = union(NodeTag) {
     enclosed: EnclosedNode,
     statement: StatementNode,
     conditional: ConditionalNode,
+    while_loop: WhileLoopNode,
     atomic_token: TokenIndex,
     callable_token: TokenIndex,
     prefix: PrefixNode,
@@ -68,6 +70,9 @@ pub const Node = union(NodeTag) {
         switch (self.*) {
             .conditional => |*conditional| {
                 conditional.else_node = new_block;
+            },
+            .while_loop => |*loop| {
+                loop.else_node = new_block;
             },
             else => return NodeError.not_allowed,
         }
@@ -123,6 +128,13 @@ pub const Node = union(NodeTag) {
                     conditional.condition,
                     conditional.if_node,
                     conditional.else_node,
+                });
+            },
+            .while_loop => |loop| {
+                try writer.print("Node{{ .while_loop = .{{ .condition = {d}, .loop_node = {d}, .else_node = {d} }} }}", .{
+                    loop.condition,
+                    loop.loop_node,
+                    loop.else_node,
                 });
             },
             .atomic_token => |token_index| {
@@ -217,6 +229,7 @@ pub const Node = union(NodeTag) {
     pub const Enclosed = EnclosedNode;
     pub const Statement = StatementNode;
     pub const Conditional = ConditionalNode;
+    pub const WhileLoop = WhileLoopNode;
     pub const Prefix = PrefixNode;
     pub const Postfix = PostfixNode;
     pub const Binary = BinaryNode;
@@ -284,6 +297,32 @@ const ConditionalNode = struct {
 
     pub fn equals(a: Self, b: Self) bool {
         return a.condition == b.condition and a.if_node == b.if_node and a.else_node == b.else_node;
+    }
+
+    pub fn expectEquals(a: Self, b: Self) !void {
+        try std.testing.expect(a.equals(b));
+    }
+
+    const Self = @This();
+};
+
+const WhileLoopNode = struct {
+    condition: NodeIndex = 0,
+    loop_node: NodeIndex = 0,
+    else_node: NodeIndex = 0,
+
+    pub fn withConditionAndFirstBlock(condition: NodeIndex, block: NodeIndex) Node {
+        return .{ .conditional = .{ .condition = condition, .loop_node = block } };
+    }
+
+    pub fn operation(self: Self) Node.Operation {
+        _ = self;
+        // we probably should never ask for a `ConditionalNode`'s operation.
+        return .{ .type = .infix, .operator = .none };
+    }
+
+    pub fn equals(a: Self, b: Self) bool {
+        return a.condition == b.condition and a.loop_node == b.loop_node and a.else_node == b.else_node;
     }
 
     pub fn expectEquals(a: Self, b: Self) !void {

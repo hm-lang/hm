@@ -338,7 +338,7 @@ pub const Parser = struct {
             },
             .keyword => |keyword| blk: {
                 const node_index = switch (keyword) {
-                    .kw_if => try self.appendConditionAndBlocks(tab, expected_if_condition_and_block, Node.Conditional),
+                    .kw_if => try self.appendConditionAndBlocks(Node.Conditional, tab, expected_if_condition_and_block),
                     .kw_else, .kw_elif => {
                         self.addTokenizerError("need `if` before `else` or `elif`");
                         return ParserError.syntax_panic;
@@ -533,7 +533,7 @@ pub const Parser = struct {
         } })) catch return ParserError.out_of_memory;
     }
 
-    fn appendConditionAndBlocks(self: *Self, tab: u16, expected: []const u8, comptime T: anytype) ParserError!NodeIndex {
+    fn appendConditionAndBlocks(self: *Self, comptime T: anytype, tab: u16, expected: []const u8) ParserError!NodeIndex {
         const if_index = self.farthest_token_index;
         self.farthest_token_index += 1;
         common.debugPrint("starting if statement\n", self.peekToken() catch .file_end);
@@ -568,7 +568,7 @@ pub const Parser = struct {
         const else_index: NodeIndex = switch (keyword) {
             .kw_elif => blk: {
                 self.farthest_token_index = keyword_index;
-                break :blk try self.appendConditionAndBlocks(tab, expected_elif_condition_and_block, Node.Conditional);
+                break :blk try self.appendConditionAndBlocks(Node.Conditional, tab, expected_elif_condition_and_block);
             },
             .kw_else => blk: {
                 self.farthest_token_index = keyword_index + 1;
