@@ -1,3 +1,4 @@
+const common = @import("common.zig");
 const operator_zig = @import("operator.zig");
 const Operator = operator_zig.Operator;
 const Operation = operator_zig.Operation;
@@ -6,6 +7,7 @@ const Token = @import("token.zig").Token;
 const std = @import("std");
 
 const UntilTag = enum {
+    deindent,
     precedence_strong_as,
     precedence_weaker_than,
     close,
@@ -13,11 +15,16 @@ const UntilTag = enum {
 
 /// Necessary for prefix operations.
 pub const Until = union(UntilTag) {
+    deindent: void,
     precedence_strong_as: u8,
     precedence_weaker_than: u8,
     close: Token.Close,
 
     pub const file_end: Self = .{ .close = Token.Close.none };
+
+    pub inline fn nextBlockEnds() Self {
+        return .deindent;
+    }
 
     /// Will keep going until we get to operators that are not as strong.
     pub fn operatorWeakerThan(operator: Operator) Self {
@@ -53,12 +60,18 @@ pub const Until = union(UntilTag) {
     }
 
     pub fn shouldBreakAtClose(self: Self, close: Token.Close) bool {
-        switch (self) {
-            .close => |self_close| {
-                return self_close == close;
-            },
-            else => return false,
-        }
+        return switch (self) {
+            .close => |self_close| self_close == close,
+            else => false,
+        };
+    }
+
+    pub fn shouldBreakAtDeindent(self: Self) bool {
+        common.debugPrint("checking if we should break at deindent for ", self);
+        return switch (self) {
+            .deindent => true,
+            else => false,
+        };
     }
 
     pub fn equals(a: Self, b: Self) bool {
@@ -90,8 +103,17 @@ pub const Until = union(UntilTag) {
 
     pub fn print(self: Self, writer: anytype) !void {
         switch (self) {
-            .precedence => |precedence| {
-                try writer.print("Until{{ .precedence = {d} }}", .{precedence});
+            .deindent => try writer.print("Until.nextBlockEnds()", .{}),
+            .precedence_strong_as => |precedence| {
+                try writer.print("Until{{ .precedence_strong_as = {d} }}", .{precedence});
+            },
+            .precedence_weaker_than => |precedence| {
+                try writer.print("Until{{ .precedence_weaker_than = {d} }}", .{precedence});
+            },
+            .close => |close| {
+                try writer.print("Until.closing(.", .{});
+                try close.print(writer);
+                try writer.print(")", .{});
             },
         }
     }

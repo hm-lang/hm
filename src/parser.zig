@@ -184,12 +184,14 @@ pub const Parser = struct {
         // is the last element of `hierarchy`, with nesting all the way up
         // to the "root node" (`hierarchy.inBounds(0)`) which should be returned.
         var hierarchy = OwnedNodeIndices.init();
-        // TODO: will we ever run into any malformed input where we need `until`
-        // inside the `appendNextStandaloneExpression`?  e.g., `(whatever, +)`?
-        // i think that will be some other syntax error, though.
-        // TODO: add `tab` to the StatementNode so we can see if it's been indented
-        _ = try self.appendNextStandaloneExpression(&hierarchy, tab, or_else);
         defer hierarchy.deinit();
+
+        const standalone = try self.appendNextStandaloneExpression(&hierarchy, tab, until, or_else);
+        if (standalone.until_triggered) {
+            common.debugPrint("got standalone triggered {d}\n", .{standalone.node});
+            self.debugTokens();
+            return NodeResult.triggered(hierarchy.inBounds(0));
+        }
 
         while (true) {
             const result = try self.seekNextOperation(tab, until);
@@ -206,8 +208,11 @@ pub const Parser = struct {
             }
             if (operation.type == .postfix) {
                 try self.appendPostfixOperation(&hierarchy, operation);
-            } else if (self.appendNextStandaloneExpression(&hierarchy, tab, .only_try)) |right_index| {
-                try self.appendInfixOperation(&hierarchy, operation, right_index);
+            } else if (self.appendNextStandaloneExpression(&hierarchy, tab, until, .only_try)) |right| {
+                try self.appendInfixOperation(&hierarchy, operation, right.node);
+                if (right.until_triggered) {
+                    return NodeResult.triggered(hierarchy.inBounds(0));
+                }
             } else |error_getting_right_hand_expression| {
                 if (error_getting_right_hand_expression == ParserError.syntax_panic) {
                     return error_getting_right_hand_expression;
@@ -256,7 +261,9 @@ pub const Parser = struct {
     /// `First_identifier Second_identifier`, just grab the first one.
     /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
     /// Supports starting with spacing *or not* (e.g., for the start of a statement).
-    fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, or_else: OrElse) ParserError!NodeIndex {
+    fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
+        common.debugPrint("getting next standalone expression ", until);
+        self.debugTokens();
         const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
             const had_expression_token = false;
             self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
@@ -267,35 +274,38 @@ pub const Parser = struct {
         if (next_tabbed.tab > tab) {
             const enclosed_index = try self.appendNextEnclosed(next_tabbed.tab, .none);
             hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
-            return enclosed_index;
+            return .{ .node = enclosed_index, .until_triggered = until.shouldBreakAtDeindent() };
         }
 
-        switch (try self.peekToken()) {
-            .starts_upper, .number => {
+        const next_index = switch (try self.peekToken()) {
+            .starts_upper, .number => blk: {
                 const atomic_index = try self.justAppendNode(Node{
                     .atomic_token = self.farthest_token_index,
                 });
                 self.farthest_token_index += 1;
 
                 hierarchy.append(atomic_index) catch return ParserError.out_of_memory;
-                return atomic_index;
+                break :blk atomic_index;
             },
-            .starts_lower => {
+            .starts_lower => blk: {
                 const callable_index = try self.justAppendNode(Node{
                     .callable_token = self.farthest_token_index,
                 });
                 self.farthest_token_index += 1;
 
                 hierarchy.append(callable_index) catch return ParserError.out_of_memory;
-                return callable_index;
+                break :blk callable_index;
             },
-            .open => |open| {
+            .open => |open| blk: {
                 self.farthest_token_index += 1;
                 const enclosed_index = try self.appendNextEnclosed(tab, open);
                 hierarchy.append(enclosed_index) catch return ParserError.out_of_memory;
-                return enclosed_index;
+                if (open == .brace and until.shouldBreakAtDeindent()) {
+                    return NodeResult.triggered(enclosed_index);
+                }
+                break :blk enclosed_index;
             },
-            .operator => |operator| {
+            .operator => |operator| blk: {
                 if (!operator.isPrefixable()) {
                     if (or_else.be_noisy()) |_| {
                         self.addTokenizerError("not a prefix operator");
@@ -325,9 +335,9 @@ pub const Parser = struct {
                 // We don't need to append `inner_index` because we know it will not reappear.
                 // It was stronger than `prefix_index` and so should never be split out.
                 hierarchy.append(prefix_index) catch return ParserError.out_of_memory;
-                return prefix_index;
+                break :blk prefix_index;
             },
-            .keyword => |keyword| {
+            .keyword => |keyword| blk: {
                 const node_index = switch (keyword) {
                     .kw_if => try self.appendConditional(tab, expected_if_condition_and_block),
                     .kw_else, .kw_elif => {
@@ -337,7 +347,7 @@ pub const Parser = struct {
                     else => return ParserError.unimplemented,
                 };
                 hierarchy.append(node_index) catch return ParserError.out_of_memory;
-                return node_index;
+                break :blk node_index;
             },
             else => {
                 if (or_else.be_noisy()) |_| {
@@ -345,7 +355,8 @@ pub const Parser = struct {
                 }
                 return ParserError.syntax;
             },
-        }
+        };
+        return NodeResult.notTriggered(next_index);
     }
 
     // Returns the next postfix or infix operation.
@@ -354,7 +365,15 @@ pub const Parser = struct {
         const restore_index = self.farthest_token_index;
 
         var operation_tabbed = self.getSameStatementNextTabbed(tab) orelse {
-            return OperationResult.notTriggered(.{ .operator = .none }, tab);
+            common.debugPrint("wanted next operation but got deindent\n", .{});
+            self.debugTokens();
+            return OperationResult{
+                .operation = .{ .operator = .none },
+                .tab = tab,
+                // The only reason we'd get here is if we de-indented.
+                // TODO: we could trigger this at file_end; see if this breaks anything...
+                .until_triggered = until.shouldBreakAtDeindent(),
+            };
         };
         self.farthest_token_index = operation_tabbed.start_parsing_index;
 
@@ -417,7 +436,6 @@ pub const Parser = struct {
             // this is probably a syntax error, but we'll parse it as `Some_expression` `access` `+enclosed`
             self.farthest_token_index = restore_index;
             operation = .{ .operator = .indent, .type = .infix };
-            self.farthest_token_index = restore_index;
         }
 
         self.debugTokens();
@@ -517,11 +535,10 @@ pub const Parser = struct {
     }
 
     fn appendConditional(self: *Self, tab: u16, expected: []const u8) ParserError!NodeIndex {
-        // TODO: put the conditional_index into the `Until`, e.g., `Until.if_parsed`
-        //      that way if we see an `elif` or `else` we can keep parsing into the conditional.
         const if_index = self.farthest_token_index;
         self.farthest_token_index += 1;
-        const conditional_result = self.appendNextExpression(tab, Until.file_end, .only_try) catch {
+        common.debugPrint("starting if statement\n", self.peekToken() catch .file_end);
+        const conditional_result = self.appendNextExpression(tab, Until.nextBlockEnds(), .only_try) catch {
             self.tokenizer.addErrorAt(if_index, expected);
             return ParserError.syntax_panic;
         };
@@ -559,9 +576,9 @@ pub const Parser = struct {
             },
             .kw_else => blk: {
                 self.farthest_token_index = keyword_index + 1;
-                // Pretty much any operation should interrupt the parsing of this expression.
-                // We just want the next block `{...}` but nothing after (e.g., `else {...} + ...`)
-                const result = self.appendNextExpression(tab, Until{ .precedence_weaker_than = 0 }, .only_try) catch {
+                common.debugPrint("looking at else block\n", .{});
+                self.debugTokens();
+                const result = self.appendNextExpression(tab, Until.nextBlockEnds(), .only_try) catch {
                     self.tokenizer.addErrorAt(keyword_index, expected_else_block);
                     return ParserError.syntax_panic;
                 };
@@ -798,15 +815,23 @@ pub const Parser = struct {
     }
 
     pub fn debugTokens(self: *Self) void {
-        self.debugTokensUpTo(self.farthest_token_index);
+        self.debugTokensIn(common.back(self.farthest_token_index, 3) orelse 0, self.farthest_token_index + 3);
     }
 
-    pub fn debugTokensUpTo(self: *Self, end_token_index: TokenIndex) void {
+    pub fn debugTokensIn(self: *Self, start_token_index: TokenIndex, end_token_index: TokenIndex) void {
         common.debugPrint("Tokens: [\n", .{});
-        const start = common.back(self.farthest_token_index, 5) orelse 0;
-        for (start..end_token_index + 1) |token_index| {
-            common.debugPrint(" [{d}]:", .{token_index});
-            common.debugPrint(" ", self.tokenAt(token_index) catch .file_end);
+        for (start_token_index..end_token_index + 1) |token_index| {
+            if (token_index == self.farthest_token_index) {
+                common.debugPrint("*[{d}]:", .{token_index});
+            } else {
+                common.debugPrint(" [{d}]:", .{token_index});
+            }
+            var should_break = false;
+            common.debugPrint(" ", self.tokenAt(token_index) catch blk: {
+                should_break = true;
+                break :blk .file_end;
+            });
+            if (should_break) break;
         }
         common.debugPrint("]\n", .{});
     }
@@ -837,6 +862,7 @@ pub const Parser = struct {
 
 const NodeResult = struct {
     node: NodeIndex,
+    // TODO: rename to `triggered_until`
     until_triggered: bool,
 
     fn triggered(node: NodeIndex) Self {
@@ -2139,36 +2165,36 @@ test "parsing nested if statements" {
     const expected_nodes = [_]Node{
         // [0]:
         Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-        Node{ .statement = .{ .node = 25, .next = 0 } },
-        Node{ .atomic_token = 1 },
-        Node{ .atomic_token = 7 },
-        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 5 } },
+        Node{ .statement = .{ .node = 23, .next = 0 } }, // root statement
+        Node{ .atomic_token = 1 }, // 5
+        Node{ .atomic_token = 7 }, // Skelluton
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 5 } }, // root if brace
         // [5]:
-        Node{ .statement = .{ .node = 6, .next = 0 } },
-        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 7 } },
-        Node{ .statement = .{ .node = 14, .next = 0 } },
-        Node{ .atomic_token = 13 },
-        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 10 } },
+        Node{ .statement = .{ .node = 6, .next = 0 } }, // root if brace statement
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 7 } }, // root if indent
+        Node{ .statement = .{ .node = 14, .next = 0 } }, // root if indent statement
+        Node{ .atomic_token = 13 }, // Brandenborg
+        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 10 } }, // inner if brace
         // [10]:
-        Node{ .statement = .{ .node = 11, .next = 0 } },
-        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 12 } },
-        Node{ .statement = .{ .node = 13, .next = 0 } },
-        Node{ .atomic_token = 17 },
-        Node{ .conditional = .{ .condition = 8, .if_node = 9, .else_node = 15 } },
+        Node{ .statement = .{ .node = 11, .next = 0 } }, // inner if statement
+        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 12 } }, // inner if indent
+        Node{ .statement = .{ .node = 13, .next = 0 } }, // inner if indent statement
+        Node{ .atomic_token = 17 }, // Chetty
+        Node{ .conditional = .{ .condition = 8, .if_node = 9, .else_node = 15 } }, // inner if statement
         // [15]:
-        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 16 } },
-        Node{ .statement = .{ .node = 17, .next = 0 } },
-        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 18 } },
-        Node{ .statement = .{ .node = 19, .next = 20 } },
-        Node{ .atomic_token = 25 },
+        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 16 } }, // inner else brace
+        Node{ .statement = .{ .node = 17, .next = 0 } }, // inner else statement
+        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 18 } }, // inner else indent
+        Node{ .statement = .{ .node = 19, .next = 20 } }, // inner else indent first statement
+        Node{ .atomic_token = 25 }, // Betty
         // [20]:
-        Node{ .statement = .{ .node = 21, .next = 0 } },
-        Node{ .atomic_token = 27 },
-        Node{ .conditional = .{ .condition = 3, .if_node = 4, .else_node = 0 } },
-        Node{ .atomic_token = 35 },
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 22, .right = 23 } },
+        Node{ .statement = .{ .node = 21, .next = 0 } }, // inner else indent second statement
+        Node{ .atomic_token = 27 }, // Aetty
+        Node{ .conditional = .{ .condition = 3, .if_node = 4, .else_node = 0 } }, // root if
+        Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 25 } }, // 5 + ...
+        Node{ .atomic_token = 35 }, // 3
         // [25]:
-        Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 24 } },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 22, .right = 24 } }, // root if * 3
         .end,
     };
     {
