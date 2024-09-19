@@ -6,21 +6,29 @@ const Token = @import("token.zig").Token;
 const std = @import("std");
 
 const UntilTag = enum {
-    precedence,
+    precedence_strong_as,
+    precedence_weaker_than,
     close,
 };
 
 /// Necessary for prefix operations.
 pub const Until = union(UntilTag) {
-    precedence: u8,
+    precedence_strong_as: u8,
+    precedence_weaker_than: u8,
     close: Token.Close,
 
     pub const file_end: Self = .{ .close = Token.Close.none };
 
-    /// Will keep going until this prefix operator should win.
-    pub fn prefix_strength_wins(operator: Operator) Self {
+    /// Will keep going until we get to operators that are not as strong.
+    pub fn operatorWeakerThan(operator: Operator) Self {
         const operation = Operation{ .operator = operator, .type = .prefix };
-        return .{ .precedence = operation.precedence(Operation.Compare.on_left) };
+        return .{ .precedence_weaker_than = operation.precedence(Operation.Compare.on_left) };
+    }
+
+    pub fn operatorAsWeakAs(operator: Operator) Self {
+        const operation = Operation{ .operator = operator, .type = .prefix };
+        // TODO: should this be + or - 1??  double check.
+        return .{ .precedence_weaker_than = operation.precedence(Operation.Compare.on_left) - 1 };
     }
 
     pub fn closing(open: Token.Open) Self {
@@ -28,8 +36,15 @@ pub const Until = union(UntilTag) {
     }
 
     pub fn shouldBreakBeforeOperation(self: Self, on_right: Operation) bool {
+        // This is confusingly a double negative.  `shouldBreakBeforeOperation` is negative,
+        // and lower numerical precedence is higher in priority.
+        // TODO: invert operator precedence so high = high priority
         switch (self) {
-            .precedence => |left_precedence| {
+            .precedence_strong_as => |left_precedence| {
+                const right_precedence = on_right.precedence(Operation.Compare.on_right);
+                return left_precedence >= right_precedence;
+            },
+            .precedence_weaker_than => |left_precedence| {
                 const right_precedence = on_right.precedence(Operation.Compare.on_right);
                 return left_precedence < right_precedence;
             },

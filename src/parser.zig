@@ -161,6 +161,17 @@ pub const Parser = struct {
         return result.withNode(statement_index);
     }
 
+    /// Appends the next expression and requires that the `until` is triggered.
+    fn appendTriggeredExpression(self: *Self, tab: u16, until: Until) ParserError!NodeIndex {
+        const result = try self.appendNextExpression(tab, until, .only_try);
+        common.debugPrint("tried to get an expression, was it triggered {s}?\n", .{common.boolSlice(result.until_triggered)});
+        self.debugTokens();
+        if (result.until_triggered) {
+            return result.node;
+        }
+        return ParserError.syntax_panic;
+    }
+
     /// Supports starting with spacing *or not* (e.g., for the start of a statement
     /// where we don't want to check the indent yet).
     fn appendNextExpression(self: *Self, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
@@ -303,7 +314,7 @@ pub const Parser = struct {
                 // We're assuming that prefix operators should not break at an operator using an `Until` here.
                 // We need every operation *stronger* than this prefix to be attached to this prefix.
                 // TODO: add `tab` to the StatementNode so we can see if it's been indented
-                const inner_result = try self.appendNextExpression(tab, Until.prefix_strength_wins(operator), or_else);
+                const inner_result = try self.appendNextExpression(tab, Until.operatorWeakerThan(operator), or_else);
                 switch (self.nodes.items()[prefix_index]) {
                     // restore the invariant:
                     .prefix => |*prefix| {
@@ -409,10 +420,13 @@ pub const Parser = struct {
             self.farthest_token_index = restore_index;
         }
 
+        self.debugTokens();
         if (until.shouldBreakBeforeOperation(operation)) {
             self.farthest_token_index = restore_index;
+            common.debugPrint("breaking at operation ", operation);
             return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
         }
+        common.debugPrint("continuing with operation ", operation);
         return operation_tabbed.toNotTriggeredOperation(operation);
     }
 
@@ -503,6 +517,8 @@ pub const Parser = struct {
     }
 
     fn appendConditional(self: *Self, tab: u16, expected: []const u8) ParserError!NodeIndex {
+        // TODO: put the conditional_index into the `Until`, e.g., `Until.if_parsed`
+        //      that way if we see an `elif` or `else` we can keep parsing into the conditional.
         const if_index = self.farthest_token_index;
         self.farthest_token_index += 1;
         const conditional_result = self.appendNextExpression(tab, Until.file_end, .only_try) catch {
@@ -545,7 +561,7 @@ pub const Parser = struct {
                 self.farthest_token_index = keyword_index + 1;
                 // Pretty much any operation should interrupt the parsing of this expression.
                 // We just want the next block `{...}` but nothing after (e.g., `else {...} + ...`)
-                const result = self.appendNextExpression(tab, Until.prefix_strength_wins(.none), .only_try) catch {
+                const result = self.appendNextExpression(tab, Until{ .precedence_weaker_than = 0 }, .only_try) catch {
                     self.tokenizer.addErrorAt(keyword_index, expected_else_block);
                     return ParserError.syntax_panic;
                 };
@@ -2123,27 +2139,36 @@ test "parsing nested if statements" {
     const expected_nodes = [_]Node{
         // [0]:
         Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
-        Node{ .statement = .{ .node = 18, .next = 0 } }, // root statement
-        Node{ .atomic_token = 1 }, // 5
-        Node{ .atomic_token = 7 }, // Skelluton
-        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 5 } }, // outer {...}
+        Node{ .statement = .{ .node = 25, .next = 0 } },
+        Node{ .atomic_token = 1 },
+        Node{ .atomic_token = 7 },
+        Node{ .enclosed = .{ .open = .brace, .tab = 0, .start = 5 } },
         // [5]:
-        Node{ .statement = .{ .node = 6, .next = 0 } }, // first statement in outer {...}
-        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 7 } }, // first indent
-        Node{ .statement = .{ .node = 14, .next = 0 } }, // inner if statement
-        Node{ .atomic_token = 13 }, // Brandenborg
+        Node{ .statement = .{ .node = 6, .next = 0 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 7 } },
+        Node{ .statement = .{ .node = 14, .next = 0 } },
+        Node{ .atomic_token = 13 },
         Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 10 } },
         // [10]:
         Node{ .statement = .{ .node = 11, .next = 0 } },
         Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 12 } },
         Node{ .statement = .{ .node = 13, .next = 0 } },
-        Node{ .atomic_token = 17 }, // Chetty
-        Node{ .conditional = .{ .condition = 8, .if_node = 9, .else_node = 0 } },
+        Node{ .atomic_token = 17 },
+        Node{ .conditional = .{ .condition = 8, .if_node = 9, .else_node = 15 } },
         // [15]:
-        Node{ .conditional = .{ .condition = 3, .if_node = 17, .else_node = 0 } },
-        Node{ .atomic_token = 25 }, // 3
-        Node{ .binary = .{ .operator = Operator.multiply, .left = 4, .right = 16 } }, // if * 3
-        Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 15 } }, // 5 + ...
+        Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 16 } },
+        Node{ .statement = .{ .node = 17, .next = 0 } },
+        Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 18 } },
+        Node{ .statement = .{ .node = 19, .next = 20 } },
+        Node{ .atomic_token = 25 },
+        // [20]:
+        Node{ .statement = .{ .node = 21, .next = 0 } },
+        Node{ .atomic_token = 27 },
+        Node{ .conditional = .{ .condition = 3, .if_node = 4, .else_node = 0 } },
+        Node{ .atomic_token = 35 },
+        Node{ .binary = .{ .operator = Operator.multiply, .left = 22, .right = 23 } },
+        // [25]:
+        Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 24 } },
         .end,
     };
     {
@@ -2157,10 +2182,9 @@ test "parsing nested if statements" {
             "5 + if Skelluton {",
             "    if Brandenborg {",
             "        Chetty",
-            // TODO:
-            // "    } else {",
-            // "        Betty",
-            // "        Aetty",
+            "    } else {",
+            "        Betty",
+            "        Aetty",
             "    }",
             "} * 3",
         };
