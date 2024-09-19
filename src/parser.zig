@@ -2222,7 +2222,82 @@ test "parsing nested if statements" {
         // No tampering done with the file, i.e., no errors.
         try parser.tokenizer.file.expectEqualsSlice(&file_slice);
     }
-    // TODO: add else
+    {
+        // Explicit brace, Horstmann style
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "5 + if Skelluton",
+            "{   if Brandenborg",
+            "    {   Chetty",
+            "    }",
+            "    else",
+            "    {   Betty",
+            "        Aetty",
+            "    }",
+            "} * 3",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&expected_nodes);
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
+    {
+        // Implicit brace
+        var parser: Parser = .{};
+        defer parser.deinit();
+        errdefer {
+            common.debugPrint("# file:\n", parser.tokenizer.file);
+        }
+        const file_slice = [_][]const u8{
+            "5 + 3 * if Skelluton",
+            "    if Brandenborg",
+            "        Chetty",
+            "    else",
+            "        Betty",
+            "        Aetty",
+        };
+        try parser.tokenizer.file.appendSlice(&file_slice);
+
+        try parser.complete();
+
+        try parser.nodes.expectEqualsSlice(&[_]Node{
+            // [0]:
+            Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+            Node{ .statement = .{ .node = 4, .next = 0 } }, // root statement
+            Node{ .atomic_token = 1 }, // 5
+            Node{ .atomic_token = 5 }, // 3
+            Node{ .binary = .{ .operator = Operator.plus, .left = 2, .right = 19 } }, // 5 + ...
+            // [5]:
+            Node{ .atomic_token = 11 }, // Skelluton
+            Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 7 } }, // root if indent
+            Node{ .statement = .{ .node = 12, .next = 0 } }, // root if indent statement
+            Node{ .atomic_token = 15 }, // Brandenborg
+            Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 10 } }, // inner if indent
+            // [10]:
+            Node{ .statement = .{ .node = 11, .next = 0 } }, // inner if statement
+            Node{ .atomic_token = 17 }, // Chetty
+            Node{ .conditional = .{ .condition = 8, .if_node = 9, .else_node = 13 } }, // inner if
+            Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 14 } }, // inner else
+            Node{ .statement = .{ .node = 15, .next = 16 } }, // inner else first statement
+            // [15]:
+            Node{ .atomic_token = 21 }, // Betty
+            Node{ .statement = .{ .node = 17, .next = 0 } }, // inner else second statement
+            Node{ .atomic_token = 23 }, // Aetty
+            Node{ .conditional = .{ .condition = 5, .if_node = 6, .else_node = 0 } }, // root if
+            Node{ .binary = .{ .operator = Operator.multiply, .left = 3, .right = 18 } }, // 3 * if...
+            // [20]:
+            .end,
+        });
+        // No tampering done with the file, i.e., no errors.
+        try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+    }
 }
 
 test "parsing if errors" {
