@@ -4,6 +4,7 @@ const RunContext = @import("run_context.zig").RunContext;
 
 const Declare = RunContext.Declare;
 const Error = RunContext.Error;
+const Handle = RunContext.Handle;
 const Value = RunContext.Value;
 
 pub const DoNothing = struct {
@@ -35,12 +36,17 @@ pub const DoNothing = struct {
         return false;
     }
 
-    pub fn declareVariable(self: *Self, name: Value, declare: Declare, variable_type: Value) bool {
+    pub fn declareVariable(self: *Self, name: Value, declare: Declare, variable_type: Value) Error!Handle {
         _ = self;
         _ = name;
         _ = declare;
         _ = variable_type;
-        return false;
+        return 0;
+    }
+
+    pub fn descopeVariable(self: *Self, handle: Handle) Error!void {
+        _ = self;
+        _ = handle;
     }
 
     const Self = @This();

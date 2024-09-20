@@ -10,6 +10,7 @@ pub const RunContext = struct {
     pub const Error = RunContextError;
     pub const Value = RunContextValue;
     pub const Declare = RunContextDeclare;
+    pub const Handle = u64;
 };
 
 const RunContextDeclare = enum {
