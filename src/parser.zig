@@ -341,6 +341,7 @@ pub const Parser = struct {
                 const node_index = switch (keyword) {
                     .kw_if => try self.appendConditionAndBlocks(Node.Conditional, tab, expected_if_condition_and_block),
                     .kw_while => try self.appendConditionAndBlocks(Node.WhileLoop, tab, expected_while_condition_and_block),
+                    .kw_what => try self.appendConditionAndFirstBlock(Node.What, tab, expected_what_condition_and_block),
                     .kw_else, .kw_elif => {
                         self.addTokenizerError("need `if` before `else` or `elif`");
                         return ParserError.syntax_panic;
@@ -536,24 +537,28 @@ pub const Parser = struct {
     }
 
     fn appendConditionAndBlocks(self: *Self, comptime T: anytype, tab: u16, expected: []const u8) ParserError!NodeIndex {
-        const if_index = self.farthest_token_index;
+        const conditional_index = try self.appendConditionAndFirstBlock(T, tab, expected);
+        try self.maybeAppendConditionalContinuation(conditional_index, tab);
+        return conditional_index;
+    }
+
+    fn appendConditionAndFirstBlock(self: *Self, comptime T: anytype, tab: u16, expected: []const u8) ParserError!NodeIndex {
+        const keyword_index = self.farthest_token_index;
         self.farthest_token_index += 1;
-        common.debugPrint("starting if statement\n", self.peekToken() catch .file_end);
         const conditional_result = self.appendNextExpression(tab, Until.nextBlockEnds(), .only_try) catch {
-            self.tokenizer.addErrorAt(if_index, expected);
+            self.tokenizer.addErrorAt(keyword_index, expected);
             return ParserError.syntax_panic;
         };
         const conditional_index = conditional_result.node;
         const binary = self.nodes.inBounds(conditional_index).getBinary() orelse {
-            self.tokenizer.addErrorAt(if_index, expected);
+            self.tokenizer.addErrorAt(keyword_index, expected);
             return ParserError.syntax_panic;
         };
         if (binary.operator != .indent) {
-            self.tokenizer.addErrorAt(if_index, expected);
+            self.tokenizer.addErrorAt(keyword_index, expected);
             return ParserError.syntax_panic;
         }
-        self.nodes.items()[conditional_index] = T.withConditionAndFirstBlock(binary.left, binary.right);
-        try self.maybeAppendConditionalContinuation(conditional_index, tab);
+        self.nodes.items()[conditional_index] = T.withEvaluateAndBlock(binary.left, binary.right);
         return conditional_index;
     }
 
@@ -923,8 +928,10 @@ const Tabbed = struct {
     const Self = @This();
 };
 
+// TODO: errors should link to an hm-lang README page or issue tracker
 const expected_spacing = "expected spacing between each identifier";
 const expected_four_space_indents = "indents should be 4-spaces wide";
+const expected_what_condition_and_block = "need expression for `what` or indented block after";
 const expected_if_condition_and_block = "need condition for `if` or indented block after";
 const expected_while_condition_and_block = "need condition for `while` or indented block after";
 const expected_elif_condition_and_block = "need condition for `elif` or indented block after";

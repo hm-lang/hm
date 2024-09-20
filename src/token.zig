@@ -403,6 +403,8 @@ const TokenKeyword = enum {
     kw_if,
     kw_elif,
     kw_else,
+    // TODO: `return` and `each` might actually work better as operators (prefix/infix).
+    // TODO: add `break` and `pass` as well, but possibly as operators.
     kw_return,
     kw_each,
     kw_what,

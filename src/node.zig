@@ -23,6 +23,7 @@ const NodeTag = enum {
     /// where we want to make it like this instead:
     /// `[Node: [Statement1], Next: [Node: [Statement2], Next: [Statement3]]]`.)
     statement,
+    what,
     conditional,
     while_loop,
     // TODO: split into `identifier` and `number` nodes, probably...
@@ -41,6 +42,7 @@ const NodeError = error{not_allowed};
 pub const Node = union(NodeTag) {
     enclosed: EnclosedNode,
     statement: StatementNode,
+    what: WhatNode,
     conditional: ConditionalNode,
     while_loop: WhileLoopNode,
     atomic_token: TokenIndex,
@@ -123,6 +125,12 @@ pub const Node = union(NodeTag) {
             .statement => |statement| {
                 try writer.print("Node{{ .statement = .{{ .node = {d}, .next = {d} }} }}", .{ statement.node, statement.next });
             },
+            .what => |what| {
+                try writer.print("Node{{ .what = .{{ .evaluate = {d}, .block = {d} }} }}", .{
+                    what.evaluate,
+                    what.block,
+                });
+            },
             .conditional => |conditional| {
                 try writer.print("Node{{ .conditional = .{{ .condition = {d}, .if_node = {d}, .else_node = {d} }} }}", .{
                     conditional.condition,
@@ -144,17 +152,17 @@ pub const Node = union(NodeTag) {
                 try writer.print("Node{{ .callable_token = {d} }}", .{token_index});
             },
             .prefix => |prefix| {
-                try writer.print("Node{{ .prefix = .{{ .operator = ", .{});
+                try writer.print("Node{{ .prefix = .{{ .operator = .", .{});
                 try prefix.operator.print(writer);
                 try writer.print(", .node = {d} }} }}", .{prefix.node});
             },
             .postfix => |postfix| {
-                try writer.print("Node{{ .postfix = .{{ .operator = ", .{});
+                try writer.print("Node{{ .postfix = .{{ .operator = .", .{});
                 try postfix.operator.print(writer);
                 try writer.print(", .node = {d} }} }}", .{postfix.node});
             },
             .binary => |binary| {
-                try writer.print("Node{{ .binary = .{{ .operator = ", .{});
+                try writer.print("Node{{ .binary = .{{ .operator = .", .{});
                 try binary.operator.print(writer);
                 try writer.print(", .left = {d}, .right = {d} }} }}", .{ binary.left, binary.right });
             },
@@ -228,6 +236,7 @@ pub const Node = union(NodeTag) {
     pub const Tag = NodeTag;
     pub const Enclosed = EnclosedNode;
     pub const Statement = StatementNode;
+    pub const What = WhatNode;
     pub const Conditional = ConditionalNode;
     pub const WhileLoop = WhileLoopNode;
     pub const Prefix = PrefixNode;
@@ -280,12 +289,37 @@ const StatementNode = struct {
     const Self = @This();
 };
 
+const WhatNode = struct {
+    evaluate: NodeIndex = 0,
+    block: NodeIndex = 0,
+
+    pub fn withEvaluateAndBlock(evaluate: NodeIndex, block: NodeIndex) Node {
+        return .{ .what = .{ .evaluate = evaluate, .block = block } };
+    }
+
+    pub fn operation(self: Self) Node.Operation {
+        _ = self;
+        // we probably should never ask for a `WhatNode`'s operation.
+        return .{ .type = .infix, .operator = .none };
+    }
+
+    pub fn equals(a: Self, b: Self) bool {
+        return a.evaluate == b.evaluate and a.block == b.block;
+    }
+
+    pub fn expectEquals(a: Self, b: Self) !void {
+        try std.testing.expect(a.equals(b));
+    }
+
+    const Self = @This();
+};
+
 const ConditionalNode = struct {
     condition: NodeIndex = 0,
     if_node: NodeIndex = 0,
     else_node: NodeIndex = 0,
 
-    pub fn withConditionAndFirstBlock(condition: NodeIndex, block: NodeIndex) Node {
+    pub fn withEvaluateAndBlock(condition: NodeIndex, block: NodeIndex) Node {
         return .{ .conditional = .{ .condition = condition, .if_node = block } };
     }
 
@@ -311,7 +345,7 @@ const WhileLoopNode = struct {
     loop_node: NodeIndex = 0,
     else_node: NodeIndex = 0,
 
-    pub fn withConditionAndFirstBlock(condition: NodeIndex, block: NodeIndex) Node {
+    pub fn withEvaluateAndBlock(condition: NodeIndex, block: NodeIndex) Node {
         return .{ .while_loop = .{ .condition = condition, .loop_node = block } };
     }
 
