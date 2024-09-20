@@ -458,8 +458,8 @@ pub const Parser = struct {
             hierarchy_index -= 1;
             left_index = hierarchy.inBounds(hierarchy_index);
             const left_operation = self.nodeInBounds(left_index).operation();
-            // lower precedence means higher priority.
-            if (left_operation.isPostfix() or left_operation.precedence(Operation.Compare.on_left) <= operation_precedence) {
+            // higher precedence means higher priority.
+            if (left_operation.isPostfix() or left_operation.precedence(Operation.Compare.on_left) >= operation_precedence) {
                 // `left` has higher priority; we should continue up the hierarchy
                 // until we find the spot that this new operation should take.
                 _ = hierarchy.pop();
@@ -500,8 +500,8 @@ pub const Parser = struct {
             hierarchy_index -= 1;
             left_index = hierarchy.inBounds(hierarchy_index);
             const left_operation = self.nodeInBounds(left_index).operation();
-            // lower precedence means higher priority.
-            if (left_operation.isPostfix() or left_operation.precedence(Operation.Compare.on_left) <= operation_precedence) {
+            // higher precedence means higher priority.
+            if (left_operation.isPostfix() or left_operation.precedence(Operation.Compare.on_left) >= operation_precedence) {
                 // `left` has higher priority; we should continue up the hierarchy
                 // until we find the spot that this new operation should take.
                 _ = hierarchy.pop();

@@ -33,8 +33,7 @@ pub const Until = union(UntilTag) {
 
     pub fn operatorAsWeakAs(operator: Operator) Self {
         const operation = Operation{ .operator = operator, .type = .prefix };
-        // TODO: should this be + or - 1??  double check.
-        return .{ .precedence_weaker_than = operation.precedence(Operation.Compare.on_left) - 1 };
+        return .{ .precedence_weaker_than = operation.precedence(Operation.Compare.on_left) + 1 };
     }
 
     pub fn closing(open: Token.Open) Self {
@@ -42,17 +41,14 @@ pub const Until = union(UntilTag) {
     }
 
     pub fn shouldBreakBeforeOperation(self: Self, on_right: Operation) bool {
-        // This is confusingly a double negative.  `shouldBreakBeforeOperation` is negative,
-        // and lower numerical precedence is higher in priority.
-        // TODO: invert operator precedence so high = high priority
         switch (self) {
             .precedence_strong_as => |left_precedence| {
                 const right_precedence = on_right.precedence(Operation.Compare.on_right);
-                return left_precedence >= right_precedence;
+                return right_precedence >= left_precedence;
             },
             .precedence_weaker_than => |left_precedence| {
                 const right_precedence = on_right.precedence(Operation.Compare.on_right);
-                return left_precedence < right_precedence;
+                return right_precedence < left_precedence;
             },
             else => return false,
         }
