@@ -1,5 +1,4 @@
 const common = @import("common.zig");
-const DoNothing = @import("do_nothing.zig").DoNothing;
 const Node = @import("node.zig").Node;
 const Parser = @import("parser.zig").Parser;
 const SmallString = @import("string.zig").Small;
