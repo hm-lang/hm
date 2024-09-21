@@ -275,7 +275,7 @@ const StatementNode = struct {
     pub fn operation(self: Self) Node.Operation {
         _ = self;
         // we probably should never ask for a `StatementNode`'s operation.
-        return .{ .type = .infix, .operator = .comma };
+        return .{ .type = .infix, .operator = .op_comma };
     }
 
     pub fn equals(a: Self, b: Self) bool {
@@ -300,7 +300,7 @@ const WhatNode = struct {
     pub fn operation(self: Self) Node.Operation {
         _ = self;
         // we probably should never ask for a `WhatNode`'s operation.
-        return .{ .type = .infix, .operator = .none };
+        return .{ .type = .infix, .operator = .op_none };
     }
 
     pub fn equals(a: Self, b: Self) bool {
@@ -326,7 +326,7 @@ const ConditionalNode = struct {
     pub fn operation(self: Self) Node.Operation {
         _ = self;
         // we probably should never ask for a `ConditionalNode`'s operation.
-        return .{ .type = .infix, .operator = .none };
+        return .{ .type = .infix, .operator = .op_none };
     }
 
     pub fn equals(a: Self, b: Self) bool {
@@ -352,7 +352,7 @@ const WhileLoopNode = struct {
     pub fn operation(self: Self) Node.Operation {
         _ = self;
         // we probably should never ask for a `ConditionalNode`'s operation.
-        return .{ .type = .infix, .operator = .none };
+        return .{ .type = .infix, .operator = .op_none };
     }
 
     pub fn equals(a: Self, b: Self) bool {
@@ -367,7 +367,7 @@ const WhileLoopNode = struct {
 };
 
 const BinaryNode = struct {
-    operator: Operator = .none,
+    operator: Operator = .op_none,
     left: NodeIndex = 0,
     right: NodeIndex = 0,
 
@@ -387,7 +387,7 @@ const BinaryNode = struct {
 };
 
 const PrefixNode = struct {
-    operator: Operator = .none,
+    operator: Operator = .op_none,
     node: NodeIndex = 0,
 
     pub fn operation(self: Self) Node.Operation {
@@ -406,7 +406,7 @@ const PrefixNode = struct {
 };
 
 const PostfixNode = struct {
-    operator: Operator = .none,
+    operator: Operator = .op_none,
     node: NodeIndex = 0,
 
     pub fn operation(self: Self) Node.Operation {
@@ -433,24 +433,24 @@ test "node equality" {
     const end: Node = .end;
     try end.expectEquals(end);
 
-    const postfix = Node{ .postfix = .{ .operator = .increment, .node = 123 } };
+    const postfix = Node{ .postfix = .{ .operator = .op_increment, .node = 123 } };
     try end.expectNotEquals(postfix);
     try postfix.expectEquals(postfix);
-    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = .increment, .node = 124 } });
-    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = .plus, .node = 123 } });
+    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = .op_increment, .node = 124 } });
+    try postfix.expectNotEquals(Node{ .postfix = .{ .operator = .op_plus, .node = 123 } });
 
-    const prefix = Node{ .prefix = .{ .operator = .decrement, .node = 123 } };
+    const prefix = Node{ .prefix = .{ .operator = .op_decrement, .node = 123 } };
     try prefix.expectNotEquals(postfix);
     try prefix.expectEquals(prefix);
-    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = .decrement, .node = 124 } });
-    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = .minus, .node = 123 } });
+    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = .op_decrement, .node = 124 } });
+    try prefix.expectNotEquals(Node{ .prefix = .{ .operator = .op_minus, .node = 123 } });
 
-    const binary = Node{ .binary = .{ .operator = .plus, .left = 5, .right = 7 } };
+    const binary = Node{ .binary = .{ .operator = .op_plus, .left = 5, .right = 7 } };
     try binary.expectNotEquals(postfix);
     try binary.expectEquals(binary);
-    try binary.expectNotEquals(Node{ .binary = .{ .operator = .plus, .left = 6, .right = 7 } });
-    try binary.expectNotEquals(Node{ .binary = .{ .operator = .plus, .left = 5, .right = 8 } });
-    try binary.expectNotEquals(Node{ .binary = .{ .operator = .minus, .left = 5, .right = 7 } });
+    try binary.expectNotEquals(Node{ .binary = .{ .operator = .op_plus, .left = 6, .right = 7 } });
+    try binary.expectNotEquals(Node{ .binary = .{ .operator = .op_plus, .left = 5, .right = 8 } });
+    try binary.expectNotEquals(Node{ .binary = .{ .operator = .op_minus, .left = 5, .right = 7 } });
 
     const conditional = Node{ .conditional = .{ .condition = 5, .if_node = 7, .else_node = 9 } };
     try conditional.expectNotEquals(postfix);

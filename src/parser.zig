@@ -196,8 +196,8 @@ pub const Parser = struct {
             const result = try self.seekNextOperation(tab, until);
             const operation = result.operation;
             switch (operation.operator) {
-                .none => return result.toNode(hierarchy.inBounds(0)),
-                .comma => {
+                .op_none => return result.toNode(hierarchy.inBounds(0)),
+                .op_comma => {
                     // Commas are so low in priority that we split off statements
                     // so that we can go roughly in left-to-right order without
                     // depth-first-searching for the first left node.
@@ -370,7 +370,7 @@ pub const Parser = struct {
             common.debugPrint("wanted next operation but got deindent\n", .{});
             self.debugTokens();
             return OperationResult{
-                .operation = .{ .operator = .none },
+                .operation = .{ .operator = .op_none },
                 .tab = tab,
                 // The only reason we'd get here is if we de-indented.
                 // TODO: we could trigger this at file_end; see if this breaks anything...
@@ -401,33 +401,33 @@ pub const Parser = struct {
                     // TODO: this will probably break tab functionality
                     self.farthest_token_index -= 1;
                     // Pretend that we have an operator before this prefix.
-                    break :blk .{ .operator = .access, .type = .infix };
+                    break :blk .{ .operator = .op_access, .type = .infix };
                 }
             },
             .close => |close| blk: {
                 if (until.shouldBreakAtClose(close)) {
                     self.farthest_token_index += 1;
-                    return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
+                    return operation_tabbed.toTriggeredOperation(.{ .operator = .op_none });
                 }
                 // TODO: does this ever actually happen?  i expect
                 // that we should always trigger when we find a close.
                 // Same as the `else` block below:
                 self.farthest_token_index -= 1;
-                break :blk .{ .operator = .access, .type = .infix };
+                break :blk .{ .operator = .op_access, .type = .infix };
             },
             .keyword => blk: {
                 self.farthest_token_index -= 1;
-                break :blk .{ .operator = .none };
+                break :blk .{ .operator = .op_none };
             },
             .open => |open| blk: {
                 self.farthest_token_index -= 1;
-                break :blk .{ .operator = if (open == .brace) .indent else .access, .type = .infix };
+                break :blk .{ .operator = if (open == .brace) .op_indent else .op_access, .type = .infix };
             },
             else => blk: {
                 // We encountered another realizable token, back up so that
                 // we maintain the invariant that there's a space before the next real element.
                 self.farthest_token_index -= 1;
-                break :blk .{ .operator = .access, .type = .infix };
+                break :blk .{ .operator = .op_access, .type = .infix };
             },
         };
 
@@ -437,14 +437,14 @@ pub const Parser = struct {
             //&|        +enclosed
             // this is probably a syntax error, but we'll parse it as `Some_expression` `access` `+enclosed`
             self.farthest_token_index = restore_index;
-            operation = .{ .operator = .indent, .type = .infix };
+            operation = .{ .operator = .op_indent, .type = .infix };
         }
 
         self.debugTokens();
         if (until.shouldBreakBeforeOperation(operation)) {
             self.farthest_token_index = restore_index;
             common.debugPrint("breaking at operation ", operation);
-            return operation_tabbed.toTriggeredOperation(.{ .operator = .none });
+            return operation_tabbed.toTriggeredOperation(.{ .operator = .op_none });
         }
         common.debugPrint("continuing with operation ", operation);
         return operation_tabbed.toNotTriggeredOperation(operation);
@@ -554,7 +554,7 @@ pub const Parser = struct {
             self.tokenizer.addErrorAt(keyword_index, expected);
             return ParserError.syntax_panic;
         };
-        if (binary.operator != .indent) {
+        if (binary.operator != .op_indent) {
             self.tokenizer.addErrorAt(keyword_index, expected);
             return ParserError.syntax_panic;
         }

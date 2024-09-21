@@ -47,10 +47,10 @@ test "parsing nested if statements" {
         Node{ .statement = .{ .node = 21, .next = 0 } }, // inner else indent second statement
         Node{ .atomic_token = 27 }, // Aetty
         Node{ .conditional = .{ .condition = 3, .if_node = 4, .else_node = 0 } }, // root if
-        Node{ .binary = .{ .operator = .plus, .left = 2, .right = 25 } }, // 5 + ...
+        Node{ .binary = .{ .operator = .op_plus, .left = 2, .right = 25 } }, // 5 + ...
         Node{ .atomic_token = 35 }, // 3
         // [25]:
-        Node{ .binary = .{ .operator = .multiply, .left = 22, .right = 24 } }, // root if * 3
+        Node{ .binary = .{ .operator = .op_multiply, .left = 22, .right = 24 } }, // root if * 3
         .end,
     };
     {
@@ -129,7 +129,7 @@ test "parsing nested if statements" {
             Node{ .statement = .{ .node = 4, .next = 0 } }, // root statement
             Node{ .atomic_token = 1 }, // 5
             Node{ .atomic_token = 5 }, // 3
-            Node{ .binary = .{ .operator = .plus, .left = 2, .right = 19 } }, // 5 + ...
+            Node{ .binary = .{ .operator = .op_plus, .left = 2, .right = 19 } }, // 5 + ...
             // [5]:
             Node{ .atomic_token = 11 }, // Skelluton
             Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 7 } }, // root if indent
@@ -147,7 +147,7 @@ test "parsing nested if statements" {
             Node{ .statement = .{ .node = 17, .next = 0 } }, // inner else second statement
             Node{ .atomic_token = 23 }, // Aetty
             Node{ .conditional = .{ .condition = 5, .if_node = 6, .else_node = 0 } }, // root if
-            Node{ .binary = .{ .operator = .multiply, .left = 3, .right = 18 } }, // 3 * if...
+            Node{ .binary = .{ .operator = .op_multiply, .left = 3, .right = 18 } }, // 3 * if...
             // [20]:
             .end,
         });
@@ -333,9 +333,9 @@ test "parsing if/else statements as part of an expression " {
         Node{ .statement = .{ .node = 14, .next = 0 } }, // indented else statement
         Node{ .atomic_token = 19 }, // Else_block_500
         // [15]:
-        Node{ .binary = .{ .operator = .plus, .left = 2, .right = 17 } }, // 500 + ...
+        Node{ .binary = .{ .operator = .op_plus, .left = 2, .right = 17 } }, // 500 + ...
         Node{ .atomic_token = 25 }, // 3500
-        Node{ .binary = .{ .operator = .multiply, .left = 9, .right = 16 } }, // (if{}else{}) * 3500
+        Node{ .binary = .{ .operator = .op_multiply, .left = 9, .right = 16 } }, // (if{}else{}) * 3500
         .end,
     };
     {
@@ -420,7 +420,7 @@ test "parsing if/else statements as part of an expression " {
             Node{ .statement = .{ .node = 10, .next = 0 } }, // else indented statement
             // [10]:
             Node{ .atomic_token = 13 }, // Else_block_500
-            Node{ .binary = .{ .operator = .plus, .left = 2, .right = 7 } }, // 500 + ...
+            Node{ .binary = .{ .operator = .op_plus, .left = 2, .right = 7 } }, // 500 + ...
             .end,
         });
         // No tampering done with the file, i.e., no errors.

@@ -452,15 +452,15 @@ pub const Tokenizer = struct {
         switch (line.at(self.farthest_char_index + 1) orelse 0) {
             '!' => {
                 self.farthest_char_index += 2;
-                return Token{ .operator = Operator.not_not };
+                return Token{ .operator = .op_not_not };
             },
             '=' => {
                 self.farthest_char_index += 2;
-                return Token{ .operator = Operator.not_equal };
+                return Token{ .operator = .op_not_equal };
             },
             else => {
                 self.farthest_char_index += 1;
-                return Token{ .operator = Operator.not };
+                return Token{ .operator = .op_not };
             },
         }
     }
@@ -471,7 +471,7 @@ pub const Tokenizer = struct {
             return self.getNextOperator(line);
         }
         self.farthest_char_index += 1;
-        return Token{ .operator = Operator.nullify };
+        return Token{ .operator = .op_nullify };
     }
 
     fn getNextLambdaOperator(self: *Self, line: SmallString) Token {
@@ -483,14 +483,14 @@ pub const Tokenizer = struct {
         }
         const lambda_length = self.farthest_char_index - initial_char_index;
         const operator: Operator = switch (lambda_length) {
-            1 => .lambda1,
-            2 => .lambda2,
-            3 => .lambda3,
-            4 => .lambda4,
-            5 => .lambda5,
-            6 => .lambda6,
-            7 => .lambda7,
-            8 => .lambda8,
+            1 => .op_lambda1,
+            2 => .op_lambda2,
+            3 => .op_lambda3,
+            4 => .op_lambda4,
+            5 => .op_lambda5,
+            6 => .op_lambda6,
+            7 => .op_lambda7,
+            8 => .op_lambda8,
             else => return self.getInvalidToken(initial_char_index, Token.InvalidType.operator),
         };
         return Token{ .operator = operator };
@@ -537,7 +537,7 @@ pub const Tokenizer = struct {
         }
         const buffer = line.slice()[initial_char_index..self.farthest_char_index];
         const operator = Operator.init(buffer);
-        return if (operator == .none)
+        return if (operator == .op_none)
             self.getInvalidToken(initial_char_index, Token.InvalidType.operator)
         else
             Token{ .operator = operator };
@@ -934,23 +934,23 @@ test "tokenizer tokenizing" {
         Token{ .spacing = .{ .absolute = 8, .relative = 1, .line = 0 } },
         Token{ .starts_lower = SmallString.noAlloc("w_o_rld2") },
         Token{ .spacing = .{ .absolute = 18, .relative = 2, .line = 0 } },
-        Token{ .operator = .divide },
+        Token{ .operator = .op_divide },
         // Ignores spacing at the end
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 1 } },
         Token{ .number = SmallString.noAlloc("2.73456") },
         Token{ .spacing = .{ .absolute = 11, .relative = 4, .line = 1 } },
-        Token{ .operator = .minus },
+        Token{ .operator = .op_minus },
         Token{ .spacing = .{ .absolute = 12, .relative = 0, .line = 1 } },
         Token{ .starts_lower = SmallString.noAlloc("l1ne") },
         // Ignores spacing at the end
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 2 } },
         Token{ .starts_lower = SmallString.noAlloc("sp3cial") },
         Token{ .spacing = .{ .absolute = 7, .relative = 0, .line = 2 } },
-        Token{ .operator = .multiply },
+        Token{ .operator = .op_multiply },
         Token{ .spacing = .{ .absolute = 9, .relative = 1, .line = 2 } },
         Token{ .starts_upper = SmallString.noAlloc("Fin_ancial") },
         Token{ .spacing = .{ .absolute = 21, .relative = 2, .line = 2 } },
-        Token{ .operator = .plus },
+        Token{ .operator = .op_plus },
         Token{ .spacing = .{ .absolute = 24, .relative = 2, .line = 2 } },
         Token{ .starts_upper = SmallString.noAlloc("_problems") },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 3 } },
@@ -962,17 +962,17 @@ test "tokenizer tokenizing" {
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 4 } },
         Token{ .number = SmallString.noAlloc("3") },
         Token{ .spacing = .{ .absolute = 2, .relative = 1, .line = 4 } },
-        Token{ .operator = .comma },
+        Token{ .operator = .op_comma },
         Token{ .spacing = .{ .absolute = 3, .relative = 0, .line = 4 } },
-        Token{ .operator = .plus },
+        Token{ .operator = .op_plus },
         Token{ .spacing = .{ .absolute = 4, .relative = 0, .line = 4 } },
         Token{ .number = SmallString.noAlloc("7") },
         Token{ .spacing = .{ .absolute = 5, .relative = 0, .line = 4 } },
-        Token{ .operator = .comma },
+        Token{ .operator = .op_comma },
         Token{ .spacing = .{ .absolute = 8, .relative = 2, .line = 4 } },
-        Token{ .operator = .declare_writable },
+        Token{ .operator = .op_declare_writable },
         Token{ .spacing = .{ .absolute = 11, .relative = 1, .line = 4 } },
-        Token{ .operator = .minus },
+        Token{ .operator = .op_minus },
         Token{ .spacing = .{ .absolute = 12, .relative = 0, .line = 4 } },
         Token{ .number = SmallString.noAlloc("80") },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 5 } },
@@ -1080,15 +1080,15 @@ test "tokenizer exclamation operators" {
     try tokenizer.complete();
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-        Token{ .operator = .not },
+        Token{ .operator = .op_not },
         Token{ .spacing = .{ .absolute = 2, .relative = 1, .line = 0 } },
-        Token{ .operator = .not_not },
+        Token{ .operator = .op_not_not },
         Token{ .spacing = .{ .absolute = 5, .relative = 1, .line = 0 } },
-        Token{ .operator = .not_not },
+        Token{ .operator = .op_not_not },
         Token{ .spacing = .{ .absolute = 7, .relative = 0, .line = 0 } },
-        Token{ .operator = .lambda1 },
+        Token{ .operator = .op_lambda1 },
         Token{ .spacing = .{ .absolute = 9, .relative = 1, .line = 0 } },
-        Token{ .operator = .not_equal },
+        Token{ .operator = .op_not_equal },
         .file_end,
     });
 }
@@ -1103,22 +1103,22 @@ test "tokenizer question operators" {
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
         // we want `?;` to parse as `?` then `;`, etc.
-        Token{ .operator = .nullify },
+        Token{ .operator = .op_nullify },
         Token{ .spacing = .{ .absolute = 1, .relative = 0, .line = 0 } },
-        Token{ .operator = .declare_readonly },
+        Token{ .operator = .op_declare_readonly },
         Token{ .spacing = .{ .absolute = 3, .relative = 1, .line = 0 } },
         // we do allow `??` to parse together, and same with `??=`
-        Token{ .operator = .nullish_or },
+        Token{ .operator = .op_nullish_or },
         Token{ .spacing = .{ .absolute = 6, .relative = 1, .line = 0 } },
-        Token{ .operator = .nullify },
+        Token{ .operator = .op_nullify },
         Token{ .spacing = .{ .absolute = 7, .relative = 0, .line = 0 } },
-        Token{ .operator = .declare_writable },
+        Token{ .operator = .op_declare_writable },
         Token{ .spacing = .{ .absolute = 9, .relative = 1, .line = 0 } },
-        Token{ .operator = .nullish_or_assign },
+        Token{ .operator = .op_nullish_or_assign },
         Token{ .spacing = .{ .absolute = 13, .relative = 1, .line = 0 } },
-        Token{ .operator = .nullify },
+        Token{ .operator = .op_nullify },
         Token{ .spacing = .{ .absolute = 14, .relative = 0, .line = 0 } },
-        Token{ .operator = .declare_temporary },
+        Token{ .operator = .op_declare_temporary },
         .file_end,
     });
 }
@@ -1133,25 +1133,25 @@ test "tokenizer lambda operators" {
     try tokenizer.complete();
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-        Token{ .operator = .lambda2 },
+        Token{ .operator = .op_lambda2 },
         Token{ .spacing = .{ .absolute = 3, .relative = 1, .line = 0 } },
-        Token{ .operator = .not },
+        Token{ .operator = .op_not },
         Token{ .spacing = .{ .absolute = 4, .relative = 0, .line = 0 } },
-        Token{ .operator = .lambda1 },
+        Token{ .operator = .op_lambda1 },
         Token{ .spacing = .{ .absolute = 6, .relative = 1, .line = 0 } },
-        Token{ .operator = .decrement },
+        Token{ .operator = .op_decrement },
         Token{ .spacing = .{ .absolute = 8, .relative = 0, .line = 0 } },
-        Token{ .operator = .lambda3 },
+        Token{ .operator = .op_lambda3 },
         Token{ .spacing = .{ .absolute = 12, .relative = 1, .line = 0 } },
-        Token{ .operator = .lambda8 },
+        Token{ .operator = .op_lambda8 },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 1 } },
-        Token{ .operator = Operator.lambda7 },
+        Token{ .operator = .op_lambda7 },
         Token{ .spacing = .{ .absolute = 8, .relative = 1, .line = 1 } },
-        Token{ .operator = Operator.lambda6 },
+        Token{ .operator = .op_lambda6 },
         Token{ .spacing = .{ .absolute = 15, .relative = 1, .line = 1 } },
-        Token{ .operator = Operator.lambda5 },
+        Token{ .operator = .op_lambda5 },
         Token{ .spacing = .{ .absolute = 21, .relative = 1, .line = 1 } },
-        Token{ .operator = Operator.lambda4 },
+        Token{ .operator = .op_lambda4 },
         .file_end,
     });
 }
@@ -1181,11 +1181,11 @@ test "tokenizer ampersand operators" {
     try tokenizer.complete();
     try tokenizer.tokens.expectEqualsSlice(&[_]Token{
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
-        Token{ .operator = .logical_and },
+        Token{ .operator = .op_logical_and },
         Token{ .spacing = .{ .absolute = 3, .relative = 1, .line = 0 } },
-        Token{ .operator = .bitwise_and_assign },
+        Token{ .operator = .op_bitwise_and_assign },
         Token{ .spacing = .{ .absolute = 6, .relative = 1, .line = 0 } },
-        Token{ .operator = .logical_and_assign },
+        Token{ .operator = .op_logical_and_assign },
         Token{ .spacing = .{ .absolute = 10, .relative = 1, .line = 0 } },
         Token{ .open = .multiline_quote },
         Token{ .close = .multiline_quote },
@@ -1389,7 +1389,7 @@ test "tokenizer ignores empty newlines" {
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 0 } },
         Token{ .starts_upper = try SmallString.init("Hi57") },
         Token{ .spacing = .{ .absolute = 2, .relative = 2, .line = 2 } },
-        Token{ .operator = Operator.multiply },
+        Token{ .operator = .op_multiply },
         .file_end,
     });
     // No tampering done with the file, i.e., no errors.
@@ -1487,7 +1487,7 @@ test "tokenizer interpolation parsing" {
             Token{ .spacing = .{ .absolute = 3, .relative = 0, .line = 0 } },
             Token{ .starts_upper = SmallString.noAlloc("Wow") },
             Token{ .spacing = .{ .absolute = 6, .relative = 0, .line = 0 } },
-            Token{ .operator = .comma },
+            Token{ .operator = .op_comma },
             Token{ .spacing = .{ .absolute = 8, .relative = 1, .line = 0 } },
             Token{ .starts_lower = SmallString.noAlloc("hi") },
             Token{ .spacing = .{ .absolute = 10, .relative = 0, .line = 0 } },
@@ -1517,7 +1517,7 @@ test "tokenizer interpolation parsing" {
             Token{ .spacing = .{ .absolute = 12, .relative = 0, .line = 0 } },
             Token{ .close = .paren },
             Token{ .spacing = .{ .absolute = 13, .relative = 0, .line = 0 } },
-            Token{ .operator = .comma },
+            Token{ .operator = .op_comma },
             Token{ .spacing = .{ .absolute = 16, .relative = 2, .line = 0 } },
             Token{ .open = .single_quote },
             Token{ .slice = SmallString.noAlloc("Idgad") },
@@ -1555,7 +1555,7 @@ test "tokenizer interpolation parsing" {
             Token{ .slice = SmallString.noAlloc("=") },
             Token{ .interpolation_open = .brace },
             Token{ .spacing = .{ .absolute = 22, .relative = 0, .line = 0 } },
-            Token{ .operator = .multiply },
+            Token{ .operator = .op_multiply },
             Token{ .spacing = .{ .absolute = 23, .relative = 0, .line = 0 } },
             Token{ .close = .brace },
             Token{ .close = .multiline_quote },
@@ -1586,7 +1586,7 @@ test "tokenizer nested interpolations" {
         Token{ .spacing = .{ .absolute = 11, .relative = 0, .line = 0 } },
         Token{ .starts_lower = SmallString.noAlloc("nice") },
         Token{ .spacing = .{ .absolute = 15, .relative = 0, .line = 0 } },
-        Token{ .operator = .multiply },
+        Token{ .operator = .op_multiply },
         Token{ .spacing = .{ .absolute = 17, .relative = 1, .line = 0 } },
         Token{ .close = .paren },
         Token{ .slice = SmallString.noAlloc(" q") },
@@ -1598,21 +1598,21 @@ test "tokenizer nested interpolations" {
         Token{ .spacing = .{ .absolute = 29, .relative = 1, .line = 0 } },
         Token{ .starts_upper = SmallString.noAlloc("Hi") },
         Token{ .spacing = .{ .absolute = 31, .relative = 0, .line = 0 } },
-        Token{ .operator = .comma },
+        Token{ .operator = .op_comma },
         Token{ .spacing = .{ .absolute = 1, .relative = 1, .line = 1 } },
         Token{ .starts_upper = SmallString.noAlloc("Hey") },
         Token{ .spacing = .{ .absolute = 4, .relative = 0, .line = 1 } },
-        Token{ .operator = .comma },
+        Token{ .operator = .op_comma },
         Token{ .spacing = .{ .absolute = 6, .relative = 1, .line = 1 } },
         Token{ .starts_lower = SmallString.noAlloc("hello") },
         Token{ .spacing = .{ .absolute = 12, .relative = 1, .line = 1 } },
-        Token{ .operator = .comma },
+        Token{ .operator = .op_comma },
         Token{ .spacing = .{ .absolute = 14, .relative = 1, .line = 1 } },
         Token{ .open = .single_quote },
         Token{ .slice = SmallString.noAlloc("Super") },
         Token{ .interpolation_open = .paren },
         Token{ .spacing = .{ .absolute = 23, .relative = 1, .line = 1 } },
-        Token{ .operator = .minus },
+        Token{ .operator = .op_minus },
         Token{ .spacing = .{ .absolute = 24, .relative = 0, .line = 1 } },
         Token{ .starts_upper = SmallString.noAlloc("Nested") },
         Token{ .spacing = .{ .absolute = 30, .relative = 0, .line = 1 } },

@@ -34,10 +34,10 @@ test "parsing nested while statements" {
         Node{ .statement = .{ .node = 21, .next = 0 } }, // inner else indent second statement
         Node{ .atomic_token = 27 }, // Aetty
         Node{ .while_loop = .{ .condition = 3, .loop_node = 4, .else_node = 0 } }, // root if
-        Node{ .binary = .{ .operator = .plus, .left = 2, .right = 25 } }, // 5 + ...
+        Node{ .binary = .{ .operator = .op_plus, .left = 2, .right = 25 } }, // 5 + ...
         Node{ .atomic_token = 35 }, // 3
         // [25]:
-        Node{ .binary = .{ .operator = .multiply, .left = 22, .right = 24 } }, // root if * 3
+        Node{ .binary = .{ .operator = .op_multiply, .left = 22, .right = 24 } }, // root if * 3
         .end,
     };
     {
@@ -116,7 +116,7 @@ test "parsing nested while statements" {
             Node{ .statement = .{ .node = 4, .next = 0 } }, // root statement
             Node{ .atomic_token = 1 }, // 5
             Node{ .atomic_token = 5 }, // 3
-            Node{ .binary = .{ .operator = .plus, .left = 2, .right = 19 } }, // 5 + ...
+            Node{ .binary = .{ .operator = .op_plus, .left = 2, .right = 19 } }, // 5 + ...
             // [5]:
             Node{ .atomic_token = 11 }, // Skelluton
             Node{ .enclosed = .{ .open = .none, .tab = 4, .start = 7 } }, // root if indent
@@ -134,7 +134,7 @@ test "parsing nested while statements" {
             Node{ .statement = .{ .node = 17, .next = 0 } }, // inner else second statement
             Node{ .atomic_token = 23 }, // Aetty
             Node{ .while_loop = .{ .condition = 5, .loop_node = 6, .else_node = 0 } }, // root if
-            Node{ .binary = .{ .operator = .multiply, .left = 3, .right = 18 } }, // 3 * if...
+            Node{ .binary = .{ .operator = .op_multiply, .left = 3, .right = 18 } }, // 3 * if...
             // [20]:
             .end,
         });
@@ -161,7 +161,7 @@ test "parsing what statements" {
         Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 11 } }, // indent in 123 { ... }
         Node{ .statement = .{ .node = 12, .next = 0 } }, // indent statement in 123 { ... }
         Node{ .callable_token = 11 }, // finish_early
-        Node{ .binary = .{ .operator = .indent, .left = 7, .right = 8 } }, // 123 |> { ... }
+        Node{ .binary = .{ .operator = .op_indent, .left = 7, .right = 8 } }, // 123 |> { ... }
         Node{ .statement = .{ .node = 15, .next = 16 } }, // second indent statement (A)
         // [15]:
         Node{ .atomic_token = 15 }, // A
@@ -176,11 +176,11 @@ test "parsing what statements" {
         Node{ .statement = .{ .node = 24, .next = 0 } }, // second statement in B |> {...} indent
         Node{ .atomic_token = 25 }, // Draco
         // [25]:
-        Node{ .binary = .{ .operator = .indent, .left = 17, .right = 18 } }, // B |> { ... }
+        Node{ .binary = .{ .operator = .op_indent, .left = 17, .right = 18 } }, // B |> { ... }
         Node{ .statement = .{ .node = 37, .next = 0 } }, // third indent statement (Int5)
         Node{ .atomic_token = 29 }, // Int5
         Node{ .callable_token = 33 }, // int
-        Node{ .binary = .{ .operator = .declare_readonly, .left = 27, .right = 28 } }, // Int5: int
+        Node{ .binary = .{ .operator = .op_declare_readonly, .left = 27, .right = 28 } }, // Int5: int
         // [30]:
         Node{ .enclosed = .{ .open = .brace, .tab = 4, .start = 31 } }, // Int5 |> {...} brace
         Node{ .statement = .{ .node = 32, .next = 0 } }, // statement in Int5 brace
@@ -189,8 +189,8 @@ test "parsing what statements" {
         Node{ .atomic_token = 37 }, // Int5
         // [35]:
         Node{ .atomic_token = 41 }, // 3477
-        Node{ .binary = .{ .operator = .multiply, .left = 34, .right = 35 } }, // Int5 * 3477
-        Node{ .binary = .{ .operator = .indent, .left = 29, .right = 30 } }, // Int5 |> { ... }
+        Node{ .binary = .{ .operator = .op_multiply, .left = 34, .right = 35 } }, // Int5 * 3477
+        Node{ .binary = .{ .operator = .op_indent, .left = 29, .right = 30 } }, // Int5 |> { ... }
         Node{ .what = .{ .evaluate = 2, .block = 3 } }, // what
         .end,
     };
@@ -285,7 +285,7 @@ test "parsing what statements" {
             Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 7 } }, // indent after 123
             Node{ .statement = .{ .node = 8, .next = 0 } }, // first statement in 123 indent
             Node{ .callable_token = 7 }, // finish_early
-            Node{ .binary = .{ .operator = .indent, .left = 5, .right = 6 } }, // 123 |> ...
+            Node{ .binary = .{ .operator = .op_indent, .left = 5, .right = 6 } }, // 123 |> ...
             // [10]:
             Node{ .statement = .{ .node = 11, .next = 12 } }, // second statement in what indent (A)
             Node{ .atomic_token = 9 }, // A
@@ -297,19 +297,19 @@ test "parsing what statements" {
             Node{ .atomic_token = 15 }, // Celsius
             Node{ .statement = .{ .node = 18, .next = 0 } }, // second statement in B indent
             Node{ .atomic_token = 17 }, // Draco
-            Node{ .binary = .{ .operator = .indent, .left = 13, .right = 14 } }, // B |> ...
+            Node{ .binary = .{ .operator = .op_indent, .left = 13, .right = 14 } }, // B |> ...
             // [20]:
             Node{ .statement = .{ .node = 29, .next = 0 } }, // fourth statement in what indent (Int5...)
             Node{ .atomic_token = 19 }, // Int5
             Node{ .callable_token = 23 }, // int
-            Node{ .binary = .{ .operator = .declare_readonly, .left = 21, .right = 22 } }, // Int5: int
+            Node{ .binary = .{ .operator = .op_declare_readonly, .left = 21, .right = 22 } }, // Int5: int
             Node{ .enclosed = .{ .open = .none, .tab = 8, .start = 25 } }, // Int5 |> ...
             // [25]:
             Node{ .statement = .{ .node = 28, .next = 0 } }, // first statement in Int5 indent
             Node{ .atomic_token = 25 }, // Int5
             Node{ .atomic_token = 29 }, // 3477
-            Node{ .binary = .{ .operator = .multiply, .left = 26, .right = 27 } }, // Int5 * 3477
-            Node{ .binary = .{ .operator = .indent, .left = 23, .right = 24 } }, // Int5 |> ...
+            Node{ .binary = .{ .operator = .op_multiply, .left = 26, .right = 27 } }, // Int5 * 3477
+            Node{ .binary = .{ .operator = .op_indent, .left = 23, .right = 24 } }, // Int5 |> ...
             // [30]:
             Node{ .what = .{ .evaluate = 2, .block = 3 } }, // what
             .end,

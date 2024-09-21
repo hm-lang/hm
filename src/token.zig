@@ -84,7 +84,10 @@ pub const Token = union(TokenTag) {
             if (Keyword.init64(big64)) |keyword| {
                 return Token{ .keyword = keyword };
             }
-            // TODO: check for Operator.init64
+            const operator = Operator.init64(big64);
+            if (operator != .op_none) {
+                return Token{ .operator = operator };
+            }
         } else |_| {
             // Fall through and just start lower.
         }
@@ -308,7 +311,7 @@ pub const Token = union(TokenTag) {
         try std.testing.expect(!a.equals(b));
     }
 
-    pub const comma = Self{ .operator = Operator.comma };
+    pub const comma = Self{ .operator = Operator.op_comma };
 
     pub const Open = TokenOpen;
     pub const Close = TokenOpen;
@@ -661,7 +664,7 @@ test "valid operator tokens" {
 
     for (operators.items()) |string_operator| {
         const operator = Operator.init(string_operator.slice());
-        if (operator == .none) {
+        if (operator == .op_none) {
             std.debug.print("expected {s} to be a valid operator\n", .{string_operator.slice()});
             return common.Error.unknown;
         }
@@ -681,7 +684,7 @@ test "invalid operator tokens" {
 
     for (operators.items()) |string_operator| {
         const operator = Operator.init(string_operator.slice());
-        if (operator == .none) continue;
+        if (operator == .op_none) continue;
 
         std.debug.print("expected {s} to be an invalid operator, got {d}\n", .{ string_operator.slice(), operator.string().slice() });
     }
@@ -746,7 +749,7 @@ test "token equality" {
     try spacing.expectNotEquals(Token{ .spacing = .{ .absolute = 123, .relative = 4, .line = 53 } });
     try std.testing.expect(!spacing.equals(Token{ .spacing = .{ .absolute = 123, .relative = 4, .line = 53 } }));
 
-    const operator = Token{ .operator = .bitwise_xor };
+    const operator = Token{ .operator = .op_bitwise_xor };
     try operator.expectNotEquals(end);
     try std.testing.expect(!operator.equals(end));
     try operator.expectNotEquals(starts_upper);
@@ -757,6 +760,6 @@ test "token equality" {
     try std.testing.expect(!operator.equals(spacing));
     try operator.expectEquals(operator);
     try std.testing.expect(operator.equals(operator));
-    try operator.expectNotEquals(Token{ .operator = .bitwise_flip });
-    try std.testing.expect(!operator.equals(Token{ .operator = .bitwise_and }));
+    try operator.expectNotEquals(Token{ .operator = .op_bitwise_flip });
+    try std.testing.expect(!operator.equals(Token{ .operator = .op_bitwise_and }));
 }
