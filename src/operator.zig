@@ -490,6 +490,8 @@ pub const Operator = enum {
             else => false,
         };
     }
+    // TODO: we need a "parentheses affinity" for formatting.
+    // e.g., does it look like `+ (whatever)` or `+(whatever)`?
 
     pub const positive: Self = .plus;
     pub const negate: Self = .minus;

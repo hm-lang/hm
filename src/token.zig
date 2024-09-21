@@ -79,13 +79,16 @@ pub const Token = union(TokenTag) {
     //      mostly eventually we need `xor`. maybe just use `&|` or |&` or `>|`
     /// This function takes ownership of the passed-in string.
     /// Make a copy if you need it before passing in a string.
-    pub fn keywordOrStartsLower(string: SmallString) Self {
-        return if (Keyword.init(string)) |keyword|
-            // Theoretically we should `string.deinit()` here but if it was
-            // small enough to be a keyword it shouldn't have any allocated memory.
-            Token{ .keyword = keyword }
-        else
-            Token{ .starts_lower = string };
+    pub fn checkStartsLower(string: SmallString) Self {
+        if (string.big64()) |big64| {
+            if (Keyword.init64(big64)) |keyword| {
+                return Token{ .keyword = keyword };
+            }
+            // TODO: check for Operator.init64
+        } else |_| {
+            // Fall through and just start lower.
+        }
+        return Token{ .starts_lower = string };
     }
 
     pub fn getKeyword(self: Self) ?TokenKeyword {
@@ -418,8 +421,8 @@ const TokenKeyword = enum {
     pub const what64 = SmallString.as64("what");
     pub const while64 = SmallString.as64("while");
 
-    pub fn init(string: SmallString) ?Self {
-        return switch (string.big64() catch return null) {
+    pub fn init64(big64: u64) ?Self {
+        return switch (big64) {
             if64 => .kw_if,
             elif64 => .kw_elif,
             else64 => .kw_else,
