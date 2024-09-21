@@ -341,6 +341,9 @@ pub const Parser = struct {
                 const node_index = switch (keyword) {
                     .kw_if => try self.appendConditionAndBlocks(Node.Conditional, tab, expected_if_condition_and_block),
                     .kw_while => try self.appendConditionAndBlocks(Node.WhileLoop, tab, expected_while_condition_and_block),
+                    // TODO: verify that each statement inside the `what` block is correct (e.g.,
+                    // an identifier or number followed by another statement -- e.g., A, B -- or an indent -- A {...})
+                    // We should probably create a new node for this, like `what_case`.
                     .kw_what => try self.appendConditionAndFirstBlock(Node.What, tab, expected_what_condition_and_block),
                     .kw_else, .kw_elif => {
                         self.addTokenizerError("need `if` before `else` or `elif`");

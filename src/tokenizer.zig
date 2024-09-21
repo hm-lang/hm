@@ -1047,7 +1047,7 @@ test "tokenizer keywords" {
         Token{ .spacing = .{ .absolute = 5, .relative = 1, .line = 2 } },
         Token{ .starts_lower = try SmallString.init("els3") },
         Token{ .spacing = .{ .absolute = 0, .relative = 0, .line = 3 } },
-        Token{ .keyword = .kw_return },
+        Token{ .operator = .op_return },
         Token{ .spacing = .{ .absolute = 7, .relative = 1, .line = 3 } },
         // [15]:
         Token{ .starts_lower = try SmallString.init("retrun") },
