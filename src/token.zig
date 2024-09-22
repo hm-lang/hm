@@ -217,7 +217,7 @@ pub const Token = union(TokenTag) {
                 try writer.print("\") }}", .{});
             },
             .operator => |operator| {
-                try writer.print("Token{{ .operator = ", .{});
+                try writer.print("Token{{ .operator = .", .{});
                 try operator.print(writer);
                 try writer.print(" }}", .{});
             },

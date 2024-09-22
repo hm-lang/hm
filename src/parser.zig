@@ -179,6 +179,8 @@ pub const Parser = struct {
                 self.addTokenizerError(error_message);
             }
         }
+        common.debugPrint("seeking next expression ", until);
+        self.debugTokens();
         // The current left node which can interact with the next operation,
         // is the last element of `hierarchy`, with nesting all the way up
         // to the "root node" (`hierarchy.inBounds(0)`) which should be returned.
@@ -261,8 +263,9 @@ pub const Parser = struct {
     /// NOTE: do NOT add the returned index into `hierarchy`, we'll do that for you.
     /// Supports starting with spacing *or not* (e.g., for the start of a statement).
     fn appendNextStandaloneExpression(self: *Self, hierarchy: *OwnedNodeIndices, tab: u16, until: Until, or_else: OrElse) ParserError!NodeResult {
-        common.debugPrint("getting next standalone expression ", until);
+        common.debugPrint("--seeking next standalone expression ", until);
         self.debugTokens();
+        self.debugHierarchy(hierarchy);
         const next_tabbed = self.getSameStatementNextTabbed(tab) orelse {
             const had_expression_token = false;
             self.assertSyntax(had_expression_token, or_else.map(expected_spacing)) catch {};
@@ -312,6 +315,8 @@ pub const Parser = struct {
                     }
                     return ParserError.syntax;
                 }
+                common.debugPrint("\ngot prefix operator ", operator);
+                self.debugTokens();
                 self.farthest_token_index += 1;
                 // We need to parse a different way because we can't break the hierarchy invariant here.
                 // Start with the prefix to maintain a rough left-to-right direction inside `self.nodes`.
@@ -321,9 +326,7 @@ pub const Parser = struct {
                         .node = 0, // break the invariant here
                     },
                 });
-                // We're assuming that prefix operators should not break at an operator using an `Until` here.
                 // We need every operation *stronger* than this prefix to be attached to this prefix.
-                // TODO: add `tab` to the StatementNode so we can see if it's been indented
                 const inner_result = try self.appendNextExpression(tab, Until.operatorWeakerThan(operator), or_else);
                 switch (self.nodes.items()[prefix_index]) {
                     // restore the invariant:
@@ -335,6 +338,9 @@ pub const Parser = struct {
                 // We don't need to append `inner_index` because we know it will not reappear.
                 // It was stronger than `prefix_index` and so should never be split out.
                 hierarchy.append(prefix_index) catch return ParserError.out_of_memory;
+                common.debugPrint("\nafter getting prefix operator ", operator);
+                self.debugTokens();
+                self.debugHierarchy(hierarchy);
                 break :blk prefix_index;
             },
             .keyword => |keyword| blk: {
@@ -368,6 +374,8 @@ pub const Parser = struct {
     // Prefix operations are taken care of inside of `appendNextStandaloneExpression`.
     fn seekNextOperation(self: *Self, tab: u16, until: Until) ParserError!OperationResult {
         const restore_index = self.farthest_token_index;
+        common.debugPrint("--seeking next operation ", until);
+        self.debugTokens();
 
         var operation_tabbed = self.getSameStatementNextTabbed(tab) orelse {
             common.debugPrint("wanted next operation but got deindent\n", .{});
@@ -401,7 +409,6 @@ pub const Parser = struct {
                     std.debug.assert(operator.isPrefixable());
                     // Back up so that the next standalone expression starts at the
                     // spacing before this prefix:
-                    // TODO: this will probably break tab functionality
                     self.farthest_token_index -= 1;
                     // Pretend that we have an operator before this prefix.
                     break :blk .{ .operator = .op_access, .type = .infix };
@@ -454,6 +461,9 @@ pub const Parser = struct {
     }
 
     fn appendPostfixOperation(self: *Self, hierarchy: *OwnedNodeIndices, operation: Operation) ParserError!void {
+        common.debugPrint("--appending postfix ", operation);
+        self.debugTokens();
+        self.debugHierarchy(hierarchy);
         const operation_precedence = operation.precedence(Operation.Compare.on_right);
         var hierarchy_index = hierarchy.count();
         var left_index: NodeIndex = 0;
@@ -496,6 +506,10 @@ pub const Parser = struct {
     }
 
     fn appendInfixOperation(self: *Self, hierarchy: *OwnedNodeIndices, operation: Operation, right_index: NodeIndex) ParserError!void {
+        common.debugPrint("--appending infix ", operation);
+        self.debugTokens();
+        self.debugHierarchy(hierarchy);
+
         const operation_precedence = operation.precedence(Operation.Compare.on_right);
         var hierarchy_index = hierarchy.count();
         var left_index: NodeIndex = 0;
@@ -503,14 +517,38 @@ pub const Parser = struct {
             hierarchy_index -= 1;
             left_index = hierarchy.inBounds(hierarchy_index);
             const left_operation = self.nodeInBounds(left_index).operation();
+            common.debugPrint(">>>checking hierarchy {d}, ", .{hierarchy_index});
+            common.debugPrint("when appending infix ", operation);
+            common.debugPrint(">>>checking left operation ", left_operation);
+            const left_precedence = left_operation.precedence(Operation.Compare.on_left);
             // higher precedence means higher priority.
-            if (left_operation.isPostfix() or left_operation.precedence(Operation.Compare.on_left) >= operation_precedence) {
+            if (left_operation.isPrefix() and left_precedence < operation_precedence) {
+                // This can happen in situations like `5 + return 3 * 4`;
+                // `return` is a very low priority operator.
+                common.debugPrint(">>>left operator was prefix somehow ", operation);
+                const next_index = try self.justAppendNode(.{ .binary = .{
+                    .operator = operation.operator,
+                    .left = hierarchy.inBounds(0),
+                    .right = left_index,
+                } });
+                common.debugPrint("before putting new operation at {d}, hierarchy is ", .{next_index});
+                self.debugHierarchy(hierarchy);
+                hierarchy.clear();
+                hierarchy.append(next_index) catch unreachable;
+                common.debugPrint("after putting new operation at {d}, hierarchy is ", .{next_index});
+                self.debugHierarchy(hierarchy);
+                return;
+            } else if (left_operation.isPostfix() or left_precedence >= operation_precedence) {
+                common.debugPrint(">>>left precedence {d} was more important than new right precedence {d}, ", .{ left_precedence, operation_precedence });
+                common.debugPrint("when appending infix ", operation);
                 // `left` has higher priority; we should continue up the hierarchy
                 // until we find the spot that this new operation should take.
                 _ = hierarchy.pop();
             } else {
                 // `operation` has higher priority, so we need to invert the nodes a bit.
                 // break an invariant here:
+                common.debugPrint(">>>left precedence {d} was less than new right precedence {d}, ", .{ left_precedence, operation_precedence });
+                common.debugPrint("when appending infix ", operation);
                 const inner_index = self.nodeInBounds(left_index).swapRight(0) catch {
                     self.addTokenizerError("cannot right-operate on this");
                     return ParserError.syntax;
@@ -526,6 +564,8 @@ pub const Parser = struct {
                 // Fix up the hierarchy at the end:
                 hierarchy.append(next_index) catch return ParserError.out_of_memory;
                 hierarchy.append(inner_index) catch return ParserError.out_of_memory;
+                common.debugPrint("after putting new operation at {d}, hierarchy is ", .{next_index});
+                self.debugHierarchy(hierarchy);
                 return;
             }
         }
@@ -819,6 +859,16 @@ pub const Parser = struct {
 
     pub fn debugTokens(self: *Self) void {
         self.debugTokensIn(common.back(self.farthest_token_index, 3) orelse 0, self.farthest_token_index + 3);
+    }
+
+    pub fn debugHierarchy(self: *Self, hierarchy: *const OwnedNodeIndices) void {
+        common.debugPrint("Hierarchy: [\n", .{});
+        for (0..hierarchy.count()) |i| {
+            const h = hierarchy.inBounds(i);
+            common.debugPrint(" [{d}]: {d}", .{ i, h });
+            common.debugPrint(" -> ", self.nodes.inBounds(h));
+        }
+        common.debugPrint("]\n", .{});
     }
 
     pub fn debugTokensIn(self: *Self, start_token_index: TokenIndex, end_token_index: TokenIndex) void {
