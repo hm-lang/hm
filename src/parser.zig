@@ -857,6 +857,12 @@ pub const Parser = struct {
         self.tokenizer.printDebugInfoAt(self.farthest_token_index);
     }
 
+    pub fn debug(self: *Self) void {
+        common.debugPrint("# file:\n", self.tokenizer.file);
+        common.debugPrint("# nodes:\n", self.nodes);
+        self.debugTokens();
+    }
+
     pub fn debugTokens(self: *Self) void {
         self.debugTokensIn(common.back(self.farthest_token_index, 3) orelse 0, self.farthest_token_index + 3);
     }

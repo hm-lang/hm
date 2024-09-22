@@ -13,10 +13,7 @@ const std = @import("std");
 test "parser return is an operator" {
     var parser: Parser = .{};
     defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-        common.debugPrint("# nodes:\n", parser.nodes);
-    }
+    errdefer parser.debug();
     const file_slice = [_][]const u8{
         "5 + return 3 * 4 - 7",
     };
@@ -44,12 +41,39 @@ test "parser return is an operator" {
     try parser.tokenizer.file.expectEqualsSlice(&file_slice);
 }
 
+test "parser return statements" {
+    var parser: Parser = .{};
+    defer parser.deinit();
+    errdefer parser.debug();
+    const file_slice = [_][]const u8{
+        "return ++Jamm3r Whoa + 3",
+    };
+    try parser.tokenizer.file.appendSlice(&file_slice);
+
+    try parser.complete();
+
+    try parser.nodes.expectEqualsSlice(&[_]Node{
+        // [0]:
+        Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
+        Node{ .statement = .{ .node = 2, .next = 0 } },
+        Node{ .prefix = .{ .operator = .op_return, .node = 8 } }, // return ...
+        Node{ .prefix = .{ .operator = .op_increment, .node = 6 } }, // ++...
+        Node{ .atomic_token = 5 }, // Jamm3r
+        // [5]:
+        Node{ .atomic_token = 7 }, // Whoa
+        Node{ .binary = .{ .operator = .op_access, .left = 4, .right = 5 } }, // Jamm3r Whoa
+        Node{ .atomic_token = 11 }, // 3
+        Node{ .binary = .{ .operator = .op_plus, .left = 3, .right = 7 } }, // ... + 3
+        .end,
+    });
+    // No tampering done with the file, i.e., no errors.
+    try parser.tokenizer.file.expectEqualsSlice(&file_slice);
+}
+
 test "parser complicated (and prefix) implicit member access" {
     var parser: Parser = .{};
     defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-    }
+    errdefer parser.debug();
     const file_slice = [_][]const u8{
         "--Why Shy Spy",
         "!Chai Lie Fry",
@@ -97,9 +121,7 @@ test "parser complicated (and prefix) implicit member access" {
 test "complicated prefix/postfix operators with addition/multiplication" {
     var parser: Parser = .{};
     defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-    }
+    errdefer parser.debug();
     try parser.tokenizer.file.lines.append(try SmallString.init("Apple * !Berry Cantaloupe-- + 500"));
     try parser.tokenizer.file.lines.append(try SmallString.init("--Xeno Yak! - 3000 * Zelda"));
 
@@ -139,9 +161,7 @@ test "complicated prefix/postfix operators with addition/multiplication" {
 test "simple prefix/postfix operators with multiplication" {
     var parser: Parser = .{};
     defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-    }
+    errdefer parser.debug();
     const file_slice = [_][]const u8{
         "++Theta * Beta",
         "Zeta * ++Woga",
@@ -187,9 +207,7 @@ test "simple prefix/postfix operators with multiplication" {
 test "nested prefix/postfix operators" {
     var parser: Parser = .{};
     defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-    }
+    errdefer parser.debug();
     const file_slice = [_][]const u8{
         "Abc Xyz-- !",
         "! ++Def Uvw",
@@ -223,9 +241,7 @@ test "nested prefix/postfix operators" {
 test "deeply nested prefix/postfix operators" {
     var parser: Parser = .{};
     defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-    }
+    errdefer parser.debug();
     try parser.tokenizer.file.lines.append(try SmallString.init("$$Yammer * Zen++!"));
     try parser.tokenizer.file.lines.append(try SmallString.init("!--$Oh Great * Hessian"));
 
@@ -260,9 +276,7 @@ test "deeply nested prefix/postfix operators" {
 test "parser simple (and postfix) implicit member access" {
     var parser: Parser = .{};
     defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-    }
+    errdefer parser.debug();
     const file_slice = [_][]const u8{
         "Pi Sky",
         "Sci Fi++",
@@ -302,9 +316,7 @@ test "parser simple (and postfix) implicit member access" {
 test "order of operations with addition and multiplication" {
     var parser: Parser = .{};
     defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-    }
+    errdefer parser.debug();
     const file_slice = [_][]const u8{
         "Alpha * Gamma + Epsilon",
         "Panko + K_panko * 1000",
@@ -339,9 +351,7 @@ test "order of operations with addition and multiplication" {
 test "parser multiplication" {
     var parser: Parser = .{};
     defer parser.deinit();
-    errdefer {
-        common.debugPrint("# file:\n", parser.tokenizer.file);
-    }
+    errdefer parser.debug();
     try parser.tokenizer.file.lines.append(try SmallString.init("Wompus * 3.14"));
 
     try parser.complete();
