@@ -11,6 +11,7 @@ pub const testing = @import("testing.zig");
 pub const Until = @import("until.zig").Until;
 
 pub const parser_tests = @import("parser_tests.zig");
+pub const parser_declare_tests = @import("parser_declare_tests.zig");
 pub const parser_if_tests = @import("parser_if_tests.zig");
 pub const parser_operations_tests = @import("parser_operations_tests.zig");
 pub const parser_what_tests = @import("parser_what_tests.zig");

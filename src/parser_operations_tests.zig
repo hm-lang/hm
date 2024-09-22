@@ -357,4 +357,3 @@ test "parser multiplication" {
         .end,
     });
 }
-
