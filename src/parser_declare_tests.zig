@@ -14,10 +14,7 @@ test "declarations with missing right expressions" {
     {
         var parser: Parser = .{};
         defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-            common.debugPrint("# tokens:\n", parser.tokenizer.tokens);
-        }
+        errdefer parser.debug();
         try parser.tokenizer.file.lines.append(try SmallString.init("Esper;"));
         try parser.tokenizer.file.lines.append(try SmallString.init("Jesper."));
         try parser.tokenizer.file.lines.append(try SmallString.init("Esperk:"));

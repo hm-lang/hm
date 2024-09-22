@@ -134,6 +134,22 @@ pub fn printSlice(slice: anytype, writer: anytype) !void {
     try writer.print("]", .{});
 }
 
+pub fn printIndexed(writer: anytype, i: usize, tab: u16) !void {
+    if (i % 5 == 0) {
+        for (0..tab) |_| {
+            try writer.print(" ", .{});
+        }
+        try writer.print("// [{d}]:\n", .{i});
+        for (0..tab + 4) |_| {
+            try writer.print(" ", .{});
+        }
+    } else {
+        for (0..tab + 4) |_| {
+            try writer.print(" ", .{});
+        }
+    }
+}
+
 // Doesn't include a final `\n` here.
 pub fn printSliceTabbed(slice: anytype, writer: anytype, tab: u16) !void {
     for (0..tab) |_| {
@@ -142,19 +158,7 @@ pub fn printSliceTabbed(slice: anytype, writer: anytype, tab: u16) !void {
     try writer.print("{{\n", .{});
     for (0..slice.len) |i| {
         const item = slice[i];
-        if (i % 5 == 0) {
-            for (0..tab) |_| {
-                try writer.print(" ", .{});
-            }
-            try writer.print("// [{d}]:\n", .{i});
-            for (0..tab + 4) |_| {
-                try writer.print(" ", .{});
-            }
-        } else {
-            for (0..tab + 4) |_| {
-                try writer.print(" ", .{});
-            }
-        }
+        try printIndexed(writer, i, tab);
         if (std.meta.hasMethod(@TypeOf(item), "printTabbed")) {
             try item.printTabbed(writer, tab + 4);
             try writer.print(",\n", .{});

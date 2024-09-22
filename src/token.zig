@@ -248,6 +248,56 @@ pub const Token = union(TokenTag) {
         }
     }
 
+    pub fn debugPrint(self: Self) void {
+        switch (self) {
+            .invalid => |invalid| {
+                common.debugPrint("invalid({d})", .{@intFromEnum(invalid.type)});
+            },
+            .file_end => {
+                common.debugPrint("EOF", .{});
+            },
+            .spacing => |value| {
+                common.debugPrint("spacing {d} on line {d}", .{
+                    value.relative,
+                    value.line,
+                });
+            },
+            .starts_upper => |string| {
+                common.debugPrint("{s}", .{string.slice()});
+            },
+            .starts_lower => |string| {
+                common.debugPrint("{s}", .{string.slice()});
+            },
+            .slice => |string| {
+                common.debugPrint("slice({s})", .{string.slice()});
+            },
+            .number => |string| {
+                common.debugPrint("{s}", .{string.slice()});
+            },
+            .operator => |operator| {
+                common.debugPrint("{s}", .{operator.string().slice()});
+            },
+            .open => |open| {
+                common.debugPrint("{s}", .{open.openSlice()});
+            },
+            .interpolation_open => |open| {
+                common.debugPrint("${s}", .{open.openSlice()});
+            },
+            .close => |close| {
+                common.debugPrint("{s}", .{close.closeSlice()});
+            },
+            .annotation => |string| {
+                common.debugPrint("@{s}", .{string.slice()});
+            },
+            .keyword => |keyword| {
+                common.debugPrint("@{s}", .{keyword.slice()});
+            },
+            .comment => |string| {
+                common.debugPrint("#{s}", .{string.slice()});
+            },
+        }
+    }
+
     pub fn equals(a: Self, b: Self) bool {
         const tag_a = std.meta.activeTag(a);
         const tag_b = std.meta.activeTag(b);
@@ -378,6 +428,30 @@ const TokenOpen = enum {
             .single_quote => '\'',
             .double_quote => '"',
             .multiline_quote => '\n',
+        };
+    }
+
+    pub fn openSlice(self: Self) []const u8 {
+        return switch (self) {
+            .none => "\\t",
+            .paren => "(",
+            .bracket => "[",
+            .brace => "{",
+            .single_quote => "'",
+            .double_quote => "\"",
+            .multiline_quote => "&|",
+        };
+    }
+
+    pub fn closeSlice(self: Self) []const u8 {
+        return switch (self) {
+            .none => "\\b",
+            .paren => ")",
+            .bracket => "]",
+            .brace => "}",
+            .single_quote => "'",
+            .double_quote => "\"",
+            .multiline_quote => "\\n",
         };
     }
 

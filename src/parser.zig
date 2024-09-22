@@ -859,8 +859,87 @@ pub const Parser = struct {
 
     pub fn debug(self: *Self) void {
         common.debugPrint("# file:\n", self.tokenizer.file);
-        common.debugPrint("# nodes:\n", self.nodes);
+        common.debugPrint("# nodes: {{\n", .{});
+        for (0..self.nodes.count()) |i| {
+            common.printIndexed(common.debugStderr, i, 0) catch return;
+            self.nodes.inBounds(i).print(common.debugStderr) catch return;
+            common.debugPrint(", // ", .{});
+            self.debugNodeShort(i);
+            common.debugPrint("\n", .{});
+        }
+        common.debugPrint("}}\n", .{});
         self.debugTokens();
+    }
+
+    pub fn debugNodeShort(self: *Self, node_index: NodeIndex) void {
+        std.debug.assert(node_index < self.nodes.count());
+        switch (self.nodes.inBounds(node_index)) {
+            .enclosed => |enclosed| {
+                common.debugPrint("{s}...{s} at tab {d}", .{
+                    enclosed.open.openSlice(),
+                    enclosed.open.closeSlice(),
+                    enclosed.tab,
+                });
+            },
+            .statement => |statement| {
+                common.debugPrint("statement ", .{});
+                self.debugNodeShort(statement.node);
+            },
+            .what => |what| {
+                common.debugPrint("what ", .{});
+                self.debugNodeShort(what.evaluate);
+                common.debugPrint(" ", .{});
+                self.debugNodeShort(what.block);
+            },
+            .conditional => |conditional| {
+                common.debugPrint("if ", .{});
+                self.debugNodeShort(conditional.if_node);
+                if (conditional.else_node != 0) {
+                    common.debugPrint(" ", .{});
+                    self.debugNodeShort(conditional.else_node);
+                }
+            },
+            .while_loop => |loop| {
+                common.debugPrint("while ", .{});
+                self.debugNodeShort(loop.condition);
+                common.debugPrint(" ", .{});
+                self.debugNodeShort(loop.loop_node);
+                if (loop.else_node != 0) {
+                    common.debugPrint(" ", .{});
+                    self.debugNodeShort(loop.else_node);
+                }
+            },
+            .atomic_token => |token_index| {
+                const token = self.tokenizer.tokens.at(token_index) orelse {
+                    common.debugPrint("OOB-atomic?", .{});
+                    return;
+                };
+                token.debugPrint();
+            },
+            .callable_token => |token_index| {
+                const token = self.tokenizer.tokens.at(token_index) orelse {
+                    common.debugPrint("OOB-callable?", .{});
+                    return;
+                };
+                token.debugPrint();
+            },
+            .prefix => |prefix| {
+                common.debugPrint("{s} ", .{prefix.operator.string().slice()});
+                self.debugNodeShort(prefix.node);
+            },
+            .postfix => |postfix| {
+                self.debugNodeShort(postfix.node);
+                common.debugPrint(" {s}", .{postfix.operator.string().slice()});
+            },
+            .binary => |binary| {
+                self.debugNodeShort(binary.left);
+                common.debugPrint(" {s} ", .{binary.operator.string().slice()});
+                self.debugNodeShort(binary.right);
+            },
+            .end => {
+                common.debugPrint("end", .{});
+            },
+        }
     }
 
     pub fn debugTokens(self: *Self) void {
