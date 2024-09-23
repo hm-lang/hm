@@ -44,9 +44,7 @@ test "parsing nested while statements" {
         // Explicit brace, one-true-brace style
         var parser: Parser = .{};
         defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
+        errdefer parser.debug();
         const file_slice = [_][]const u8{
             "5 + while Skelluton {",
             "    while Brandenborg {",
@@ -69,9 +67,7 @@ test "parsing nested while statements" {
         // Explicit brace, Horstmann style
         var parser: Parser = .{};
         defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
+        errdefer parser.debug();
         const file_slice = [_][]const u8{
             "5 + while Skelluton",
             "{   while Brandenborg",
@@ -95,9 +91,7 @@ test "parsing nested while statements" {
         // Implicit brace
         var parser: Parser = .{};
         defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
+        errdefer parser.debug();
         const file_slice = [_][]const u8{
             "5 + 3 * while Skelluton",
             "    while Brandenborg",
@@ -198,9 +192,7 @@ test "parsing what statements" {
         // Explicit brace, one-true-brace style
         var parser: Parser = .{};
         defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
+        errdefer parser.debug();
         const file_slice = [_][]const u8{
             "what This_value {",
             "    123 {",
@@ -227,9 +219,7 @@ test "parsing what statements" {
         // Explicit brace, Horstmann style
         var parser: Parser = .{};
         defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
+        errdefer parser.debug();
         const file_slice = [_][]const u8{
             "what This_value",
             "{   123",
@@ -256,9 +246,7 @@ test "parsing what statements" {
         // Implicit brace
         var parser: Parser = .{};
         defer parser.deinit();
-        errdefer {
-            common.debugPrint("# file:\n", parser.tokenizer.file);
-        }
+        errdefer parser.debug();
         const file_slice = [_][]const u8{
             "what This_value",
             "    123",

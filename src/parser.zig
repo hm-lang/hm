@@ -864,14 +864,14 @@ pub const Parser = struct {
             common.printIndexed(common.debugStderr, i, 0) catch return;
             self.nodes.inBounds(i).print(common.debugStderr) catch return;
             common.debugPrint(", // ", .{});
-            self.debugNodeShort(i);
+            self.debugNode(i);
             common.debugPrint("\n", .{});
         }
         common.debugPrint("}}\n", .{});
         self.debugTokens();
     }
 
-    pub fn debugNodeShort(self: *Self, node_index: NodeIndex) void {
+    pub fn debugNode(self: *Self, node_index: NodeIndex) void {
         std.debug.assert(node_index < self.nodes.count());
         switch (self.nodes.inBounds(node_index)) {
             .enclosed => |enclosed| {
@@ -883,7 +883,7 @@ pub const Parser = struct {
             },
             .statement => |statement| {
                 common.debugPrint("statement ", .{});
-                self.debugNodeShort(statement.node);
+                self.debugNode(statement.node);
             },
             .what => |what| {
                 common.debugPrint("what ", .{});
@@ -935,6 +935,51 @@ pub const Parser = struct {
                 self.debugNodeShort(binary.left);
                 common.debugPrint(" {s} ", .{binary.operator.string().slice()});
                 self.debugNodeShort(binary.right);
+            },
+            .end => {
+                common.debugPrint("end", .{});
+            },
+        }
+    }
+
+    pub fn debugNodeShort(self: *Self, node_index: NodeIndex) void {
+        std.debug.assert(node_index < self.nodes.count());
+        switch (self.nodes.inBounds(node_index)) {
+            .enclosed => |enclosed| {
+                common.debugPrint("{s}...{s}", .{
+                    enclosed.open.openSlice(),
+                    enclosed.open.closeSlice(),
+                });
+            },
+            .statement => |statement| {
+                common.debugPrint("statement ", .{});
+                self.debugNodeShort(statement.node);
+            },
+            .what => {
+                common.debugPrint("what ...", .{});
+            },
+            .conditional => {
+                common.debugPrint("if ...", .{});
+            },
+            .while_loop => {
+                common.debugPrint("while ...", .{});
+            },
+            .atomic_token => |token_index| {
+                const token = self.tokenizer.tokens.at(token_index) orelse {
+                    common.debugPrint("OOB-atomic?", .{});
+                    return;
+                };
+                token.debugPrint();
+            },
+            .callable_token => |token_index| {
+                const token = self.tokenizer.tokens.at(token_index) orelse {
+                    common.debugPrint("OOB-callable?", .{});
+                    return;
+                };
+                token.debugPrint();
+            },
+            else => {
+                common.debugPrint("...", .{});
             },
             .end => {
                 common.debugPrint("end", .{});
