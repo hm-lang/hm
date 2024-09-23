@@ -6,6 +6,7 @@ const Declare = RunContext.Declare;
 const Error = RunContext.Error;
 const Handle = RunContext.Handle;
 const Value = RunContext.Value;
+const Condition = RunContext.Condition;
 
 pub const DoNothing = struct {
     pub fn evaluatePrefix(self: *Self, operator: Operator, right: Value) Error!Value {
@@ -30,10 +31,10 @@ pub const DoNothing = struct {
         return .{ .intermediate = 0 };
     }
 
-    pub fn evaluateCondition(self: *Self, value: Value) bool {
+    pub fn evaluateCondition(self: *Self, value: Value) Condition {
         _ = self;
         _ = value;
-        return false;
+        return .unevaluated;
     }
 
     pub fn declareVariable(self: *Self, name: Value, declare: Declare, variable_type: Value) Error!Handle {
