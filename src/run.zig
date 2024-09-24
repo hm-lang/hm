@@ -1,4 +1,5 @@
 const SmallString = @import("string.zig").Small;
+const Number = @import("number.zig").Number;
 
 const RunError = error{
     unknown,
@@ -8,7 +9,6 @@ pub const Run = struct {
     pub const Error = RunError;
     pub const Value = RunValue;
     pub const Declare = RunDeclare;
-    pub const Handle = u64;
     /// Use `truthy` or `falsey` when you are in an interpreter and
     /// only need to see the true/false branch of the conditional.
     /// Use `unevaluated` if you want to see what both blocks will
@@ -48,12 +48,11 @@ const RunValueTag = enum {
     intermediate,
 };
 
-const RunValue = union(RunContextValueTag) {
+const RunValue = union(RunValueTag) {
     identifier: SmallString,
-    number: SmallString,
+    number: Number,
     intermediate: u64,
 
-    pub const Tag = RunContextValueTag;
+    pub const Tag = RunValueTag;
     const Self = @This();
 };
-

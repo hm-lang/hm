@@ -1,12 +1,12 @@
 const Node = @import("node.zig").Node;
 const Operator = @import("operator.zig").Operator;
+const Run = @import("run.zig").Run;
 const RunContext = @import("run_context.zig").RunContext;
 
-const Declare = RunContext.Declare;
-const Error = RunContext.Error;
-const Handle = RunContext.Handle;
-const Value = RunContext.Value;
-const Condition = RunContext.Condition;
+const Declare = Run.Declare;
+const Error = Run.Error;
+const Value = Run.Value;
+const Condition = Run.Condition;
 
 pub const DoNothing = struct {
     pub fn evaluatePrefix(self: *Self, operator: Operator, right: Value) Error!Value {
@@ -37,7 +37,7 @@ pub const DoNothing = struct {
         return .unevaluated;
     }
 
-    pub fn declareVariable(self: *Self, name: Value, declare: Declare, variable_type: Value) Error!Handle {
+    pub fn declareVariable(self: *Self, name: Value, declare: Declare, variable_type: Value) Error!Value {
         _ = self;
         _ = name;
         _ = declare;
@@ -45,7 +45,7 @@ pub const DoNothing = struct {
         return 0;
     }
 
-    pub fn descopeVariable(self: *Self, handle: Handle) Error!void {
+    pub fn descopeVariable(self: *Self, handle: Value) Error!void {
         _ = self;
         _ = handle;
     }
