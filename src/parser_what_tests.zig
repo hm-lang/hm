@@ -1,4 +1,5 @@
 const common = @import("common.zig");
+const DoNothing = @import("do_nothing.zig").DoNothing;
 const Node = @import("node.zig").Node;
 const Parser = @import("parser.zig").Parser;
 
@@ -57,7 +58,7 @@ test "parsing nested while statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -81,7 +82,7 @@ test "parsing nested while statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -102,7 +103,7 @@ test "parsing nested while statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -209,7 +210,7 @@ test "parsing what statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -236,7 +237,7 @@ test "parsing what statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -259,7 +260,7 @@ test "parsing what statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:

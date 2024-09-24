@@ -52,7 +52,7 @@ test "parsing while/elif statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -77,7 +77,7 @@ test "parsing while/elif statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -100,7 +100,7 @@ test "parsing while/elif statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -159,7 +159,7 @@ test "parsing simple while statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -179,7 +179,7 @@ test "parsing simple while statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -198,7 +198,7 @@ test "parsing simple while statements" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:

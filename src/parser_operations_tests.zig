@@ -1,4 +1,5 @@
 const common = @import("common.zig");
+const DoNothing = @import("do_nothing.zig").DoNothing;
 const Node = @import("node.zig").Node;
 const Parser = @import("parser.zig").Parser;
 const SmallString = @import("string.zig").Small;
@@ -19,7 +20,7 @@ test "parser return is an operator" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -50,7 +51,7 @@ test "parser return statements" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -81,7 +82,7 @@ test "parser complicated (and prefix) implicit member access" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -125,7 +126,7 @@ test "complicated prefix/postfix operators with addition/multiplication" {
     try parser.tokenizer.file.lines.append(try SmallString.init("Apple * !Berry Cantaloupe-- + 500"));
     try parser.tokenizer.file.lines.append(try SmallString.init("--Xeno Yak! - 3000 * Zelda"));
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -170,7 +171,7 @@ test "simple prefix/postfix operators with multiplication" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -214,7 +215,7 @@ test "nested prefix/postfix operators" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -245,7 +246,7 @@ test "deeply nested prefix/postfix operators" {
     try parser.tokenizer.file.lines.append(try SmallString.init("$$Yammer * Zen++!"));
     try parser.tokenizer.file.lines.append(try SmallString.init("!--$Oh Great * Hessian"));
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -284,7 +285,7 @@ test "parser simple (and postfix) implicit member access" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -322,7 +323,7 @@ test "order of operations with addition and multiplication" {
         "Panko + K_panko * 1000",
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -354,7 +355,7 @@ test "parser multiplication" {
     errdefer parser.debug();
     try parser.tokenizer.file.lines.append(try SmallString.init("Wompus * 3.14"));
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:

@@ -1,4 +1,5 @@
 const common = @import("common.zig");
+const DoNothing = @import("do_nothing.zig").DoNothing;
 const Node = @import("node.zig").Node;
 const Parser = @import("parser.zig").Parser;
 const SmallString = @import("string.zig").Small;
@@ -19,7 +20,7 @@ test "declarations with missing right expressions" {
         try parser.tokenizer.file.lines.append(try SmallString.init("Jesper."));
         try parser.tokenizer.file.lines.append(try SmallString.init("Esperk:"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
@@ -53,7 +54,7 @@ test "declarations with missing right expressions" {
         try parser.tokenizer.file.lines.append(try SmallString.init("[Turmeric;]"));
         try parser.tokenizer.file.lines.append(try SmallString.init("{Quinine.}"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -93,7 +94,7 @@ test "declarations with missing right expressions" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("funE1(F2.,G3;,H4:):"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -137,7 +138,7 @@ test "declaring a variable with arguments and/or generics" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -195,7 +196,7 @@ test "parser declare and nested assigns" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("D1: D2; D3"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -218,7 +219,7 @@ test "parser declare and nested assigns" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("X3 = Y4 = 750"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -241,7 +242,7 @@ test "parser declare and nested assigns" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("VarQ; i32 = Qu16 = VarU: i16 = 750"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -274,7 +275,7 @@ test "parser declare and assign" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Declassign: type_assign1 = 12345"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -301,7 +302,7 @@ test "parser declare and assign" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Oh_writable; type_assign2 = 7890"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -331,7 +332,7 @@ test "parser declare" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Whatever: type1"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -352,7 +353,7 @@ test "parser declare" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("Writable_whatever; type2"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:

@@ -1,4 +1,5 @@
 const common = @import("common.zig");
+const DoNothing = @import("do_nothing.zig").DoNothing;
 const Node = @import("node.zig").Node;
 const Parser = @import("parser.zig").Parser;
 const SmallString = @import("string.zig").Small;
@@ -74,7 +75,7 @@ test "parser indent nesting" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -102,7 +103,7 @@ test "parser indent nesting" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -138,7 +139,7 @@ test "parser simple bracket indent" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -157,7 +158,7 @@ test "parser simple bracket indent" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -195,7 +196,7 @@ test "parser simple paren indent" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -214,7 +215,7 @@ test "parser simple paren indent" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -255,7 +256,7 @@ test "parser simple explicit brace block" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -275,7 +276,7 @@ test "parser simple explicit brace block" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -304,7 +305,7 @@ test "parser simple explicit brace block" {
 //    };
 //    try parser.tokenizer.file.appendSlice(&file_slice);
 //
-//    try parser.complete();
+//    try parser.complete(DoNothing{});
 //
 //    try parser.nodes.expectEqualsSlice(&[_]Node{
 //        .end,
@@ -331,7 +332,7 @@ test "parser simple expressions" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -381,7 +382,7 @@ test "parser implied blocks" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -410,7 +411,7 @@ test "parser implied blocks" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -441,7 +442,7 @@ test "parser implied blocks" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -475,7 +476,7 @@ test "parser line continuations via indent-to-operator then indent-to-atom" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -504,7 +505,7 @@ test "generic types" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -552,7 +553,7 @@ test "simple function calls" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -591,7 +592,7 @@ test "generic function calls" {
     };
     try parser.tokenizer.file.appendSlice(&file_slice);
 
-    try parser.complete();
+    try parser.complete(DoNothing{});
 
     try parser.nodes.expectEqualsSlice(&[_]Node{
         // [0]:
@@ -647,7 +648,7 @@ test "simple parentheses, brackets, and braces" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("+(Wow, Great)"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
@@ -670,7 +671,7 @@ test "simple parentheses, brackets, and braces" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("[wow, jam, time]!"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             Node{ .enclosed = .{ .open = .none, .tab = 0, .start = 1 } },
@@ -700,7 +701,7 @@ test "simple parentheses, brackets, and braces" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("{Boo: 33, hoo: 123 + 44}-57"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -743,7 +744,7 @@ test "indent errors" {
             "   Only3spaces",
         });
 
-        try std.testing.expectError(Parser.Error.syntax, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax, parser.complete(DoNothing{}));
 
         // No tampering done with the file, i.e., no errors.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
@@ -763,7 +764,7 @@ test "indent errors" {
             "     Only5spaces",
         });
 
-        try std.testing.expectError(Parser.Error.syntax, parser.complete());
+        try std.testing.expectError(Parser.Error.syntax, parser.complete(DoNothing{}));
 
         // No tampering done with the file, i.e., no errors.
         try parser.tokenizer.file.expectEqualsSlice(&[_][]const u8{
@@ -818,7 +819,7 @@ test "mixed commas and newlines with block" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -841,7 +842,7 @@ test "mixed commas and newlines with block" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&expected_nodes);
         // No tampering done with the file, i.e., no errors.
@@ -864,7 +865,7 @@ test "mixed commas and newlines with block" {
         };
         try parser.tokenizer.file.appendSlice(&file_slice);
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         // TODO: do we want to make this exactly like the explicit braces above?
         try parser.nodes.expectEqualsSlice(&[_]Node{
@@ -905,7 +906,7 @@ test "trailing commas are ok" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("(C0, C1, C2,)"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -930,7 +931,7 @@ test "trailing commas are ok" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("[Bk0, Bk1,]-761"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
@@ -955,7 +956,7 @@ test "trailing commas are ok" {
         }
         try parser.tokenizer.file.lines.append(try SmallString.init("{Bc0,}+Abcdef"));
 
-        try parser.complete();
+        try parser.complete(DoNothing{});
 
         try parser.nodes.expectEqualsSlice(&[_]Node{
             // [0]:
