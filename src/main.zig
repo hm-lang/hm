@@ -5,6 +5,7 @@ pub const Node = @import("node.zig").Node;
 pub const Number = @import("number.zig").Number;
 pub const operator_zig = @import("operator.zig");
 pub const Parser = @import("parser.zig").Parser;
+pub const read = @import("read.zig");
 pub const Run = @import("run.zig").Run;
 pub const RunContext = @import("run_context.zig").RunContext;
 pub const SmallString = @import("string.zig").Small;
@@ -44,23 +45,11 @@ pub fn main() !void {
         return logNeedSubcommand(MainError.invalid_subcommand, executable_name);
     };
     switch (subcommand64) {
-        SmallString.as64("read") => {},
+        SmallString.as64("read") => try read.subcommand(&vargs),
         else => {
             logInvalidSubcommand(subcommand);
             return logNeedSubcommand(MainError.invalid_subcommand, executable_name);
         },
-    }
-
-    while (vargs.shift()) |arg| {
-        var file = File{ .path = arg };
-        defer file.deinit();
-        std.debug.print("\nreading {s}...\n", .{file.path.slice()});
-
-        try file.read();
-
-        for (file.lines.items()) |line| {
-            std.debug.print("got line: {s}\n", .{line.slice()});
-        }
     }
 }
 
