@@ -70,6 +70,16 @@ pub var stderr = if (in_test)
 else
     std.io.getStdErr().writer();
 
+pub inline fn logError(format: anytype, values: anytype) void {
+    const Values = @TypeOf(values);
+    if (std.meta.hasMethod(Values, "printLine")) {
+        stderr.print(format, .{}) catch return;
+        values.printLine(debugStderr) catch return;
+    } else {
+        stderr.print(format, values) catch return;
+    }
+}
+
 /// Use `stderr` for real code errors, `debugStderr` for when debugging.
 // TODO: this should be `debug_stderr` based on Zig rules
 pub const debugStderr = std.io.getStdErr().writer();

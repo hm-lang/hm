@@ -14,8 +14,6 @@ const StringError = error{
 // };
 
 pub const Small = extern struct {
-    const Self = @This();
-
     pub const Error = StringError;
     pub const max_count: usize = std.math.maxInt(u16);
 
@@ -27,7 +25,7 @@ pub const Small = extern struct {
         return .{ .start = @intCast(start), .end = @intCast(end) };
     }
 
-    // TODO: rename to `get_no_alloc_size()`
+    // TODO: rename to `getNoAllocSize()`
     fn get_medium_size() comptime_int {
         const small: Small = .{};
         const smallest_size = @sizeOf(@TypeOf(small.short));
@@ -52,6 +50,12 @@ pub const Small = extern struct {
         const new_string = try Small.init(new_chars);
         self.deinit();
         self.* = new_string;
+    }
+
+    pub fn moot(self: *Small) Self {
+        const new_string = *self;
+        self.* = Self{};
+        return new_string;
     }
 
     pub inline fn init(chars: []const u8) StringError!Small {
@@ -250,6 +254,9 @@ pub const Small = extern struct {
     pub fn expectEqualsString(self: Small, string: []const u8) !void {
         try std.testing.expectEqualStrings(string, self.slice());
     }
+
+    // TODO: use this everywhere
+    const Self = @This();
 };
 
 fn internalAs64(chars: []const u8) u64 {

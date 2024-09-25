@@ -99,6 +99,13 @@ pub fn OwnedList(comptime T: type) type {
                 null;
         }
 
+        pub inline fn shift(self: *Self) ?T {
+            return if (self.count() > 0)
+                self.array.orderedRemove(0)
+            else
+                null;
+        }
+
         pub inline fn pop(self: *Self) ?T {
             const last_index = common.before(self.count()) orelse return null;
             return self.array.orderedRemove(last_index);

@@ -12,6 +12,7 @@ pub const testing = @import("testing.zig");
 pub const Token = @import("token.zig").Token;
 pub const Tokenizer = @import("tokenizer.zig").Tokenizer;
 pub const Until = @import("until.zig").Until;
+pub const Vargs = @import("vargs.zig").Vargs;
 
 pub const parser_tests = @import("parser_tests.zig");
 pub const parser_declare_tests = @import("parser_declare_tests.zig");
@@ -23,19 +24,35 @@ pub const parser_while_tests = @import("parser_while_tests.zig");
 const std = @import("std");
 
 pub fn main() !void {
-    const args = try std.process.argsAlloc(common.allocator);
-    defer std.process.argsFree(common.allocator, args);
-
     var buffer: [1024]u8 = undefined;
     {
         const tmp = try std.fs.cwd().realpath(".", &buffer);
-        std.debug.print("\nfrom dir {s}...\n", .{tmp});
+        std.debug.print("\nreading from dir {s}...\n", .{tmp});
     }
 
-    for (1..args.len) |i| {
-        // This likely does one more allocation than I'd like to create `file.path`,
-        // but I'd rather not redo the internals of `argsAlloc`.
-        var file = File{ .path = try SmallString.init(args[i]) };
+    var vargs = try Vargs.init();
+    const executable_name = vargs.shift() orelse {
+        common.logError("expected to populate Vargs with executable name", .{});
+        return common.Error.unknown;
+    };
+
+    const subcommand = vargs.shift() orelse {
+        return logNeedSubcommand(MainError.no_subcommand, executable_name);
+    };
+    const subcommand64 = subcommand.big64() catch {
+        logInvalidSubcommand(subcommand);
+        return logNeedSubcommand(MainError.invalid_subcommand, executable_name);
+    };
+    switch (subcommand64) {
+        SmallString.as64("read") => {},
+        else => {
+            logInvalidSubcommand(subcommand);
+            return logNeedSubcommand(MainError.invalid_subcommand, executable_name);
+        },
+    }
+
+    while (vargs.shift()) |arg| {
+        var file = File{ .path = arg };
         defer file.deinit();
         std.debug.print("\nreading {s}...\n", .{file.path.slice()});
 
@@ -46,6 +63,26 @@ pub fn main() !void {
         }
     }
 }
+
+const MainError = error{
+    no_subcommand,
+    invalid_subcommand,
+};
+
+fn logNeedSubcommand(e: MainError, executable_name: SmallString) MainError {
+    common.logError(need_subcommand_error, .{executable_name.slice()});
+    return e;
+}
+
+fn logInvalidSubcommand(subcommand: SmallString) void {
+    common.logError("invalid subcommand: {s}\n", .{subcommand.slice()});
+}
+
+const need_subcommand_error =
+    \\You should specify a subcommand like `read`.
+    \\Usage: {s} [read] additional_arguments
+    \\    read: additional_arguments are files you want to read.
+;
 
 test ".. range" {
     var last_index: usize = 0;
