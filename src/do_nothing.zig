@@ -9,14 +9,16 @@ const Value = Run.Value;
 const Condition = Run.Condition;
 
 pub const DoNothing = struct {
-    pub fn evaluatePrefix(self: *Self, operator: Operator, right: Value) Error!Value {
+    pub fn evaluatePrefix(self: *Self, context: RunContext, operator: Operator, right: Value) Error!Value {
+        _ = context;
         _ = self;
         _ = operator;
         _ = right;
         return .{ .intermediate = 0 };
     }
 
-    pub fn evaluateInfix(self: *Self, left: Value, operator: Operator, right: Value) Error!Value {
+    pub fn evaluateInfix(self: *Self, context: RunContext, left: Value, operator: Operator, right: Value) Error!Value {
+        _ = context;
         _ = self;
         _ = left;
         _ = operator;
@@ -24,28 +26,33 @@ pub const DoNothing = struct {
         return .{ .intermediate = 0 };
     }
 
-    pub fn evaluatePostfix(self: *Self, left: Value, operator: Operator) Error!Value {
+    pub fn evaluatePostfix(self: *Self, context: RunContext, left: Value, operator: Operator) Error!Value {
+        _ = context;
         _ = self;
         _ = left;
         _ = operator;
         return .{ .intermediate = 0 };
     }
 
-    pub fn evaluateCondition(self: *Self, value: Value) Condition {
+    pub fn evaluateCondition(self: *Self, context: RunContext, value: Value) Condition {
+        _ = context;
         _ = self;
         _ = value;
         return .unevaluated;
     }
 
-    pub fn declareVariable(self: *Self, name: Value, declare: Declare, variable_type: Value) Error!Value {
+    /// Returns a handle that should be used to `descopeVariable`.
+    pub fn declareVariable(self: *Self, context: RunContext, name: Value, declare: Declare, variable_type: Value) Error!Value {
+        _ = context;
         _ = self;
         _ = name;
         _ = declare;
         _ = variable_type;
-        return 0;
+        return .{ .intermediate = 0 };
     }
 
-    pub fn descopeVariable(self: *Self, handle: Value) Error!void {
+    pub fn descopeVariable(self: *Self, context: RunContext, handle: Value) Error!void {
+        _ = context;
         _ = self;
         _ = handle;
     }

@@ -1,7 +1,7 @@
 const SmallString = @import("string.zig").Small;
 
 const RunContextTag = enum {
-    block,
+    statement,
     if_condition,
     if_block,
     elif_block,
@@ -10,7 +10,7 @@ const RunContextTag = enum {
 };
 
 pub const RunContext = union(RunContextTag) {
-    block: void,
+    statement: Id,
     if_condition: Id,
     if_block: Id,
     elif_block: Id,
@@ -18,4 +18,5 @@ pub const RunContext = union(RunContextTag) {
 
     pub const Id = u64;
     pub const Tag = RunContextTag;
+    const Self = @This();
 };

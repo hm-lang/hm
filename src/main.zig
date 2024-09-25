@@ -1,3 +1,4 @@
+pub const common = @import("common.zig");
 pub const DoNothing = @import("do_nothing.zig").DoNothing;
 pub const File = @import("file.zig").File;
 pub const Node = @import("node.zig").Node;
@@ -22,12 +23,8 @@ pub const parser_while_tests = @import("parser_while_tests.zig");
 const std = @import("std");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try std.process.argsAlloc(common.allocator);
+    defer std.process.argsFree(common.allocator, args);
 
     var buffer: [1024]u8 = undefined;
     {
